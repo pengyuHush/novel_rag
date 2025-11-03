@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ConfigProvider, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import HomePage from './pages/HomePage';
 import SearchPage from './pages/SearchPage';
 import GraphPage from './pages/GraphPage';
 import ReaderPage from './pages/ReaderPage';
@@ -22,8 +21,7 @@ function App() {
     >
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/search" element={<SearchPage />} />
+          <Route path="/" element={<SearchPage />} />
           <Route path="/graph/:novelId" element={<GraphPage />} />
           <Route path="/reader/:novelId" element={<ReaderPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

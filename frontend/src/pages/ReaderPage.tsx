@@ -77,6 +77,17 @@ const ReaderPage: React.FC = () => {
     autoSave: true
   });
 
+  // 设置页面标题
+  useEffect(() => {
+    if (novel && currentChapter) {
+      document.title = `${currentChapter.title} - ${novel.title} - 小说RAG分析系统`;
+    } else if (novel) {
+      document.title = `${novel.title} - 阅读 - 小说RAG分析系统`;
+    } else {
+      document.title = '阅读 - 小说RAG分析系统';
+    }
+  }, [novel, currentChapter]);
+
   // 加载小说和章节
   useEffect(() => {
     if (novelId) {
@@ -86,7 +97,7 @@ const ReaderPage: React.FC = () => {
 
   // 根据URL参数跳转到指定章节和段落
   useEffect(() => {
-    if (novel) {
+    if (novel && novel.chapters && novel.chapters.length > 0) {
       const chapterParam = searchParams.get('chapter');
       const paragraphParam = searchParams.get('paragraph');
 
@@ -99,17 +110,19 @@ const ReaderPage: React.FC = () => {
 
       if (paragraphParam) {
         const paragraphIndex = parseInt(paragraphParam);
-        setHighlightParagraph(paragraphIndex);
-        
-        // 3秒后取消高亮
-        setTimeout(() => setHighlightParagraph(null), 3000);
+        if (!isNaN(paragraphIndex)) {
+          setHighlightParagraph(paragraphIndex);
+          
+          // 3秒后取消高亮
+          setTimeout(() => setHighlightParagraph(null), 3000);
+        }
       }
     }
   }, [novel, searchParams]);
 
   // 加载章节内容
   useEffect(() => {
-    if (novel && novel.chapters[currentChapterIndex]) {
+    if (novel && novel.chapters && novel.chapters[currentChapterIndex]) {
       loadChapterContent();
     }
   }, [novel, currentChapterIndex]);
@@ -129,13 +142,14 @@ const ReaderPage: React.FC = () => {
     } catch (error) {
       console.error('加载小说失败:', error);
       message.error('加载小说失败');
+      navigate('/');
     } finally {
       setLoading(false);
     }
   };
 
   const loadChapterContent = () => {
-    if (!novel) return;
+    if (!novel || !novel.chapters || !novel.content) return;
 
     const chapter = novel.chapters[currentChapterIndex];
     if (!chapter) return;
@@ -159,7 +173,7 @@ const ReaderPage: React.FC = () => {
 
   // 下一章
   const handleNextChapter = () => {
-    if (novel && currentChapterIndex < novel.chapters.length - 1) {
+    if (novel && novel.chapters && currentChapterIndex < novel.chapters.length - 1) {
       setCurrentChapterIndex(currentChapterIndex + 1);
     } else {
       message.info('已经是最后一章了');
@@ -175,13 +189,18 @@ const ReaderPage: React.FC = () => {
   };
 
   // 筛选章节
-  const filteredChapters = novel?.chapters.filter(chapter =>
-    chapter.title.toLowerCase().includes(chapterSearchText.toLowerCase())
-  ) || [];
+  const filteredChapters = React.useMemo(() => {
+    if (!novel?.chapters) return [];
+    return novel.chapters.filter(chapter =>
+      chapter.title.toLowerCase().includes(chapterSearchText.toLowerCase())
+    );
+  }, [novel, chapterSearchText]);
 
-  const currentChapter = novel?.chapters[currentChapterIndex];
+  const currentChapter = novel?.chapters?.[currentChapterIndex];
   const themeStyle = THEME_STYLES[settings.theme];
-  const readingProgress = novel ? ((currentChapterIndex + 1) / novel.chapters.length) * 100 : 0;
+  const readingProgress = (novel && novel.chapters && novel.chapters.length > 0) 
+    ? ((currentChapterIndex + 1) / novel.chapters.length) * 100 
+    : 0;
 
   return (
     <Layout className="page-container" style={{ minHeight: '100vh' }}>
@@ -252,26 +271,36 @@ const ReaderPage: React.FC = () => {
                   allowClear
                 />
 
-                <Menu
-                  mode="inline"
-                  selectedKeys={[currentChapter?.id || '']}
-                  style={{ borderRight: 0 }}
-                  items={filteredChapters.map(chapter => ({
-                    key: chapter.id,
-                    label: (
-                      <div>
-                        <div>{chapter.title}</div>
-                        <Text type="secondary" style={{ fontSize: '12px' }}>
-                          约{Math.round(chapter.wordCount / 1000)}千字
-                        </Text>
-                      </div>
-                    ),
-                    onClick: () => {
-                      const index = novel?.chapters.findIndex(c => c.id === chapter.id) || 0;
-                      setCurrentChapterIndex(index);
-                    }
-                  }))}
-                />
+                {filteredChapters.length > 0 ? (
+                  <Menu
+                    mode="inline"
+                    selectedKeys={[currentChapter?.id || '']}
+                    style={{ borderRight: 0 }}
+                    items={filteredChapters.map(chapter => ({
+                      key: chapter.id,
+                      label: (
+                        <div>
+                          <div>{chapter.title}</div>
+                          <Text type="secondary" style={{ fontSize: '12px' }}>
+                            约{Math.round(chapter.wordCount / 1000)}千字
+                          </Text>
+                        </div>
+                      ),
+                      onClick: () => {
+                        if (novel?.chapters) {
+                          const index = novel.chapters.findIndex(c => c.id === chapter.id);
+                          if (index !== undefined && index >= 0) {
+                            setCurrentChapterIndex(index);
+                          }
+                        }
+                      }
+                    }))}
+                  />
+                ) : (
+                  <div style={{ padding: '20px', textAlign: 'center' }}>
+                    <Text type="secondary">暂无章节</Text>
+                  </div>
+                )}
               </Space>
             </div>
           </Sider>
@@ -294,6 +323,14 @@ const ReaderPage: React.FC = () => {
             {loading ? (
               <div style={{ textAlign: 'center', padding: '100px 0' }}>
                 <Text>加载中...</Text>
+              </div>
+            ) : !novel ? (
+              <div style={{ textAlign: 'center', padding: '100px 0' }}>
+                <Text>小说未找到</Text>
+              </div>
+            ) : !currentChapter ? (
+              <div style={{ textAlign: 'center', padding: '100px 0' }}>
+                <Text>章节未找到</Text>
               </div>
             ) : (
               <>
@@ -354,7 +391,7 @@ const ReaderPage: React.FC = () => {
                     <Button
                       size="large"
                       onClick={handleNextChapter}
-                      disabled={!novel || currentChapterIndex >= novel.chapters.length - 1}
+                      disabled={!novel || !novel.chapters || currentChapterIndex >= novel.chapters.length - 1}
                     >
                       下一章
                       <RightOutlined />

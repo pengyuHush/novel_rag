@@ -4,18 +4,21 @@ import {
   Input,
   Button,
   Card,
-  Select,
   Tabs,
   List,
   Tag,
   Space,
   Checkbox,
-  Collapse,
   Drawer,
   Typography,
   message,
   Empty,
-  Spin
+  Spin,
+  Statistic,
+  Row,
+  Col,
+  Popconfirm,
+  Divider
 } from 'antd';
 import {
   SearchOutlined,
@@ -25,25 +28,36 @@ import {
   HistoryOutlined,
   DeleteOutlined,
   ExpandAltOutlined,
-  ReadOutlined
+  ReadOutlined,
+  PlusOutlined,
+  TeamOutlined,
+  EditOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '../store/useStore';
-import { dbUtils } from '../utils/db';
+import { dbUtils, formatWordCount } from '../utils/db';
 import { generateMockSearchResult, EXAMPLE_QUERIES } from '../utils/mockData';
-import type { SearchResult, SearchHistory } from '../types';
+import ImportNovelModal from '../components/ImportNovelModal';
+import EditNovelModal from '../components/EditNovelModal';
+import type { SearchResult, SearchHistory, Novel } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import 'dayjs/locale/zh-cn';
+
+// 配置 dayjs
+dayjs.extend(relativeTime);
+dayjs.locale('zh-cn');
 
 const { Header, Content, Sider } = Layout;
-const { TextArea } = Input;
 const { Title, Paragraph, Text } = Typography;
-const { Panel } = Collapse;
 
 const SearchPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { novels, searchHistory, setSearchHistory, addSearchHistory } = useStore();
+  const { novels, setNovels, removeNovel, searchHistory, setSearchHistory, addSearchHistory, storageInfo, setStorageInfo } = useStore();
   
   const [query, setQuery] = useState('');
   const [selectedNovelIds, setSelectedNovelIds] = useState<string[]>([]);
@@ -52,20 +66,36 @@ const SearchPage: React.FC = () => {
   const [searchMode, setSearchMode] = useState<'keyword' | 'semantic'>('semantic');
   const [historyDrawerVisible, setHistoryDrawerVisible] = useState(false);
   const [expandedContexts, setExpandedContexts] = useState<Set<number>>(new Set());
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [importModalVisible, setImportModalVisible] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [selectedNovel, setSelectedNovel] = useState<Novel | null>(null);
+  const [novelsLoading, setNovelsLoading] = useState(true);
+  const [autoSearch, setAutoSearch] = useState(false);
 
-  // 从location state中获取预选的小说
+  // 设置页面标题
   useEffect(() => {
-    const state = location.state as { selectedNovelIds?: string[] };
-    if (state?.selectedNovelIds) {
-      setSelectedNovelIds(state.selectedNovelIds);
-    }
-  }, [location]);
-
-  // 加载搜索历史
-  useEffect(() => {
-    loadSearchHistory();
+    document.title = '搜索与问答 - 小说RAG分析系统';
   }, []);
 
+  // 加载小说列表
+  const loadNovels = async () => {
+    try {
+      setNovelsLoading(true);
+      const allNovels = await dbUtils.getAllNovels();
+      setNovels(allNovels);
+      
+      const info = await dbUtils.getStorageInfo();
+      setStorageInfo(info);
+    } catch (error) {
+      console.error('加载小说列表失败:', error);
+      message.error('加载小说列表失败');
+    } finally {
+      setNovelsLoading(false);
+    }
+  };
+
+  // 加载搜索历史
   const loadSearchHistory = async () => {
     try {
       const history = await dbUtils.getSearchHistory(20);
@@ -76,14 +106,14 @@ const SearchPage: React.FC = () => {
   };
 
   // 执行搜索
-  const handleSearch = async () => {
+  const handleSearch = React.useCallback(async () => {
     if (!query.trim()) {
       message.warning('请输入问题或关键词');
       return;
     }
 
     if (selectedNovelIds.length === 0) {
-      message.warning('请选择要搜索的小说');
+      message.warning('请在左侧选择要搜索的小说');
       return;
     }
 
@@ -115,6 +145,64 @@ const SearchPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  }, [query, selectedNovelIds, addSearchHistory]);
+
+  // 从location state中获取预选的小说和查询
+  useEffect(() => {
+    const state = location.state as { selectedNovelIds?: string[]; query?: string };
+    if (state?.selectedNovelIds) {
+      setSelectedNovelIds(state.selectedNovelIds);
+    }
+    if (state?.query) {
+      setQuery(state.query);
+      // 如果有预设查询且有选中的小说，标记需要自动搜索
+      if (state.selectedNovelIds && state.selectedNovelIds.length > 0) {
+        setAutoSearch(true);
+      }
+    }
+  }, [location]);
+
+  // 自动执行搜索
+  useEffect(() => {
+    if (autoSearch && query && selectedNovelIds.length > 0) {
+      const timer = setTimeout(() => {
+        handleSearch();
+        setAutoSearch(false);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [autoSearch, query, selectedNovelIds, handleSearch]);
+
+  // 加载小说列表和搜索历史
+  useEffect(() => {
+    loadNovels();
+    loadSearchHistory();
+  }, []);
+
+  // 删除小说
+  const handleDelete = async (id: string, title: string) => {
+    try {
+      await dbUtils.deleteNovel(id);
+      removeNovel(id);
+      
+      // 从选中列表中移除
+      setSelectedNovelIds(prev => prev.filter(novelId => novelId !== id));
+      
+      message.success(`已删除《${title}》`);
+      
+      // 更新存储信息
+      const info = await dbUtils.getStorageInfo();
+      setStorageInfo(info);
+    } catch (error) {
+      console.error('删除失败:', error);
+      message.error('删除失败');
+    }
+  };
+
+  // 编辑小说
+  const handleEdit = (novel: Novel) => {
+    setSelectedNovel(novel);
+    setEditModalVisible(true);
   };
 
   // 复制文本
@@ -126,9 +214,6 @@ const SearchPage: React.FC = () => {
   // 点击示例问题
   const handleExampleClick = (exampleQuery: string) => {
     setQuery(exampleQuery);
-    if (selectedNovelIds.length > 0) {
-      setQuery(exampleQuery);
-    }
   };
 
   // 查看历史记录
@@ -191,234 +276,447 @@ const SearchPage: React.FC = () => {
     return parts;
   };
 
+  // 切换小说选择
+  const toggleNovelSelection = (novelId: string) => {
+    setSelectedNovelIds(prev => {
+      if (prev.includes(novelId)) {
+        return prev.filter(id => id !== novelId);
+      } else {
+        return [...prev, novelId];
+      }
+    });
+  };
+
+  // 全选/全不选
+  const handleSelectAll = () => {
+    if (selectedNovelIds.length === novels.length) {
+      setSelectedNovelIds([]);
+    } else {
+      setSelectedNovelIds(novels.map(n => n.id));
+    }
+  };
+
   return (
     <Layout className="page-container" style={{ minHeight: '100vh' }}>
       {/* 顶部导航栏 */}
       <Header style={{ background: '#fff', padding: '0 24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '100%' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <Button
+              type="text"
+              icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            />
             <BookOutlined style={{ fontSize: '24px', color: '#1890ff' }} />
             <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold' }}>小说RAG分析系统</h1>
           </div>
           <Space size="middle">
-            <Button type="link" onClick={() => navigate('/')}>首页</Button>
-            <Button type="link" onClick={() => navigate('/search')}>搜索</Button>
             <Button type="link" icon={<HistoryOutlined />} onClick={() => setHistoryDrawerVisible(true)}>
               历史
             </Button>
+            <Button type="link">帮助</Button>
           </Space>
         </div>
       </Header>
 
-      <Content className="content-wrapper" style={{ maxWidth: '1200px' }}>
-        {/* 搜索区域 */}
-        <Card style={{ marginBottom: 24 }}>
-          <Space direction="vertical" style={{ width: '100%' }} size="large">
-            {/* 搜索框 */}
-            <Input.Search
-              size="large"
-              placeholder="输入问题或关键词，如：XX角色第一次出现在哪里？"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onSearch={handleSearch}
-              loading={loading}
-              enterButton={
-                <Button type="primary" icon={<SearchOutlined />}>
-                  搜索
-                </Button>
-              }
-            />
-
-            {/* 搜索选项 */}
-            <div>
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <div>
-                  <Text strong>搜索范围：</Text>
-                  <Checkbox.Group
-                    style={{ marginLeft: 16 }}
-                    value={selectedNovelIds}
-                    onChange={(values) => setSelectedNovelIds(values as string[])}
+      <Layout>
+        {/* 左侧小说管理侧边栏 */}
+        {!sidebarCollapsed && (
+          <Sider
+            width={300}
+            theme="light"
+            style={{
+              background: '#fff',
+              borderRight: '1px solid #f0f0f0',
+              overflow: 'auto',
+              height: 'calc(100vh - 64px)',
+              position: 'sticky',
+              top: 64
+            }}
+          >
+            <div style={{ padding: '16px' }}>
+              <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                {/* 统计信息 */}
+                <Card size="small" style={{ background: '#fafafa' }}>
+                  <Row gutter={[8, 8]}>
+                    <Col span={24}>
+                      <Statistic
+                        title="已导入小说"
+                        value={storageInfo.novelCount}
+                        suffix="部"
+                        valueStyle={{ fontSize: '20px' }}
+                      />
+                    </Col>
+                    <Col span={12}>
+                      <Statistic
+                        title="总字数"
+                        value={Math.round(storageInfo.totalWords / 10000)}
+                        suffix="万字"
+                        valueStyle={{ fontSize: '16px' }}
+                      />
+                    </Col>
+                    <Col span={12}>
+                      <Statistic
+                        title="存储"
+                        value={storageInfo.formattedSize}
+                        valueStyle={{ fontSize: '16px' }}
+                      />
+                    </Col>
+                  </Row>
+                  <Button
+                    type="primary"
+                    block
+                    icon={<PlusOutlined />}
+                    onClick={() => setImportModalVisible(true)}
+                    style={{ marginTop: 12 }}
                   >
-                    <Space wrap>
-                      {novels.map(novel => (
-                        <Checkbox key={novel.id} value={novel.id}>
-                          {novel.title}
-                        </Checkbox>
-                      ))}
-                    </Space>
-                  </Checkbox.Group>
-                  {novels.length === 0 && (
-                    <Text type="secondary" style={{ marginLeft: 16 }}>
-                      还没有导入小说，请先<Button type="link" onClick={() => navigate('/')}>导入小说</Button>
-                    </Text>
-                  )}
-                </div>
+                    导入新小说
+                  </Button>
+                </Card>
 
+                <Divider style={{ margin: '8px 0' }} />
+
+                {/* 小说列表 */}
                 <div>
-                  <Text strong>搜索模式：</Text>
-                  <Tabs
-                    size="small"
-                    activeKey={searchMode}
-                    onChange={(key) => setSearchMode(key as typeof searchMode)}
-                    style={{ marginLeft: 16, display: 'inline-block' }}
-                    items={[
-                      { key: 'semantic', label: '语义问答' },
-                      { key: 'keyword', label: '关键词搜索' }
-                    ]}
-                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <Text strong>小说列表</Text>
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={handleSelectAll}
+                    >
+                      {selectedNovelIds.length === novels.length ? '取消全选' : '全选'}
+                    </Button>
+                  </div>
+
+                  {novelsLoading ? (
+                    <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                      <Spin />
+                    </div>
+                  ) : novels.length === 0 ? (
+                    <Empty
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                      description="还没有导入小说"
+                      style={{ padding: '20px 0' }}
+                    >
+                      <Button type="link" onClick={() => setImportModalVisible(true)}>
+                        立即导入
+                      </Button>
+                    </Empty>
+                  ) : (
+                    <List
+                      size="small"
+                      dataSource={novels}
+                      renderItem={(novel) => (
+                        <List.Item
+                          style={{
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            background: selectedNovelIds.includes(novel.id) ? '#e6f7ff' : 'transparent',
+                            borderRadius: 4,
+                            marginBottom: 4
+                          }}
+                          onClick={() => toggleNovelSelection(novel.id)}
+                        >
+                          <List.Item.Meta
+                            avatar={
+                              <Checkbox
+                                checked={selectedNovelIds.includes(novel.id)}
+                                onChange={() => toggleNovelSelection(novel.id)}
+                              />
+                            }
+                            title={
+                              <div>
+                                <Text strong style={{ fontSize: '14px' }}>{novel.title}</Text>
+                              </div>
+                            }
+                            description={
+                              <Space direction="vertical" size={0} style={{ width: '100%' }}>
+                                {novel.author && (
+                                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                                    {novel.author}
+                                  </Text>
+                                )}
+                                <Space size={4} wrap>
+                                  <Tag color="blue" style={{ fontSize: '11px' }}>
+                                    {formatWordCount(novel.wordCount)}
+                                  </Tag>
+                                  <Tag color="green" style={{ fontSize: '11px' }}>
+                                    {novel.chapters.length}章
+                                  </Tag>
+                                </Space>
+                              </Space>
+                            }
+                          />
+                          <Space direction="vertical" size={2}>
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<TeamOutlined />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/graph/${novel.id}`);
+                              }}
+                              title="关系图"
+                            />
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<ReadOutlined />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/reader/${novel.id}`);
+                              }}
+                              title="阅读"
+                            />
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<EditOutlined />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEdit(novel);
+                              }}
+                              title="编辑"
+                            />
+                            <Popconfirm
+                              title="确定删除？"
+                              description={`确定要删除《${novel.title}》吗？`}
+                              onConfirm={(e) => {
+                                e?.stopPropagation();
+                                handleDelete(novel.id, novel.title);
+                              }}
+                              okText="确定"
+                              cancelText="取消"
+                              okButtonProps={{ danger: true }}
+                            >
+                              <Button
+                                type="text"
+                                size="small"
+                                danger
+                                icon={<DeleteOutlined />}
+                                onClick={(e) => e.stopPropagation()}
+                                title="删除"
+                              />
+                            </Popconfirm>
+                          </Space>
+                        </List.Item>
+                      )}
+                    />
+                  )}
                 </div>
               </Space>
             </div>
-          </Space>
-        </Card>
-
-        {/* 搜索结果或默认状态 */}
-        {loading ? (
-          <Card>
-            <div style={{ textAlign: 'center', padding: '60px 0' }}>
-              <Spin size="large" />
-              <p style={{ marginTop: 16, color: '#666' }}>
-                正在分析问题... → 正在检索相关内容... → 正在生成回答...
-              </p>
-            </div>
-          </Card>
-        ) : searchResult ? (
-          <Space direction="vertical" style={{ width: '100%' }} size="large">
-            {/* 回答区域 */}
-            <Card
-              title="AI 回答"
-              extra={
-                <Space>
-                  <Text type="secondary" style={{ fontSize: '12px' }}>
-                    基于 {searchResult.references.length} 处原文生成
-                  </Text>
-                  <Button size="small" icon={<CopyOutlined />} onClick={() => handleCopy(searchResult.answer)}>
-                    复制
-                  </Button>
-                  <Button size="small" icon={<ReloadOutlined />} onClick={handleSearch}>
-                    重新生成
-                  </Button>
-                </Space>
-              }
-              style={{ background: '#fafafa' }}
-            >
-              <Paragraph style={{ fontSize: '16px', lineHeight: 1.8, margin: 0 }}>
-                {searchResult.answer}
-              </Paragraph>
-            </Card>
-
-            {/* 参考段落列表 */}
-            <div>
-              <Title level={4}>相关原文引用</Title>
-              <List
-                dataSource={searchResult.references}
-                renderItem={(ref, index) => (
-                  <Card
-                    key={index}
-                    style={{ marginBottom: 16 }}
-                    className="hover-card"
-                  >
-                    {/* 卡片头部 */}
-                    <div style={{ marginBottom: 12 }}>
-                      <Space>
-                        <Tag color="blue">{ref.novelTitle}</Tag>
-                        <Text strong>{ref.chapterTitle}</Text>
-                        <Text type="secondary">第{ref.paragraphIndex}段</Text>
-                        <Tag color="green">相关度: {Math.round(ref.relevance * 100)}%</Tag>
-                      </Space>
-                    </div>
-
-                    {/* 原文内容 */}
-                    <Paragraph style={{ fontSize: '14px', lineHeight: 1.8 }}>
-                      {highlightText(ref.excerpt, ref.highlightRanges)}
-                    </Paragraph>
-
-                    {/* 操作按钮 */}
-                    <Space>
-                      <Button
-                        size="small"
-                        icon={<ExpandAltOutlined />}
-                        onClick={() => toggleContext(index)}
-                      >
-                        {expandedContexts.has(index) ? '收起' : '展开'}上下文
-                      </Button>
-                      <Button
-                        size="small"
-                        icon={<ReadOutlined />}
-                        onClick={() => handleJumpToReader(ref.novelId, ref.chapterId, ref.paragraphIndex)}
-                      >
-                        跳转阅读
-                      </Button>
-                      <Button
-                        size="small"
-                        icon={<CopyOutlined />}
-                        onClick={() => handleCopy(ref.excerpt)}
-                      >
-                        复制原文
-                      </Button>
-                    </Space>
-
-                    {/* 展开的上下文 */}
-                    {expandedContexts.has(index) && (
-                      <div style={{ marginTop: 16, padding: 12, background: '#f5f5f5', borderRadius: 4 }}>
-                        <Text type="secondary">
-                          [上文] 这里是展开的上下文内容，实际应用中会显示该段落前后的文字...
-                        </Text>
-                      </div>
-                    )}
-                  </Card>
-                )}
-              />
-            </div>
-          </Space>
-        ) : (
-          <Card>
-            <div className="empty-state">
-              <SearchOutlined className="empty-state-icon" />
-              <p className="empty-state-text">开始搜索，探索小说世界</p>
-              
-              {/* 示例问题 */}
-              <div style={{ marginTop: 32 }}>
-                <Text strong>试试这些问题：</Text>
-                <div style={{ marginTop: 16 }}>
-                  <Space wrap>
-                    {EXAMPLE_QUERIES.map((example, index) => (
-                      <Button
-                        key={index}
-                        onClick={() => handleExampleClick(example)}
-                      >
-                        {example}
-                      </Button>
-                    ))}
-                  </Space>
-                </div>
-              </div>
-
-              {/* 最近搜索 */}
-              {searchHistory.length > 0 && (
-                <div style={{ marginTop: 32, maxWidth: 600, margin: '32px auto 0' }}>
-                  <Text strong>最近的搜索：</Text>
-                  <List
-                    size="small"
-                    dataSource={searchHistory.slice(0, 5)}
-                    renderItem={(item) => (
-                      <List.Item
-                        style={{ cursor: 'pointer' }}
-                        onClick={() => handleViewHistory(item)}
-                      >
-                        <Text>{item.query}</Text>
-                        <Text type="secondary">{dayjs(item.timestamp).fromNow()}</Text>
-                      </List.Item>
-                    )}
-                  />
-                </div>
-              )}
-            </div>
-          </Card>
+          </Sider>
         )}
-      </Content>
 
-      {/* 搜索历史侧边栏 */}
+        {/* 主搜索区域 */}
+        <Content className="content-wrapper" style={{ maxWidth: sidebarCollapsed ? '1200px' : '900px' }}>
+          {/* 搜索区域 */}
+          <Card style={{ marginBottom: 24 }}>
+            <Space direction="vertical" style={{ width: '100%' }} size="large">
+              {/* 搜索框 */}
+              <Input.Search
+                size="large"
+                placeholder="输入问题或关键词，如：XX角色第一次出现在哪里？"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onSearch={handleSearch}
+                loading={loading}
+                enterButton={
+                  <Button type="primary" icon={<SearchOutlined />}>
+                    搜索
+                  </Button>
+                }
+              />
+
+              {/* 搜索选项 */}
+              <div>
+                <Space direction="vertical" style={{ width: '100%' }}>
+                  <div>
+                    <Text strong>已选择：</Text>
+                    <Text style={{ marginLeft: 8 }}>
+                      {selectedNovelIds.length > 0 
+                        ? `${selectedNovelIds.length}部小说`
+                        : '未选择小说'}
+                    </Text>
+                    {selectedNovelIds.length === 0 && (
+                      <Button
+                        type="link"
+                        size="small"
+                        onClick={() => setSidebarCollapsed(false)}
+                      >
+                        点击左侧选择小说
+                      </Button>
+                    )}
+                  </div>
+
+                  <div>
+                    <Text strong>搜索模式：</Text>
+                    <Tabs
+                      size="small"
+                      activeKey={searchMode}
+                      onChange={(key) => setSearchMode(key as typeof searchMode)}
+                      style={{ marginLeft: 16, display: 'inline-block' }}
+                      items={[
+                        { key: 'semantic', label: '语义问答' },
+                        { key: 'keyword', label: '关键词搜索' }
+                      ]}
+                    />
+                  </div>
+                </Space>
+              </div>
+            </Space>
+          </Card>
+
+          {/* 搜索结果或默认状态 */}
+          {loading ? (
+            <Card>
+              <div style={{ textAlign: 'center', padding: '60px 0' }}>
+                <Spin size="large" />
+                <p style={{ marginTop: 16, color: '#666' }}>
+                  正在分析问题... → 正在检索相关内容... → 正在生成回答...
+                </p>
+              </div>
+            </Card>
+          ) : searchResult ? (
+            <Space direction="vertical" style={{ width: '100%' }} size="large">
+              {/* 回答区域 */}
+              <Card
+                title="AI 回答"
+                extra={
+                  <Space>
+                    <Text type="secondary" style={{ fontSize: '12px' }}>
+                      基于 {searchResult.references.length} 处原文生成
+                    </Text>
+                    <Button size="small" icon={<CopyOutlined />} onClick={() => handleCopy(searchResult.answer)}>
+                      复制
+                    </Button>
+                    <Button size="small" icon={<ReloadOutlined />} onClick={handleSearch}>
+                      重新生成
+                    </Button>
+                  </Space>
+                }
+                style={{ background: '#fafafa' }}
+              >
+                <Paragraph style={{ fontSize: '16px', lineHeight: 1.8, margin: 0 }}>
+                  {searchResult.answer}
+                </Paragraph>
+              </Card>
+
+              {/* 参考段落列表 */}
+              <div>
+                <Title level={4}>相关原文引用</Title>
+                <List
+                  dataSource={searchResult.references}
+                  renderItem={(ref, index) => (
+                    <Card
+                      key={index}
+                      style={{ marginBottom: 16 }}
+                      className="hover-card"
+                    >
+                      {/* 卡片头部 */}
+                      <div style={{ marginBottom: 12 }}>
+                        <Space>
+                          <Tag color="blue">{ref.novelTitle}</Tag>
+                          <Text strong>{ref.chapterTitle}</Text>
+                          <Text type="secondary">第{ref.paragraphIndex}段</Text>
+                          <Tag color="green">相关度: {Math.round(ref.relevance * 100)}%</Tag>
+                        </Space>
+                      </div>
+
+                      {/* 原文内容 */}
+                      <Paragraph style={{ fontSize: '14px', lineHeight: 1.8 }}>
+                        {highlightText(ref.excerpt, ref.highlightRanges)}
+                      </Paragraph>
+
+                      {/* 操作按钮 */}
+                      <Space>
+                        <Button
+                          size="small"
+                          icon={<ExpandAltOutlined />}
+                          onClick={() => toggleContext(index)}
+                        >
+                          {expandedContexts.has(index) ? '收起' : '展开'}上下文
+                        </Button>
+                        <Button
+                          size="small"
+                          icon={<ReadOutlined />}
+                          onClick={() => handleJumpToReader(ref.novelId, ref.chapterId, ref.paragraphIndex)}
+                        >
+                          跳转阅读
+                        </Button>
+                        <Button
+                          size="small"
+                          icon={<CopyOutlined />}
+                          onClick={() => handleCopy(ref.excerpt)}
+                        >
+                          复制原文
+                        </Button>
+                      </Space>
+
+                      {/* 展开的上下文 */}
+                      {expandedContexts.has(index) && (
+                        <div style={{ marginTop: 16, padding: 12, background: '#f5f5f5', borderRadius: 4 }}>
+                          <Text type="secondary">
+                            [上文] 这里是展开的上下文内容，实际应用中会显示该段落前后的文字...
+                          </Text>
+                        </div>
+                      )}
+                    </Card>
+                  )}
+                />
+              </div>
+            </Space>
+          ) : (
+            <Card>
+              <div className="empty-state">
+                <SearchOutlined className="empty-state-icon" />
+                <p className="empty-state-text">开始搜索，探索小说世界</p>
+                
+                {/* 示例问题 */}
+                <div style={{ marginTop: 32 }}>
+                  <Text strong>试试这些问题：</Text>
+                  <div style={{ marginTop: 16 }}>
+                    <Space wrap>
+                      {EXAMPLE_QUERIES.map((example, index) => (
+                        <Button
+                          key={index}
+                          onClick={() => handleExampleClick(example)}
+                        >
+                          {example}
+                        </Button>
+                      ))}
+                    </Space>
+                  </div>
+                </div>
+
+                {/* 最近搜索 */}
+                {searchHistory.length > 0 && (
+                  <div style={{ marginTop: 32, maxWidth: 600, margin: '32px auto 0' }}>
+                    <Text strong>最近的搜索：</Text>
+                    <List
+                      size="small"
+                      dataSource={searchHistory.slice(0, 5)}
+                      renderItem={(item) => (
+                        <List.Item
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => handleViewHistory(item)}
+                        >
+                          <Text>{item.query}</Text>
+                          <Text type="secondary">{dayjs(item.timestamp).fromNow()}</Text>
+                        </List.Item>
+                      )}
+                    />
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
+        </Content>
+      </Layout>
+
+      {/* 搜索历史抽屉 */}
       <Drawer
         title="搜索历史"
         placement="right"
@@ -460,9 +758,28 @@ const SearchPage: React.FC = () => {
           />
         )}
       </Drawer>
+
+      {/* 导入小说Modal */}
+      <ImportNovelModal
+        visible={importModalVisible}
+        onClose={() => setImportModalVisible(false)}
+        onSuccess={loadNovels}
+      />
+
+      {/* 编辑小说Modal */}
+      {selectedNovel && (
+        <EditNovelModal
+          visible={editModalVisible}
+          novel={selectedNovel}
+          onClose={() => {
+            setEditModalVisible(false);
+            setSelectedNovel(null);
+          }}
+          onSuccess={loadNovels}
+        />
+      )}
     </Layout>
   );
 };
 
 export default SearchPage;
-

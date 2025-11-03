@@ -93,6 +93,15 @@ const GraphPage: React.FC = () => {
 
   const novel = novels.find(n => n.id === novelId);
 
+  // 设置页面标题
+  useEffect(() => {
+    if (novel) {
+      document.title = `${novel.title} - 人物关系图谱 - 小说RAG分析系统`;
+    } else {
+      document.title = '人物关系图谱 - 小说RAG分析系统';
+    }
+  }, [novel]);
+
   // 加载人物关系图谱
   useEffect(() => {
     if (novelId) {
@@ -239,8 +248,8 @@ const GraphPage: React.FC = () => {
       <Header style={{ background: '#fff', padding: '0 24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '100%' }}>
           <Space>
-            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/search')}>
-              返回搜索
+            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>
+              返回首页
             </Button>
             <Text strong>{novel?.title || '小说'} - 人物关系图谱</Text>
           </Space>
@@ -465,7 +474,7 @@ const GraphPage: React.FC = () => {
             <Button
               type="primary"
               block
-              onClick={() => navigate(`/search?query=${selectedNode.name}`)}
+              onClick={() => navigate('/', { state: { query: selectedNode.name, selectedNovelIds: [novelId] } })}
             >
               查看所有相关内容
             </Button>
