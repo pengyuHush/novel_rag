@@ -1,11 +1,11 @@
-import Dexie, { Table } from 'dexie';
+import Dexie from 'dexie';
 import type { Novel, SearchHistory, CharacterGraph } from '../types';
 
 // 定义数据库类
 export class NovelDatabase extends Dexie {
-  novels!: Table<Novel, string>;
-  searchHistory!: Table<SearchHistory, string>;
-  characterGraphs!: Table<CharacterGraph, string>;
+  novels!: Dexie.Table<Novel, string>;
+  searchHistory!: Dexie.Table<SearchHistory, string>;
+  characterGraphs!: Dexie.Table<CharacterGraph, string>;
 
   constructor() {
     super('NovelRAGDatabase');
