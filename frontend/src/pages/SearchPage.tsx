@@ -18,7 +18,8 @@ import {
   Row,
   Col,
   Popconfirm,
-  Divider
+  Divider,
+  FloatButton
 } from 'antd';
 import {
   SearchOutlined,
@@ -33,7 +34,12 @@ import {
   TeamOutlined,
   EditOutlined,
   MenuFoldOutlined,
-  MenuUnfoldOutlined
+  MenuUnfoldOutlined,
+  FileTextOutlined,
+  BookFilled,
+  CloudUploadOutlined,
+  QuestionCircleOutlined,
+  AppstoreOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '../store/useStore';
@@ -72,6 +78,23 @@ const SearchPage: React.FC = () => {
   const [selectedNovel, setSelectedNovel] = useState<Novel | null>(null);
   const [novelsLoading, setNovelsLoading] = useState(true);
   const [autoSearch, setAutoSearch] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [novelDrawerVisible, setNovelDrawerVisible] = useState(false);
+
+  // 检测移动端
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobile(mobile);
+      if (mobile) {
+        setSidebarCollapsed(true);
+      }
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // 设置页面标题
   useEffect(() => {
@@ -299,76 +322,132 @@ const SearchPage: React.FC = () => {
   return (
     <Layout className="page-container" style={{ minHeight: '100vh' }}>
       {/* 顶部导航栏 */}
-      <Header style={{ background: '#fff', padding: '0 24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+      <Header style={{ 
+        background: 'linear-gradient(135deg, #FFFEF9 0%, #FAF8F3 100%)', 
+        padding: isMobile ? '0 16px' : '0 32px', 
+        boxShadow: '0 2px 12px rgba(139, 105, 20, 0.08)',
+        borderBottom: '1px solid #E8E3D6'
+      }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <Button
-              type="text"
-              icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            />
-            <BookOutlined style={{ fontSize: '24px', color: '#1890ff' }} />
-            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold' }}>小说RAG分析系统</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '16px' }}>
+            {!isMobile && (
+              <Button
+                type="text"
+                size="large"
+                icon={sidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                style={{ 
+                  color: '#8B6914',
+                  fontSize: '18px'
+                }}
+              />
+            )}
+            <BookFilled style={{ fontSize: isMobile ? '24px' : '28px', color: '#8B6914' }} />
+            <h1 style={{ 
+              margin: 0, 
+              fontSize: isMobile ? '16px' : '22px', 
+              fontWeight: 600,
+              color: '#3D3D3D',
+              letterSpacing: '0.5px'
+            }}>
+              {isMobile ? '小说RAG' : '小说RAG分析系统'}
+            </h1>
           </div>
-          <Space size="middle">
-            <Button type="link" icon={<HistoryOutlined />} onClick={() => setHistoryDrawerVisible(true)}>
-              历史
+          <Space size={isMobile ? 'small' : 'large'}>
+            <Button 
+              type="text" 
+              size={isMobile ? 'middle' : 'large'}
+              icon={<HistoryOutlined style={{ fontSize: '16px' }} />} 
+              onClick={() => setHistoryDrawerVisible(true)}
+              style={{ 
+                color: '#8B7355',
+                fontWeight: 500
+              }}
+            >
+              {!isMobile && '历史记录'}
             </Button>
-            <Button type="link">帮助</Button>
+            {!isMobile && (
+              <Button 
+                type="text"
+                size="large"
+                icon={<QuestionCircleOutlined style={{ fontSize: '16px' }} />}
+                style={{ 
+                  color: '#8B7355',
+                  fontWeight: 500
+                }}
+              >
+                帮助
+              </Button>
+            )}
           </Space>
         </div>
       </Header>
 
       <Layout>
-        {/* 左侧小说管理侧边栏 */}
-        {!sidebarCollapsed && (
+        {/* 左侧小说管理侧边栏 - 仅桌面端显示 */}
+        {!isMobile && !sidebarCollapsed && (
           <Sider
             width={300}
             theme="light"
             style={{
-              background: '#fff',
-              borderRight: '1px solid #f0f0f0',
+              background: 'linear-gradient(180deg, #FFFEF9 0%, #FAF8F3 100%)',
+              borderRight: '1px solid #E8E3D6',
               overflow: 'auto',
               height: 'calc(100vh - 64px)',
               position: 'sticky',
-              top: 64
+              top: 64,
+              boxShadow: '2px 0 8px rgba(139, 105, 20, 0.05)'
             }}
           >
-            <div style={{ padding: '16px' }}>
+            <div style={{ padding: '20px 16px' }}>
               <Space direction="vertical" style={{ width: '100%' }} size="middle">
                 {/* 统计信息 */}
-                <Card size="small" style={{ background: '#fafafa' }}>
+                <Card 
+                  size="small" 
+                  style={{ 
+                    background: 'linear-gradient(135deg, #FFF9E6 0%, #FFF4D6 100%)',
+                    border: '1px solid #E8DCC0',
+                    borderRadius: 12
+                  }}
+                >
                   <Row gutter={[8, 8]}>
                     <Col span={24}>
                       <Statistic
-                        title="已导入小说"
+                        title={<span style={{ color: '#8B7355', fontWeight: 500 }}>已导入小说</span>}
                         value={storageInfo.novelCount}
                         suffix="部"
-                        valueStyle={{ fontSize: '20px' }}
+                        valueStyle={{ fontSize: '24px', color: '#8B6914', fontWeight: 600 }}
                       />
                     </Col>
                     <Col span={12}>
                       <Statistic
-                        title="总字数"
+                        title={<span style={{ color: '#8B7355', fontSize: '12px' }}>总字数</span>}
                         value={Math.round(storageInfo.totalWords / 10000)}
                         suffix="万字"
-                        valueStyle={{ fontSize: '16px' }}
+                        valueStyle={{ fontSize: '16px', color: '#8B6914' }}
                       />
                     </Col>
                     <Col span={12}>
                       <Statistic
-                        title="存储"
+                        title={<span style={{ color: '#8B7355', fontSize: '12px' }}>存储</span>}
                         value={storageInfo.formattedSize}
-                        valueStyle={{ fontSize: '16px' }}
+                        valueStyle={{ fontSize: '16px', color: '#8B6914' }}
                       />
                     </Col>
                   </Row>
                   <Button
                     type="primary"
                     block
-                    icon={<PlusOutlined />}
+                    size="large"
+                    icon={<CloudUploadOutlined style={{ fontSize: '16px' }} />}
                     onClick={() => setImportModalVisible(true)}
-                    style={{ marginTop: 12 }}
+                    style={{ 
+                      marginTop: 16,
+                      height: 44,
+                      fontWeight: 500,
+                      fontSize: '15px',
+                      boxShadow: '0 2px 8px rgba(139, 105, 20, 0.2)'
+                    }}
                   >
                     导入新小说
                   </Button>
@@ -422,7 +501,11 @@ const SearchPage: React.FC = () => {
                             avatar={
                               <Checkbox
                                 checked={selectedNovelIds.includes(novel.id)}
-                                onChange={() => toggleNovelSelection(novel.id)}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  toggleNovelSelection(novel.id);
+                                }}
+                                onClick={(e) => e.stopPropagation()}
                               />
                             }
                             title={
@@ -448,7 +531,7 @@ const SearchPage: React.FC = () => {
                               </Space>
                             }
                           />
-                          <Space direction="vertical" size={2}>
+                          <Space direction="vertical" size={4} style={{ alignItems: 'flex-end' }}>
                             <Button
                               type="text"
                               size="small"
@@ -457,8 +540,14 @@ const SearchPage: React.FC = () => {
                                 e.stopPropagation();
                                 navigate(`/graph/${novel.id}`);
                               }}
-                              title="关系图"
-                            />
+                              style={{ 
+                                width: '70px',
+                                justifyContent: 'flex-start',
+                                padding: '2px 8px'
+                              }}
+                            >
+                              关系图
+                            </Button>
                             <Button
                               type="text"
                               size="small"
@@ -467,8 +556,14 @@ const SearchPage: React.FC = () => {
                                 e.stopPropagation();
                                 navigate(`/reader/${novel.id}`);
                               }}
-                              title="阅读"
-                            />
+                              style={{ 
+                                width: '70px',
+                                justifyContent: 'flex-start',
+                                padding: '2px 8px'
+                              }}
+                            >
+                              阅读
+                            </Button>
                             <Button
                               type="text"
                               size="small"
@@ -477,8 +572,14 @@ const SearchPage: React.FC = () => {
                                 e.stopPropagation();
                                 handleEdit(novel);
                               }}
-                              title="编辑"
-                            />
+                              style={{ 
+                                width: '70px',
+                                justifyContent: 'flex-start',
+                                padding: '2px 8px'
+                              }}
+                            >
+                              编辑
+                            </Button>
                             <Popconfirm
                               title="确定删除？"
                               description={`确定要删除《${novel.title}》吗？`}
@@ -496,8 +597,14 @@ const SearchPage: React.FC = () => {
                                 danger
                                 icon={<DeleteOutlined />}
                                 onClick={(e) => e.stopPropagation()}
-                                title="删除"
-                              />
+                                style={{ 
+                                  width: '70px',
+                                  justifyContent: 'flex-start',
+                                  padding: '2px 8px'
+                                }}
+                              >
+                                删除
+                              </Button>
                             </Popconfirm>
                           </Space>
                         </List.Item>
@@ -513,7 +620,14 @@ const SearchPage: React.FC = () => {
         {/* 主搜索区域 */}
         <Content className="content-wrapper" style={{ maxWidth: sidebarCollapsed ? '1200px' : '900px' }}>
           {/* 搜索区域 */}
-          <Card style={{ marginBottom: 24 }}>
+          <Card 
+            style={{ 
+              marginBottom: 24,
+              borderRadius: 16,
+              boxShadow: '0 4px 16px rgba(139, 105, 20, 0.08)',
+              border: '1px solid #E8E3D6'
+            }}
+          >
             <Space direction="vertical" style={{ width: '100%' }} size="large">
               {/* 搜索框 */}
               <Input.Search
@@ -715,6 +829,247 @@ const SearchPage: React.FC = () => {
           )}
         </Content>
       </Layout>
+
+      {/* 移动端小说管理Drawer */}
+      {isMobile && (
+        <>
+          <Drawer
+            title={
+              <Space>
+                <BookFilled style={{ color: '#8B6914' }} />
+                <span>小说管理</span>
+              </Space>
+            }
+            placement="bottom"
+            height="75%"
+            onClose={() => setNovelDrawerVisible(false)}
+            open={novelDrawerVisible}
+          >
+            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              {/* 统计信息 */}
+              <Card 
+                size="small" 
+                style={{ 
+                  background: 'linear-gradient(135deg, #FFF9E6 0%, #FFF4D6 100%)',
+                  border: '1px solid #E8DCC0',
+                  borderRadius: 12
+                }}
+              >
+                <Row gutter={[8, 8]}>
+                  <Col span={24}>
+                    <Statistic
+                      title={<span style={{ color: '#8B7355', fontWeight: 500 }}>已导入小说</span>}
+                      value={storageInfo.novelCount}
+                      suffix="部"
+                      valueStyle={{ fontSize: '24px', color: '#8B6914', fontWeight: 600 }}
+                    />
+                  </Col>
+                  <Col span={12}>
+                    <Statistic
+                      title={<span style={{ color: '#8B7355', fontSize: '12px' }}>总字数</span>}
+                      value={Math.round(storageInfo.totalWords / 10000)}
+                      suffix="万字"
+                      valueStyle={{ fontSize: '16px', color: '#8B6914' }}
+                    />
+                  </Col>
+                  <Col span={12}>
+                    <Statistic
+                      title={<span style={{ color: '#8B7355', fontSize: '12px' }}>存储</span>}
+                      value={storageInfo.formattedSize}
+                      valueStyle={{ fontSize: '16px', color: '#8B6914' }}
+                    />
+                  </Col>
+                </Row>
+                <Button
+                  type="primary"
+                  block
+                  size="large"
+                  icon={<CloudUploadOutlined style={{ fontSize: '16px' }} />}
+                  onClick={() => {
+                    setNovelDrawerVisible(false);
+                    setImportModalVisible(true);
+                  }}
+                  style={{ 
+                    marginTop: 16,
+                    height: 44,
+                    fontWeight: 500,
+                    fontSize: '15px',
+                    boxShadow: '0 2px 8px rgba(139, 105, 20, 0.2)'
+                  }}
+                >
+                  导入新小说
+                </Button>
+              </Card>
+
+              <Divider style={{ margin: '8px 0' }} />
+
+              {/* 小说列表 */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <Text strong>小说列表</Text>
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={handleSelectAll}
+                  >
+                    {selectedNovelIds.length === novels.length ? '取消全选' : '全选'}
+                  </Button>
+                </div>
+
+                {novelsLoading ? (
+                  <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                    <Spin />
+                  </div>
+                ) : novels.length === 0 ? (
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description="还没有导入小说"
+                    style={{ padding: '20px 0' }}
+                  >
+                    <Button type="link" onClick={() => {
+                      setNovelDrawerVisible(false);
+                      setImportModalVisible(true);
+                    }}>
+                      立即导入
+                    </Button>
+                  </Empty>
+                ) : (
+                  <List
+                    size="small"
+                    dataSource={novels}
+                    renderItem={(novel) => (
+                      <List.Item
+                        style={{
+                          padding: '12px',
+                          cursor: 'pointer',
+                          background: selectedNovelIds.includes(novel.id) ? '#e6f7ff' : 'transparent',
+                          borderRadius: 8,
+                          marginBottom: 8,
+                          border: '1px solid #E8E3D6'
+                        }}
+                        onClick={() => toggleNovelSelection(novel.id)}
+                      >
+                        <List.Item.Meta
+                          avatar={
+                            <Checkbox
+                              checked={selectedNovelIds.includes(novel.id)}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                toggleNovelSelection(novel.id);
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          }
+                          title={
+                            <div>
+                              <Text strong style={{ fontSize: '15px' }}>{novel.title}</Text>
+                            </div>
+                          }
+                          description={
+                            <Space direction="vertical" size={4} style={{ width: '100%', marginTop: 4 }}>
+                              {novel.author && (
+                                <Text type="secondary" style={{ fontSize: '13px' }}>
+                                  {novel.author}
+                                </Text>
+                              )}
+                              <Space size={4} wrap>
+                                <Tag color="blue" style={{ fontSize: '12px' }}>
+                                  {formatWordCount(novel.wordCount)}
+                                </Tag>
+                                <Tag color="green" style={{ fontSize: '12px' }}>
+                                  {novel.chapters.length}章
+                                </Tag>
+                              </Space>
+                              <Space size={4} wrap style={{ marginTop: 4 }}>
+                                <Button
+                                  type="link"
+                                  size="small"
+                                  icon={<TeamOutlined />}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setNovelDrawerVisible(false);
+                                    navigate(`/graph/${novel.id}`);
+                                  }}
+                                  style={{ padding: '0 4px', height: 'auto' }}
+                                >
+                                  关系图
+                                </Button>
+                                <Button
+                                  type="link"
+                                  size="small"
+                                  icon={<ReadOutlined />}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setNovelDrawerVisible(false);
+                                    navigate(`/reader/${novel.id}`);
+                                  }}
+                                  style={{ padding: '0 4px', height: 'auto' }}
+                                >
+                                  阅读
+                                </Button>
+                                <Button
+                                  type="link"
+                                  size="small"
+                                  icon={<EditOutlined />}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setNovelDrawerVisible(false);
+                                    handleEdit(novel);
+                                  }}
+                                  style={{ padding: '0 4px', height: 'auto' }}
+                                >
+                                  编辑
+                                </Button>
+                                <Popconfirm
+                                  title="确定删除？"
+                                  description={`确定要删除《${novel.title}》吗？`}
+                                  onConfirm={(e) => {
+                                    e?.stopPropagation();
+                                    setNovelDrawerVisible(false);
+                                    handleDelete(novel.id, novel.title);
+                                  }}
+                                  okText="确定"
+                                  cancelText="取消"
+                                  okButtonProps={{ danger: true }}
+                                >
+                                  <Button
+                                    type="link"
+                                    size="small"
+                                    danger
+                                    icon={<DeleteOutlined />}
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{ padding: '0 4px', height: 'auto' }}
+                                  >
+                                    删除
+                                  </Button>
+                                </Popconfirm>
+                              </Space>
+                            </Space>
+                          }
+                        />
+                      </List.Item>
+                    )}
+                  />
+                )}
+              </div>
+            </Space>
+          </Drawer>
+
+          {/* 移动端浮动按钮 */}
+          <FloatButton
+            icon={<AppstoreOutlined />}
+            type="primary"
+            style={{ 
+              right: 24,
+              bottom: 24,
+              width: 56,
+              height: 56
+            }}
+            onClick={() => setNovelDrawerVisible(true)}
+            tooltip="小说管理"
+          />
+        </>
+      )}
 
       {/* 搜索历史抽屉 */}
       <Drawer

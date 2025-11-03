@@ -13,7 +13,8 @@ import {
   Typography,
   message,
   Spin,
-  Modal
+  Modal,
+  FloatButton
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -23,7 +24,8 @@ import {
   DownloadOutlined,
   FullscreenOutlined,
   TeamOutlined,
-  BookOutlined
+  BookOutlined,
+  FilterOutlined
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
@@ -90,8 +92,22 @@ const GraphPage: React.FC = () => {
   const [exportModalVisible, setExportModalVisible] = useState(false);
   const [highlightNodes, setHighlightNodes] = useState<Set<string>>(new Set());
   const [highlightLinks, setHighlightLinks] = useState<Set<string>>(new Set());
+  const [isMobile, setIsMobile] = useState(false);
+  const [filterDrawerVisible, setFilterDrawerVisible] = useState(false);
 
   const novel = novels.find(n => n.id === novelId);
+
+  // 检测移动端
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobile(mobile);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // 设置页面标题
   useEffect(() => {
@@ -245,27 +261,87 @@ const GraphPage: React.FC = () => {
   return (
     <Layout className="page-container" style={{ minHeight: '100vh' }}>
       {/* 顶部工具栏 */}
-      <Header style={{ background: '#fff', padding: '0 24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+      <Header style={{ 
+        background: 'linear-gradient(135deg, #FFFEF9 0%, #FAF8F3 100%)', 
+        padding: isMobile ? '0 16px' : '0 32px', 
+        boxShadow: '0 2px 12px rgba(139, 105, 20, 0.08)',
+        borderBottom: '1px solid #E8E3D6'
+      }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '100%' }}>
-          <Space>
-            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>
-              返回首页
+          <Space size={isMobile ? 'small' : 'middle'}>
+            <Button 
+              icon={<ArrowLeftOutlined style={{ fontSize: isMobile ? '14px' : '16px' }} />} 
+              onClick={() => navigate('/')}
+              size={isMobile ? 'middle' : 'large'}
+              style={{ fontWeight: 500 }}
+            >
+              {!isMobile && '返回首页'}
             </Button>
-            <Text strong>{novel?.title || '小说'} - 人物关系图谱</Text>
+            <TeamOutlined style={{ fontSize: isMobile ? '18px' : '20px', color: '#8B6914' }} />
+            <Text 
+              strong 
+              style={{ 
+                fontSize: isMobile ? '14px' : '16px', 
+                color: '#3D3D3D',
+                maxWidth: isMobile ? '100px' : 'none',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {novel?.title || '小说'}{!isMobile && ' - 人物关系图谱'}
+            </Text>
           </Space>
           
-          <Space>
-            <Button icon={<ZoomOutOutlined />} onClick={() => handleZoom(-0.2)}>缩小</Button>
-            <Button icon={<ZoomInOutlined />} onClick={() => handleZoom(0.2)}>放大</Button>
-            <Button icon={<ExpandOutlined />} onClick={handleFitToScreen}>适应屏幕</Button>
-            <Button icon={<DownloadOutlined />} onClick={() => setExportModalVisible(true)}>导出</Button>
-          </Space>
+          {!isMobile && (
+            <Space size="middle">
+              <Button 
+                icon={<ZoomOutOutlined style={{ fontSize: '16px' }} />} 
+                onClick={() => handleZoom(-0.2)}
+                size="large"
+              >
+                缩小
+              </Button>
+              <Button 
+                icon={<ZoomInOutlined style={{ fontSize: '16px' }} />} 
+                onClick={() => handleZoom(0.2)}
+                size="large"
+              >
+                放大
+              </Button>
+              <Button 
+                icon={<ExpandOutlined style={{ fontSize: '16px' }} />} 
+                onClick={handleFitToScreen}
+                size="large"
+              >
+                适应屏幕
+              </Button>
+              <Button 
+                icon={<DownloadOutlined style={{ fontSize: '16px' }} />} 
+                onClick={() => setExportModalVisible(true)}
+                type="primary"
+                size="large"
+              >
+                导出
+              </Button>
+            </Space>
+          )}
         </div>
       </Header>
 
       <Layout>
-        {/* 左侧筛选面板 */}
-        <Sider width={280} theme="light" style={{ background: '#fff', padding: '24px' }}>
+        {/* 左侧筛选面板 - 仅桌面端显示 */}
+        {!isMobile && (
+          <Sider 
+            width={280} 
+            theme="light" 
+            style={{ 
+              background: 'linear-gradient(180deg, #FFFEF9 0%, #FAF8F3 100%)', 
+              padding: '24px',
+              borderRight: '1px solid #E8E3D6',
+              boxShadow: '2px 0 8px rgba(139, 105, 20, 0.05)'
+            }}
+          >
           <Space direction="vertical" style={{ width: '100%' }} size="large">
             {/* 人物筛选 */}
             <div>
@@ -353,6 +429,7 @@ const GraphPage: React.FC = () => {
             </div>
           </Space>
         </Sider>
+        )}
 
         {/* 主图谱区域 */}
         <Content style={{ background: '#fff', position: 'relative' }}>
@@ -521,6 +598,84 @@ const GraphPage: React.FC = () => {
           <Button block onClick={() => handleExport('jpg')}>导出为JPG</Button>
         </Space>
       </Modal>
+
+      {/* 移动端筛选Drawer */}
+      {isMobile && (
+        <>
+          <Drawer
+            title="筛选与控制"
+            placement="bottom"
+            height="70%"
+            onClose={() => setFilterDrawerVisible(false)}
+            open={filterDrawerVisible}
+          >
+            <Space direction="vertical" style={{ width: '100%' }} size="large">
+              {/* 缩放控制 */}
+              <div>
+                <Title level={5}>图谱控制</Title>
+                <Space wrap>
+                  <Button icon={<ZoomOutOutlined />} onClick={() => handleZoom(-0.2)}>缩小</Button>
+                  <Button icon={<ZoomInOutlined />} onClick={() => handleZoom(0.2)}>放大</Button>
+                  <Button icon={<ExpandOutlined />} onClick={handleFitToScreen}>适应</Button>
+                  <Button icon={<DownloadOutlined />} onClick={() => {
+                    setFilterDrawerVisible(false);
+                    setExportModalVisible(true);
+                  }}>导出</Button>
+                </Space>
+              </div>
+
+              {/* 人物筛选 */}
+              <div>
+                <Title level={5}>人物筛选</Title>
+                <Radio.Group
+                  value={filterMode}
+                  onChange={(e) => setFilterMode(e.target.value)}
+                  style={{ width: '100%' }}
+                >
+                  <Space direction="vertical">
+                    <Radio value="all">全部人物</Radio>
+                    <Radio value="major">主要人物</Radio>
+                    <Radio value="minor">次要人物</Radio>
+                  </Space>
+                </Radio.Group>
+              </div>
+
+              {/* 出场频次筛选 */}
+              <div>
+                <Title level={5}>出场频次（最小值：{minFrequency}）</Title>
+                <Slider
+                  min={0}
+                  max={100}
+                  value={minFrequency}
+                  onChange={setMinFrequency}
+                />
+              </div>
+
+              {/* 搜索人物 */}
+              <div>
+                <Title level={5}>搜索人物</Title>
+                <Input
+                  placeholder="输入人物名字..."
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  allowClear
+                />
+              </div>
+            </Space>
+          </Drawer>
+
+          {/* 移动端浮动按钮 */}
+          <FloatButton.Group shape="circle" style={{ right: 24, bottom: 24 }}>
+            <FloatButton
+              icon={<FilterOutlined />}
+              onClick={() => setFilterDrawerVisible(true)}
+              tooltip="筛选与控制"
+              type="primary"
+            />
+            <FloatButton.BackTop visibilityHeight={200} />
+          </FloatButton.Group>
+        </>
+      )}
     </Layout>
   );
 };

@@ -11,7 +11,8 @@ import {
   Radio,
   Switch,
   Progress,
-  message
+  message,
+  FloatButton
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -40,10 +41,10 @@ interface ReadingSettings {
 }
 
 const THEME_STYLES = {
-  light: { background: '#fff', color: '#262626' },
-  dark: { background: '#1f1f1f', color: '#e8e8e8' },
-  green: { background: '#cce8cf', color: '#262626' },
-  parchment: { background: '#f4f1e8', color: '#5c4a3c' }
+  light: { background: '#FFFEF9', color: '#3D3D3D' },
+  dark: { background: '#2C2416', color: '#E8DCC0' },
+  green: { background: '#E8F5E0', color: '#2D4A2B' },
+  parchment: { background: '#FAF8F3', color: '#5C4A3C' }
 };
 
 const PAGE_WIDTH = {
@@ -67,6 +68,8 @@ const ReaderPage: React.FC = () => {
   const [chapterSearchText, setChapterSearchText] = useState('');
   const [highlightParagraph, setHighlightParagraph] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+  const [chapterDrawerVisible, setChapterDrawerVisible] = useState(false);
 
   const [settings, setSettings] = useState<ReadingSettings>({
     fontSize: 16,
@@ -76,6 +79,21 @@ const ReaderPage: React.FC = () => {
     pageWidth: 'medium',
     autoSave: true
   });
+
+  // 检测移动端
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobile(mobile);
+      if (mobile) {
+        setSidebarCollapsed(true);
+      }
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // 设置页面标题
   useEffect(() => {
@@ -205,49 +223,88 @@ const ReaderPage: React.FC = () => {
   return (
     <Layout className="page-container" style={{ minHeight: '100vh' }}>
       {/* 顶部工具栏 */}
-      <Header style={{ background: '#fff', padding: '0 24px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+      <Header style={{ 
+        background: 'linear-gradient(135deg, #FFFEF9 0%, #FAF8F3 100%)', 
+        padding: isMobile ? '0 16px' : '0 32px', 
+        boxShadow: '0 2px 12px rgba(139, 105, 20, 0.08)',
+        borderBottom: '1px solid #E8E3D6'
+      }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '100%' }}>
-          <Space>
-            <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>
-              返回
+          <Space size={isMobile ? 'small' : 'middle'}>
+            <Button 
+              icon={<ArrowLeftOutlined style={{ fontSize: isMobile ? '14px' : '16px' }} />} 
+              onClick={() => navigate('/')}
+              size={isMobile ? 'middle' : 'large'}
+              style={{ fontWeight: 500 }}
+            >
+              {!isMobile && '返回'}
             </Button>
-            <Button icon={<MenuOutlined />} onClick={() => setSidebarCollapsed(!sidebarCollapsed)}>
-              {sidebarCollapsed ? '展开' : '收起'}目录
-            </Button>
-            <Text strong>{currentChapter?.title}</Text>
+            {!isMobile && (
+              <Button 
+                icon={<MenuOutlined style={{ fontSize: '16px' }} />} 
+                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                size="large"
+                style={{ fontWeight: 500 }}
+              >
+                {sidebarCollapsed ? '展开' : '收起'}目录
+              </Button>
+            )}
+            <Text 
+              strong 
+              style={{ 
+                fontSize: isMobile ? '14px' : '16px', 
+                color: '#8B6914',
+                maxWidth: isMobile ? '120px' : 'none',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {currentChapter?.title}
+            </Text>
           </Space>
 
-          <Space>
+          <Space size={isMobile ? 'small' : 'middle'}>
             <Button
               onClick={() => updateSetting('fontSize', Math.max(12, settings.fontSize - 1))}
+              size={isMobile ? 'small' : 'large'}
+              style={{ fontWeight: 600, fontSize: isMobile ? '14px' : '16px' }}
             >
               A-
             </Button>
             <Button
               onClick={() => updateSetting('fontSize', Math.min(22, settings.fontSize + 1))}
+              size={isMobile ? 'small' : 'large'}
+              style={{ fontWeight: 600, fontSize: isMobile ? '16px' : '18px' }}
             >
               A+
             </Button>
-            <Button icon={<SettingOutlined />} onClick={() => setSettingsDrawerVisible(true)}>
-              设置
+            <Button 
+              icon={<SettingOutlined style={{ fontSize: isMobile ? '14px' : '16px' }} />} 
+              onClick={() => setSettingsDrawerVisible(true)}
+              size={isMobile ? 'middle' : 'large'}
+              style={{ fontWeight: 500 }}
+            >
+              {!isMobile && '设置'}
             </Button>
           </Space>
         </div>
       </Header>
 
       <Layout>
-        {/* 左侧章节目录 */}
-        {!sidebarCollapsed && (
+        {/* 左侧章节目录 - 仅桌面端显示 */}
+        {!isMobile && !sidebarCollapsed && (
           <Sider
             width={280}
             theme="light"
             style={{
-              background: '#fff',
-              borderRight: '1px solid #f0f0f0',
+              background: 'linear-gradient(180deg, #FFFEF9 0%, #FAF8F3 100%)',
+              borderRight: '1px solid #E8E3D6',
               overflow: 'auto',
               height: 'calc(100vh - 64px)',
               position: 'sticky',
-              top: 64
+              top: 64,
+              boxShadow: '2px 0 8px rgba(139, 105, 20, 0.05)'
             }}
           >
             <div style={{ padding: '16px' }}>
@@ -498,6 +555,96 @@ const ReaderPage: React.FC = () => {
           </div>
         </Space>
       </Drawer>
+
+      {/* 移动端章节列表Drawer */}
+      {isMobile && (
+        <>
+          <Drawer
+            title="章节目录"
+            placement="bottom"
+            height="70%"
+            onClose={() => setChapterDrawerVisible(false)}
+            open={chapterDrawerVisible}
+          >
+            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              {/* 阅读进度 */}
+              <div>
+                <Text type="secondary" style={{ fontSize: '12px' }}>
+                  已阅读 {currentChapterIndex + 1} / {novel?.chapters.length || 0} 章
+                </Text>
+                <Progress
+                  percent={Math.round(readingProgress)}
+                  size="small"
+                  strokeColor="#8B6914"
+                  style={{ marginTop: 4 }}
+                />
+              </div>
+
+              {/* 搜索章节 */}
+              <Input
+                placeholder="搜索章节..."
+                value={chapterSearchText}
+                onChange={(e) => setChapterSearchText(e.target.value)}
+                prefix={<SearchOutlined />}
+                allowClear
+              />
+
+              {/* 章节列表 */}
+              {filteredChapters.length > 0 ? (
+                <Menu
+                  mode="inline"
+                  selectedKeys={[currentChapter?.id || '']}
+                  style={{ 
+                    borderRight: 0,
+                    background: 'transparent',
+                    maxHeight: 'calc(70vh - 200px)',
+                    overflowY: 'auto'
+                  }}
+                  items={filteredChapters.map(chapter => ({
+                    key: chapter.id,
+                    label: (
+                      <div>
+                        <div style={{ fontSize: '14px', fontWeight: 500 }}>{chapter.title}</div>
+                        <Text type="secondary" style={{ fontSize: '12px' }}>
+                          约{Math.round(chapter.wordCount / 1000)}千字
+                        </Text>
+                      </div>
+                    ),
+                    onClick: () => {
+                      if (novel?.chapters) {
+                        const index = novel.chapters.findIndex(c => c.id === chapter.id);
+                        if (index !== undefined && index >= 0) {
+                          setCurrentChapterIndex(index);
+                          setChapterDrawerVisible(false);
+                        }
+                      }
+                    }
+                  }))}
+                />
+              ) : (
+                <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                  <Text type="secondary">暂无章节</Text>
+                </div>
+              )}
+            </Space>
+          </Drawer>
+
+          {/* 移动端浮动按钮 */}
+          <FloatButton.Group shape="circle" style={{ right: 24, bottom: 24 }}>
+            <FloatButton
+              icon={<MenuOutlined />}
+              onClick={() => setChapterDrawerVisible(true)}
+              tooltip="章节目录"
+            />
+            <FloatButton
+              icon={<SettingOutlined />}
+              onClick={() => setSettingsDrawerVisible(true)}
+              tooltip="阅读设置"
+            />
+            <FloatButton.BackTop visibilityHeight={200} />
+          </FloatButton.Group>
+        </>
+      )}
     </Layout>
   );
 };
