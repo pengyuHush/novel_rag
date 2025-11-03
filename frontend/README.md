@@ -5,6 +5,7 @@
 ## 功能特性
 
 ### 核心功能
+
 - ✅ **小说管理**：导入、编辑、删除TXT格式的中文小说
 - ✅ **智能搜索**：支持关键词搜索和语义问答
 - ✅ **原文引用**：精准定位并展示相关原文段落
@@ -35,7 +36,7 @@ npm install
 npm run dev
 ```
 
-访问 http://localhost:5173
+访问 <http://localhost:5173>
 
 ### 构建生产版本
 
@@ -121,6 +122,7 @@ frontend/
 ### 存储限制
 
 不同浏览器的IndexedDB存储限制不同：
+
 - Chrome/Edge: 约可用磁盘空间的60%
 - Firefox: 约2GB（可请求更多）
 - Safari: 约1GB
@@ -139,11 +141,13 @@ frontend/
 ## 性能优化建议
 
 ### 大文件处理
+
 - 导入300万字以上的小说时会分块处理
 - 使用虚拟滚动渲染长列表
 - 章节内容按需加载
 
 ### 浏览器兼容性
+
 - 推荐使用Chrome、Edge、Firefox最新版
 - 需要支持ES6+、IndexedDB、WebAssembly
 
