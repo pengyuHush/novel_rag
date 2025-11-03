@@ -630,19 +630,25 @@ const SearchPage: React.FC = () => {
           >
             <Space direction="vertical" style={{ width: '100%' }} size="large">
               {/* 搜索框 */}
-              <Input.Search
-                size="large"
-                placeholder="输入问题或关键词，如：XX角色第一次出现在哪里？"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onSearch={handleSearch}
-                loading={loading}
-                enterButton={
-                  <Button type="primary" icon={<SearchOutlined />}>
-                    搜索
-                  </Button>
-                }
-              />
+              <Space.Compact style={{ width: '100%' }}>
+                <Input
+                  size="large"
+                  placeholder="输入问题或关键词，如：XX角色第一次出现在哪里？"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onPressEnter={handleSearch}
+                  style={{ flex: 1 }}
+                />
+                <Button 
+                  type="primary" 
+                  size="large"
+                  icon={<SearchOutlined />}
+                  onClick={handleSearch}
+                  loading={loading}
+                >
+                  搜索
+                </Button>
+              </Space.Compact>
 
               {/* 搜索选项 */}
               <div>

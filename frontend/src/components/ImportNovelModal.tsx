@@ -176,7 +176,7 @@ const ImportNovelModal: React.FC<ImportNovelModalProps> = ({ visible, onClose, o
       onCancel={handleClose}
       width={800}
       footer={null}
-      destroyOnClose
+      destroyOnHidden
     >
       <Steps current={currentStep} style={{ marginBottom: 24 }}>
         <Step title="上传文件" />

@@ -25,8 +25,8 @@ function App() {
         },
         components: {
           Layout: {
-            colorBgHeader: '#FFFEF9',
-            colorBgBody: '#FAF8F3',
+            headerBg: '#FFFEF9',
+            bodyBg: '#FAF8F3',
           },
           Button: {
             colorPrimary: '#8B6914',

@@ -80,7 +80,7 @@ const EditNovelModal: React.FC<EditNovelModalProps> = ({ visible, novel, onClose
           保存
         </Button>,
       ]}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form
         form={form}
