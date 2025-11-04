@@ -112,9 +112,9 @@ const GraphPage: React.FC = () => {
   // 设置页面标题
   useEffect(() => {
     if (novel) {
-      document.title = `${novel.title} - 人物关系图谱 - 小说RAG分析系统`;
+      document.title = `${novel.title} - 人物关系图谱 - Novel Rag`;
     } else {
-      document.title = '人物关系图谱 - 小说RAG分析系统';
+      document.title = '人物关系图谱 - Novel Rag';
     }
   }, [novel]);
 

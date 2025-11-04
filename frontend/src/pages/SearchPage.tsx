@@ -98,7 +98,7 @@ const SearchPage: React.FC = () => {
 
   // 设置页面标题
   useEffect(() => {
-    document.title = '搜索与问答 - 小说RAG分析系统';
+    document.title = '搜索与问答 - Novel Rag';
   }, []);
 
   // 加载小说列表
@@ -350,7 +350,7 @@ const SearchPage: React.FC = () => {
               color: '#3D3D3D',
               letterSpacing: '0.5px'
             }}>
-              {isMobile ? '小说RAG' : '小说RAG分析系统'}
+              {isMobile ? '小说RAG' : 'Novel Rag'}
             </h1>
           </div>
           <Space size={isMobile ? 'small' : 'large'}>

@@ -98,11 +98,11 @@ const ReaderPage: React.FC = () => {
   // 设置页面标题
   useEffect(() => {
     if (novel && currentChapter) {
-      document.title = `${currentChapter.title} - ${novel.title} - 小说RAG分析系统`;
+      document.title = `${currentChapter.title} - ${novel.title} - Novel Rag`;
     } else if (novel) {
-      document.title = `${novel.title} - 阅读 - 小说RAG分析系统`;
+      document.title = `${novel.title} - 阅读 - Novel Rag`;
     } else {
-      document.title = '阅读 - 小说RAG分析系统';
+      document.title = '阅读 - Novel Rag';
     }
   }, [novel, currentChapter]);
 
