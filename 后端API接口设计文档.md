@@ -1000,7 +1000,7 @@ import time
 BASE_URL = "http://localhost:8000/api/v1"
 
 # 1. 创建小说记录（无需认证）
-response = requests.post(f"{BASE_URL}/api/v1/novels", json={
+response = requests.post(f"{BASE_URL}/novels", json={
     "title": "斗破苍穹",
     "author": "天蚕土豆",
     "tags": ["玄幻", "修仙"]

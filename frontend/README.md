@@ -266,10 +266,37 @@ interface AppState {
 
 ```typescript
 // API 模块
-- novelAPI: 小说管理（上传、列表、删除、状态查询）
-- searchAPI: 搜索与问答（语义搜索、关键词搜索）
-- graphAPI: 人物关系图谱（生成、查询、删除）
-- apiUtils: 通用工具（错误处理、轮询、格式化）
+- novelAPI: 小说管理
+  - createNovel: 创建小说记录
+  - uploadNovelFile: 上传文件到已创建的小说
+  - uploadNovel: 便捷方法（一步完成创建+上传）
+  - getAllNovels: 获取所有小说
+  - getNovel: 获取单个小说详情
+  - updateNovel: 更新小说信息
+  - deleteNovel: 删除小说
+  - getProcessingStatus: 获取处理状态
+  - validateFile: 文件预验证（新增）
+  - getChapters: 获取章节列表
+  - getChapter: 获取章节内容（含段落信息）
+  
+- searchAPI: 搜索与问答
+  - search: 智能搜索（POST方法，支持语义和关键词搜索）
+  
+- graphAPI: 人物关系图谱
+  - getGraph: 获取图谱
+  - generateGraph: 生成图谱
+  - deleteGraph: 删除图谱
+  - getCharacters: 获取人物列表
+  
+- systemAPI: 系统管理（新增）
+  - checkHealth: 健康检查
+  - getSystemInfo: 系统信息
+  
+- apiUtils: 通用工具
+  - formatFileSize: 格式化文件大小
+  - formatWordCount: 格式化字数
+  - getStorageInfo: 获取存储统计
+  - pollStatus: 轮询任务状态
 ```
 
 **特点：**
@@ -278,6 +305,8 @@ interface AppState {
 - 类型安全的请求/响应处理
 - 自动状态轮询机制
 - 支持匿名访问（MVP版本）
+- RESTful API 设计（包含 `/api/v1` 版本前缀）
+- POST方法用于搜索和上传操作
 - 完全后端数据存储，无 IndexedDB 依赖
 
 ---
@@ -320,8 +349,8 @@ cp .env.example .env
 
 创建 `.env` 文件并配置：
 ```env
-# 后端API服务地址
-VITE_API_BASE_URL=http://localhost:8000
+# 后端API服务地址（包含 /api/v1 版本前缀）
+VITE_API_BASE_URL=http://localhost:8000/api/v1
 
 # 应用标题
 VITE_APP_TITLE=小说RAG分析系统
@@ -695,8 +724,8 @@ cp .env.example .env.development
 
 **方式二：手动创建 `.env` 文件**
 ```env
-# 后端API服务地址
-VITE_API_BASE_URL=http://localhost:8000
+# 后端API服务地址（包含 /api/v1 版本前缀）
+VITE_API_BASE_URL=http://localhost:8000/api/v1
 
 # 应用标题
 VITE_APP_TITLE=小说RAG分析系统
@@ -706,8 +735,8 @@ VITE_APP_TITLE=小说RAG分析系统
 
 创建生产环境配置文件 `.env.production`：
 ```env
-# 生产环境API地址 - 需要替换为实际的部署地址
-VITE_API_BASE_URL=https://your-api-domain.com/api
+# 生产环境API地址（包含 /api/v1 版本前缀）
+VITE_API_BASE_URL=https://your-api-domain.com/api/v1
 
 # 生产环境应用标题
 VITE_APP_TITLE=小说RAG分析系统
@@ -717,7 +746,7 @@ VITE_APP_TITLE=小说RAG分析系统
 
 | 变量名 | 说明 | 开发环境默认值 | 生产环境示例 |
 |--------|------|---------------|-------------|
-| `VITE_API_BASE_URL` | 后端API服务地址 | `http://localhost:8000` | `https://your-api-domain.com/api` |
+| `VITE_API_BASE_URL` | 后端API服务地址（含版本前缀） | `http://localhost:8000/api/v1` | `https://your-api-domain.com/api/v1` |
 | `VITE_APP_TITLE` | 应用标题 | `小说RAG分析系统` | `小说RAG分析系统` |
 
 #### 在代码中使用
@@ -889,7 +918,7 @@ app.add_middleware(
 
 **A**：在项目根目录创建 `.env` 文件：
 ```env
-VITE_API_BASE_URL=http://your-backend-url:8000
+VITE_API_BASE_URL=http://your-backend-url:8000/api/v1
 ```
 
 ### Q7：前端的小说数据存储在哪里？

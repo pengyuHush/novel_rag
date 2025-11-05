@@ -24,6 +24,17 @@ export interface Chapter {
   wordCount: number;
 }
 
+// 章节内容（包含段落信息）
+export interface ChapterContent {
+  chapter: Chapter;
+  content: string;
+  paragraphs: {
+    index: number;
+    content: string;
+    startPosition: number;
+  }[];
+}
+
 // 小说处理状态（匹配后端API）
 export interface NovelProcessingStatus {
   novelId: string;

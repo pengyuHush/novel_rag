@@ -147,12 +147,13 @@ const SearchPage: React.FC = () => {
     try {
       setSearching(true);
 
-      // 调用API进行搜索
+      // 调用API进行搜索（使用POST + JSON Body）
       const result = await searchAPI.search({
         query,
         novelIds: selectedNovelIds,
-        mode: searchMode,
-        topK: 5
+        topK: 5,
+        includeReferences: true,
+        saveHistory: true
       });
 
       setCurrentSearchResult(result);

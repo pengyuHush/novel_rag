@@ -1,6 +1,7 @@
 import type {
   Novel,
   Chapter,
+  ChapterContent,
   SearchResult,
   CharacterGraph,
   NovelProcessingStatus,
@@ -8,7 +9,7 @@ import type {
 } from '../types';
 
 // API基础配置
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
 
 // 通用请求函数
 async function apiRequest<T>(
@@ -70,12 +71,26 @@ export const novelAPI = {
     return apiRequest<Novel>(`/novels/${id}`);
   },
 
-  // 上传小说文件
-  async uploadNovel(file: File): Promise<{ novelId: string }> {
+  // 创建小说记录（步骤1：创建元数据）
+  async createNovel(metadata: {
+    title: string;
+    author?: string;
+    description?: string;
+    tags?: string[];
+  }): Promise<Novel> {
+    const response = await apiRequest<{ message: string; novel: Novel }>('/novels', {
+      method: 'POST',
+      body: JSON.stringify(metadata),
+    });
+    return response.novel;
+  },
+
+  // 上传小说文件（步骤2：上传文本内容）
+  async uploadNovelFile(novelId: string, file: File): Promise<{ message: string; status: string }> {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch(`${API_BASE_URL}/novels`, {
+    const response = await fetch(`${API_BASE_URL}/novels/${novelId}/upload`, {
       method: 'POST',
       body: formData,
     });
@@ -89,6 +104,22 @@ export const novelAPI = {
     }
 
     return response.json();
+  },
+
+  // 便捷方法：一步完成小说上传（供组件使用）
+  async uploadNovel(file: File, metadata: {
+    title: string;
+    author?: string;
+    description?: string;
+    tags?: string[];
+  }): Promise<string> {
+    // 先创建小说记录
+    const novel = await this.createNovel(metadata);
+    
+    // 再上传文件
+    await this.uploadNovelFile(novel.id, file);
+    
+    return novel.id;
   },
 
   // 更新小说信息
@@ -111,42 +142,66 @@ export const novelAPI = {
     return apiRequest<NovelProcessingStatus>(`/novels/${id}/status`);
   },
 
+  // 文件预验证（上传前快速检查文件是否合格）
+  async validateFile(novelId: string, file: File): Promise<{
+    valid: boolean;
+    encoding?: string;
+    wordCount?: number;
+    chineseRatio?: number;
+    estimatedChapters?: number;
+    warnings: string[];
+    errors: string[];
+  }> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${API_BASE_URL}/novels/${novelId}/validate`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new APIError(
+        errorData.message || `Validation failed: ${response.statusText}`,
+        response.status
+      );
+    }
+
+    return response.json();
+  },
+
   // 获取小说章节列表
   async getChapters(novelId: string): Promise<Chapter[]> {
     return apiRequest<Chapter[]>(`/novels/${novelId}/chapters`);
   },
 
-  // 获取单个章节内容
-  async getChapter(novelId: string, chapterId: string): Promise<Chapter & { content: string }> {
-    return apiRequest<Chapter & { content: string }>(`/novels/${novelId}/chapters/${chapterId}`);
+  // 获取单个章节内容（包含段落信息）
+  async getChapter(novelId: string, chapterId: string): Promise<ChapterContent> {
+    return apiRequest<ChapterContent>(`/novels/${novelId}/chapters/${chapterId}`);
   }
 };
 
 // 搜索和问答API
 export const searchAPI = {
-  // 执行搜索
+  // 执行搜索（使用POST方法 + JSON Body）
   async search(params: {
     query: string;
     novelIds?: string[];
-    mode?: 'keyword' | 'semantic';
     topK?: number;
+    includeReferences?: boolean;
+    saveHistory?: boolean;
   }): Promise<SearchResult> {
-    const queryParams = new URLSearchParams();
-    queryParams.append('query', params.query);
-
-    if (params.novelIds && params.novelIds.length > 0) {
-      params.novelIds.forEach(id => queryParams.append('novelIds', id));
-    }
-
-    if (params.mode) {
-      queryParams.append('mode', params.mode);
-    }
-
-    if (params.topK) {
-      queryParams.append('topK', params.topK.toString());
-    }
-
-    return apiRequest<SearchResult>(`/search?${queryParams.toString()}`);
+    return apiRequest<SearchResult>('/search', {
+      method: 'POST',
+      body: JSON.stringify({
+        query: params.query,
+        novelIds: params.novelIds || [],
+        topK: params.topK || 5,
+        includeReferences: params.includeReferences !== false,
+        saveHistory: params.saveHistory !== false,
+      }),
+    });
   }
 };
 
@@ -175,6 +230,30 @@ export const graphAPI = {
   async getCharacters(novelId: string): Promise<CharacterGraph['characters']> {
     const graph = await apiRequest<CharacterGraph>(`/novels/${novelId}/graph`);
     return graph.characters;
+  }
+};
+
+// 系统管理API
+export const systemAPI = {
+  // 系统健康检查
+  async checkHealth(): Promise<{
+    status: string;
+    version: string;
+    services: Record<string, string>;
+  }> {
+    return apiRequest('/system/health');
+  },
+
+  // 系统信息
+  async getSystemInfo(): Promise<{
+    version: string;
+    features: string[];
+    limits: {
+      maxFileSize: number;
+      maxNovels: number;
+    };
+  }> {
+    return apiRequest('/system/info');
   }
 };
 

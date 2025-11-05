@@ -132,9 +132,13 @@ const ImportNovelModal: React.FC<ImportNovelModalProps> = ({ visible, onClose, o
         return;
       }
 
-      // 上传文件
-      const uploadResult = await novelAPI.uploadNovel(file);
-      const { novelId } = uploadResult;
+      // 上传文件（新的两步流程：先创建记录，再上传文件）
+      const novelId = await novelAPI.uploadNovel(file, {
+        title: novelInfo.title,
+        author: novelInfo.author,
+        description: novelInfo.description,
+        tags: novelInfo.tags,
+      });
 
       // 开始轮询处理状态
       message.info('文件上传成功，开始处理...');
