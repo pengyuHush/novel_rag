@@ -160,6 +160,7 @@ const SearchPage: React.FC = () => {
       const result = await searchAPI.search({
         query,
         novelIds: selectedNovelIds,
+        searchMode,
         topK: 5,
         includeReferences: true,
         saveHistory: true
@@ -273,29 +274,25 @@ const SearchPage: React.FC = () => {
   };
 
   // 高亮关键词
-  const highlightText = (text: string, ranges: [number, number][]) => {
-    if (!ranges || ranges.length === 0) return text;
-    
-    const parts: React.ReactNode[] = [];
-    let lastIndex = 0;
-    
-    ranges.forEach(([start, end], i) => {
-      if (start > lastIndex) {
-        parts.push(text.substring(lastIndex, start));
-      }
-      parts.push(
-        <span key={i} className="highlight-text">
-          {text.substring(start, end)}
-        </span>
-      );
-      lastIndex = end;
-    });
-    
-    if (lastIndex < text.length) {
-      parts.push(text.substring(lastIndex));
+  // 高亮文本函数（基于highlightText字段）
+  const highlightContent = (content: string, highlightText: string) => {
+    if (!highlightText || !content.includes(highlightText)) {
+      return content;
     }
     
-    return parts;
+    const parts = content.split(highlightText);
+    return (
+      <>
+        {parts.map((part, i) => (
+          <React.Fragment key={i}>
+            {part}
+            {i < parts.length - 1 && (
+              <span className="highlight-text">{highlightText}</span>
+            )}
+          </React.Fragment>
+        ))}
+      </>
+    );
   };
 
   // 切换小说选择
@@ -729,13 +726,13 @@ const SearchPage: React.FC = () => {
                           <Tag color="blue">{ref.novelTitle}</Tag>
                           <Text strong>{ref.chapterTitle}</Text>
                           <Text type="secondary">第{ref.paragraphIndex}段</Text>
-                          <Tag color="green">相关度: {Math.round(ref.relevance * 100)}%</Tag>
+                          <Tag color="green">相关度: {Math.round(ref.relevanceScore * 100)}%</Tag>
                         </Space>
                       </div>
 
                       {/* 原文内容 */}
                       <Paragraph style={{ fontSize: '14px', lineHeight: 1.8 }}>
-                        {highlightText(ref.excerpt, ref.highlightRanges)}
+                        {highlightContent(ref.content, ref.highlightText)}
                       </Paragraph>
 
                       {/* 操作按钮 */}
@@ -757,7 +754,7 @@ const SearchPage: React.FC = () => {
                         <Button
                           size="small"
                           icon={<CopyOutlined />}
-                          onClick={() => handleCopy(ref.excerpt)}
+                          onClick={() => handleCopy(ref.content)}
                         >
                           复制原文
                         </Button>

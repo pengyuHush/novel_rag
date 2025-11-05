@@ -5,6 +5,9 @@ export interface Novel {
   author?: string;
   description?: string;
   tags: string[];
+  seriesName?: string;     // 系列名称（可选）
+  seriesOrder?: number;    // 系列顺序（可选）
+  chapters?: Chapter[];    // 章节列表（可选，用于前端展示）
   wordCount: number;
   chapterCount: number;
   status: 'pending' | 'processing' | 'completed' | 'failed';

@@ -26,27 +26,38 @@ export function generateMockSearchResult(query: string, novelIds: string[]): Sea
       novelTitle: `测试小说${novelIndex + 1}`,
       chapterId: 'chapter-5',
       chapterTitle: '第五章 重要转折',
+      chapterNumber: 5,
       paragraphIndex: 3,
-      excerpt: '这是一段示例原文，用于展示搜索结果的引用功能。在实际应用中，这里会显示从小说中检索到的真实段落内容。这段文字会根据用户的搜索关键词进行高亮显示，帮助用户快速定位关键信息。',
-      relevance: 0.92 - novelIndex * 0.1,
-      highlightRanges: [[5, 15], [30, 40]]
+      content: '这是一段示例原文，用于展示搜索结果的引用功能。在实际应用中，这里会显示从小说中检索到的真实段落内容。这段文字会根据用户的搜索关键词进行高亮显示，帮助用户快速定位关键信息。',
+      relevanceScore: 0.92 - novelIndex * 0.1,
+      startPosition: 1250,
+      highlightText: '搜索结果的引用功能'
     },
     {
       novelId,
       novelTitle: `测试小说${novelIndex + 1}`,
       chapterId: 'chapter-12',
       chapterTitle: '第十二章 关键线索',
+      chapterNumber: 12,
       paragraphIndex: 7,
-      excerpt: '另一段相关的原文内容，展示系统如何从多个章节中检索相关信息。通过语义匹配技术，系统能够找到与用户问题最相关的段落，即使这些段落中没有直接出现搜索关键词。',
-      relevance: 0.85 - novelIndex * 0.1,
-      highlightRanges: [[10, 20]]
+      content: '另一段相关的原文内容，展示系统如何从多个章节中检索相关信息。通过语义匹配技术，系统能够找到与用户问题最相关的段落，即使这些段落中没有直接出现搜索关键词。',
+      relevanceScore: 0.85 - novelIndex * 0.1,
+      startPosition: 3420,
+      highlightText: '语义匹配技术'
     }
   ]);
   
   return {
+    query,
     answer,
+    confidence: 0.85,
     references: references.slice(0, 5), // 最多返回5个引用
-    timestamp: new Date().toISOString()
+    relatedQuestions: [
+      `${query}的后续发展如何？`,
+      `${query}与其他角色有什么关系？`,
+      `在哪些章节中提到了${query}？`
+    ],
+    searchTime: 156.7 + Math.random() * 100 // 模拟搜索耗时
   };
 }
 
@@ -58,104 +69,170 @@ export function generateMockCharacterGraph(novelId: string): CharacterGraph {
     {
       id: 'char-1',
       name: '张三',
-      frequency: 158,
-      importance: 'major',
-      chapters: ['chapter-1', 'chapter-2', 'chapter-3', 'chapter-5', 'chapter-8']
+      aliases: ['小三', '三哥'],
+      role: 'protagonist',
+      description: '男主角，从凡人成长为一代强者的传奇人物',
+      appearances: 158,
+      importance: 0.95,
+      firstAppearance: {
+        chapterId: 'chapter-1',
+        chapterTitle: '第一章 初入江湖'
+      },
+      attributes: {}
     },
     {
       id: 'char-2',
       name: '李四',
-      frequency: 142,
-      importance: 'major',
-      chapters: ['chapter-1', 'chapter-3', 'chapter-5', 'chapter-10']
+      aliases: ['四爷'],
+      role: 'supporting',
+      description: '男主的挚友，一路相伴成长',
+      appearances: 142,
+      importance: 0.85,
+      firstAppearance: {
+        chapterId: 'chapter-1',
+        chapterTitle: '第一章 初入江湖'
+      },
+      attributes: {}
     },
     {
       id: 'char-3',
       name: '王五',
-      frequency: 98,
-      importance: 'major',
-      chapters: ['chapter-2', 'chapter-5', 'chapter-8', 'chapter-12']
+      aliases: ['王师傅'],
+      role: 'supporting',
+      description: '男主的第一任师父，传授武艺',
+      appearances: 98,
+      importance: 0.75,
+      firstAppearance: {
+        chapterId: 'chapter-2',
+        chapterTitle: '第二章 拜师学艺'
+      },
+      attributes: {}
     },
     {
       id: 'char-4',
       name: '赵六',
-      frequency: 76,
-      importance: 'minor',
-      chapters: ['chapter-3', 'chapter-7', 'chapter-11']
+      aliases: [],
+      role: 'antagonist',
+      description: '前期主要反派，与男主多次交锋',
+      appearances: 76,
+      importance: 0.65,
+      firstAppearance: {
+        chapterId: 'chapter-3',
+        chapterTitle: '第三章 初次交锋'
+      },
+      attributes: {}
     },
     {
       id: 'char-5',
       name: '钱七',
-      frequency: 54,
-      importance: 'minor',
-      chapters: ['chapter-4', 'chapter-9']
+      aliases: [],
+      role: 'minor',
+      description: '男主的同门师兄',
+      appearances: 54,
+      importance: 0.45,
+      firstAppearance: {
+        chapterId: 'chapter-4',
+        chapterTitle: '第四章 同门比试'
+      },
+      attributes: {}
     },
     {
       id: 'char-6',
       name: '孙八',
-      frequency: 45,
-      importance: 'minor',
-      chapters: ['chapter-6', 'chapter-13']
+      aliases: [],
+      role: 'minor',
+      description: '路人角色，偶尔出现',
+      appearances: 45,
+      importance: 0.35,
+      firstAppearance: {
+        chapterId: 'chapter-6',
+        chapterTitle: '第六章 江湖奇遇'
+      },
+      attributes: {}
     }
   ];
   
   const relationships: Relationship[] = [
     {
       id: 'rel-1',
-      from: 'char-1',
-      to: 'char-2',
+      source: 'char-1',
+      target: 'char-2',
       type: 'friend',
-      strength: 0.9,
-      chapters: ['chapter-1', 'chapter-3', 'chapter-5'],
-      representativeExcerpts: [
-        '张三和李四从小一起长大，情同手足。',
-        '在关键时刻，李四毫不犹豫地帮助了张三。'
+      description: '张三和李四从小一起长大，情同手足',
+      strength: 9,
+      evidence: [
+        {
+          chapterId: 'chapter-1',
+          context: '张三和李四从小一起长大，情同手足。'
+        },
+        {
+          chapterId: 'chapter-3',
+          context: '在关键时刻，李四毫不犹豫地帮助了张三。'
+        }
       ]
     },
     {
       id: 'rel-2',
-      from: 'char-1',
-      to: 'char-3',
-      type: 'mentor',
-      strength: 0.8,
-      chapters: ['chapter-2', 'chapter-5', 'chapter-8'],
-      representativeExcerpts: [
-        '王五是张三的师父，教导他许多重要的知识。',
-        '张三对师父王五十分尊敬。'
+      source: 'char-1',
+      target: 'char-3',
+      type: 'master-disciple',
+      description: '王五是张三的师父，传授武艺与处世之道',
+      strength: 8,
+      evidence: [
+        {
+          chapterId: 'chapter-2',
+          context: '王五是张三的师父，教导他许多重要的知识。'
+        },
+        {
+          chapterId: 'chapter-5',
+          context: '张三对师父王五十分尊敬。'
+        }
       ]
     },
     {
       id: 'rel-3',
-      from: 'char-2',
-      to: 'char-4',
+      source: 'char-2',
+      target: 'char-4',
       type: 'family',
-      strength: 0.95,
-      chapters: ['chapter-3', 'chapter-7'],
-      representativeExcerpts: [
-        '赵六是李四的兄长，两人关系亲密。'
+      description: '赵六是李四的兄长，两人关系亲密',
+      strength: 10,
+      evidence: [
+        {
+          chapterId: 'chapter-3',
+          context: '赵六是李四的兄长，两人关系亲密。'
+        }
       ]
     },
     {
       id: 'rel-4',
-      from: 'char-3',
-      to: 'char-5',
+      source: 'char-3',
+      target: 'char-5',
       type: 'enemy',
-      strength: 0.7,
-      chapters: ['chapter-4', 'chapter-9'],
-      representativeExcerpts: [
-        '王五和钱七因为某些原因产生了矛盾。',
-        '两人的对立在第九章达到了高潮。'
+      description: '王五和钱七因理念不合而产生矛盾',
+      strength: 7,
+      evidence: [
+        {
+          chapterId: 'chapter-4',
+          context: '王五和钱七因为某些原因产生了矛盾。'
+        },
+        {
+          chapterId: 'chapter-9',
+          context: '两人的对立在第九章达到了高潮。'
+        }
       ]
     },
     {
       id: 'rel-5',
-      from: 'char-1',
-      to: 'char-6',
-      type: 'other',
-      strength: 0.5,
-      chapters: ['chapter-6'],
-      representativeExcerpts: [
-        '张三偶然遇到了孙八。'
+      source: 'char-1',
+      target: 'char-6',
+      type: 'ally',
+      description: '张三偶然遇到孙八，两人成为盟友',
+      strength: 5,
+      evidence: [
+        {
+          chapterId: 'chapter-6',
+          context: '张三偶然遇到了孙八。'
+        }
       ]
     }
   ];
@@ -188,9 +265,10 @@ export const MOCK_NOVELS: Novel[] = [
     author: '云中子',
     description: '一个少年从凡人逆袭成为仙界至尊的传奇故事。跨越三界，征战八方，最终证道成仙。',
     tags: ['修仙', '玄幻', '热血'],
-    content: generateSampleNovelContent(1),
     chapters: generateSampleChapters('novel-1', 50),
     wordCount: 1250000,
+    chapterCount: 50,
+    status: 'completed',
     importedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
     updatedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
     hasGraph: true
@@ -201,9 +279,10 @@ export const MOCK_NOVELS: Novel[] = [
     author: '墨香',
     description: '现代都市背景下，主角凭借智慧和勇气，在商场、情场游刃有余，最终成就一番事业。',
     tags: ['都市', '商战', '言情'],
-    content: generateSampleNovelContent(2),
     chapters: generateSampleChapters('novel-2', 35),
     wordCount: 890000,
+    chapterCount: 35,
+    status: 'completed',
     importedAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
     updatedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
     hasGraph: true
@@ -214,75 +293,16 @@ export const MOCK_NOVELS: Novel[] = [
     author: '银河系',
     description: '未来世界，人类征战星际，与外星文明展开史诗级的战争。充满科技感和想象力。',
     tags: ['科幻', '星际', '战争'],
-    content: generateSampleNovelContent(3),
     chapters: generateSampleChapters('novel-3', 42),
     wordCount: 1050000,
+    chapterCount: 42,
+    status: 'completed',
     importedAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
     updatedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
     hasGraph: false
   }
 ];
 
-/**
- * 生成示例小说内容
- */
-function generateSampleNovelContent(novelIndex: number): string {
-  const templates = [
-    `【修仙传奇 - 完整内容】
-
-第一章 偶遇奇缘
-
-清晨的第一缕阳光洒在青云山上，山间薄雾缭绕，宛如仙境。
-
-张三是青云村的一个普通少年，从小就向往修仙之路。这一天，他如往常一样上山采药，却在山林深处发现了一处隐秘的洞府。
-
-洞府中，一位白发苍苍的老者正在打坐。老者睁开眼，目光如炬："小子，既然你能找到这里，说明你与我有缘。我乃青云真人，愿收你为徒。"
-
-张三激动不已，当即跪拜："弟子愿拜师！"
-
-从此，张三踏上了修仙之路...
-
-第二章 初入修炼
-
-在师父的指导下，张三开始修炼基础功法《吐纳心经》。每日清晨，他都会在山顶修炼，吸收天地灵气。
-
-师父王五告诉他："修仙之路，贵在坚持。你要静心凝神，感受天地灵气的流动..."
-
-[此处省略中间章节...]
-
-第五十章 证道成仙
-
-历经无数磨难，张三终于突破最后的瓶颈，渡过天劫，成功飞升仙界。
-
-站在云端，俯瞰人间，张三感慨万千。他想起了当年的青云村，想起了师父的教诲，想起了与李四并肩作战的日子...
-
-"这只是新的开始。"张三喃喃自语，转身飞向更广阔的仙界...`,
-
-    `【都市风云 - 完整内容】
-
-第一章 归国创业
-
-李明刚从国外名校毕业归来，决心在国内创办自己的科技公司。
-
-机场出口，多年未见的好友李四早已等候多时："李明，欢迎回国！"
-
-两人相视一笑，当年的情谊依然如故...
-
-[内容继续...]`,
-
-    `【星际争霸 - 完整内容】
-
-第一章 星际时代
-
-公元2456年，人类文明已经扩展到银河系的各个角落。
-
-星际舰队指挥官陈浩站在旗舰的指挥台上，望着窗外的星空...
-
-[内容继续...]`
-  ];
-
-  return templates[novelIndex - 1] || templates[0];
-}
 
 /**
  * 生成示例章节列表

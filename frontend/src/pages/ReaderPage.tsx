@@ -177,15 +177,22 @@ const ReaderPage: React.FC = () => {
     }
   };
 
-  const loadChapterContent = () => {
-    if (!novel || !novel.chapters || !novel.content) return;
+  const loadChapterContent = async () => {
+    if (!novel || !novel.chapters) return;
 
     const chapter = novel.chapters[currentChapterIndex];
     if (!chapter) return;
 
-    // 提取章节内容
-    const content = novel.content.substring(chapter.startPosition, chapter.endPosition);
-    setChapterContent(content);
+    try {
+      // 通过API获取章节内容
+      const { chapterAPI } = await import('../utils/api');
+      const result = await chapterAPI.getChapterContent(novel.id, chapter.id);
+      setChapterContent(result.content);
+    } catch (error) {
+      console.error('加载章节内容失败:', error);
+      message.error('加载章节内容失败');
+      return;
+    }
 
     // 自动滚动到顶部
     window.scrollTo({ top: 0, behavior: 'smooth' });

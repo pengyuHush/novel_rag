@@ -192,20 +192,20 @@ const GraphPage: React.FC = () => {
     const nodes: GraphNode[] = filteredCharacters.map(char => ({
       id: char.id,
       name: char.name,
-      val: char.frequency / 10, // 节点大小
-      color: char.importance === 'major' ? '#1890ff' : '#95de64',
+      val: char.appearances / 10, // 节点大小
+      color: char.role === 'protagonist' || char.role === 'antagonist' ? '#1890ff' : '#95de64',
       character: char
     }));
 
     // 筛选关系（只保留两端都在筛选后的人物中的关系）
     const filteredRelationships = graph.relationships.filter(rel =>
-      characterIds.has(rel.from) && characterIds.has(rel.to)
+      characterIds.has(rel.source) && characterIds.has(rel.target)
     );
 
     // 构建边
     const links: GraphLink[] = filteredRelationships.map(rel => ({
-      source: rel.from,
-      target: rel.to,
+      source: rel.source,
+      target: rel.target,
       color: RELATIONSHIP_COLORS[rel.type],
       label: RELATIONSHIP_LABELS[rel.type],
       relationship: rel
@@ -242,11 +242,56 @@ const GraphPage: React.FC = () => {
   };
 
   // 导出图谱
-  const handleExport = (format: 'png' | 'jpg') => {
-    // 这里应该实现实际的导出功能
-    // 可以使用html2canvas或其他库
-    message.success(`正在导出为${format.toUpperCase()}格式...`);
-    setExportModalVisible(false);
+  const handleExport = (format: 'json' | 'csv') => {
+    if (!graph) return;
+
+    try {
+      let content: string;
+      let filename: string;
+      let mimeType: string;
+
+      if (format === 'json') {
+        // 导出为JSON格式
+        content = JSON.stringify(graph, null, 2);
+        filename = `${novel?.title || 'novel'}_character_graph.json`;
+        mimeType = 'application/json';
+      } else {
+        // 导出为CSV格式（简单列表）
+        const csvLines = [
+          '角色名,角色类型,出现次数,重要程度',
+          ...graph.characters.map(c => 
+            `"${c.name}","${c.role}",${c.appearances},${c.importance}`
+          ),
+          '',
+          '角色1,角色2,关系类型,关系强度',
+          ...graph.relationships.map(r => {
+            const source = graph.characters.find(c => c.id === r.source);
+            const target = graph.characters.find(c => c.id === r.target);
+            return `"${source?.name}","${target?.name}","${r.type}",${r.strength}`;
+          })
+        ];
+        content = csvLines.join('\n');
+        filename = `${novel?.title || 'novel'}_character_graph.csv`;
+        mimeType = 'text/csv;charset=utf-8;';
+      }
+
+      // 创建下载链接
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      message.success(`导出为${format.toUpperCase()}格式成功`);
+      setExportModalVisible(false);
+    } catch (error) {
+      console.error('导出失败:', error);
+      message.error('导出失败，请重试');
+    }
   };
 
   // 缩放控制
@@ -391,7 +436,7 @@ const GraphPage: React.FC = () => {
               <Title level={5}>人物列表</Title>
               <List
                 size="small"
-                dataSource={graphData.nodes.sort((a, b) => b.character.frequency - a.character.frequency)}
+                dataSource={graphData.nodes.sort((a, b) => b.character.appearances - a.character.appearances)}
                 style={{ maxHeight: 400, overflow: 'auto' }}
                 renderItem={(node) => (
                   <List.Item
@@ -399,8 +444,8 @@ const GraphPage: React.FC = () => {
                     onClick={() => handleNodeClick(node)}
                   >
                     <Text>{node.name}</Text>
-                    <Tag color={node.character.importance === 'major' ? 'blue' : 'green'}>
-                      {node.character.frequency}次
+                    <Tag color={node.character.role === 'protagonist' || node.character.role === 'antagonist' ? 'blue' : 'green'}>
+                      {node.character.appearances}次
                     </Tag>
                   </List.Item>
                 )}
@@ -502,17 +547,26 @@ const GraphPage: React.FC = () => {
             <div>
               <Title level={4}>{selectedNode.name}</Title>
               <Space>
-                <Tag color={selectedNode.character.importance === 'major' ? 'blue' : 'green'}>
-                  {selectedNode.character.importance === 'major' ? '主要人物' : '次要人物'}
+                <Tag color={selectedNode.character.importance >= 0.7 ? 'blue' : 'green'}>
+                  {selectedNode.character.importance >= 0.7 ? '主要人物' : '次要人物'}
                 </Tag>
+                {selectedNode.character.aliases.length > 0 && (
+                  <Tag>别名：{selectedNode.character.aliases.join('、')}</Tag>
+                )}
               </Space>
             </div>
 
             <div>
               <Text strong>基础信息</Text>
               <div style={{ marginTop: 8 }}>
-                <p>出现次数：{selectedNode.character.frequency}次</p>
-                <p>主要活跃章节：第1-{selectedNode.character.chapters.length}章</p>
+                <p>出现次数：{selectedNode.character.appearances}次</p>
+                <p>重要程度：{Math.round(selectedNode.character.importance * 100)}%</p>
+                <p>角色类型：{
+                  selectedNode.character.role === 'protagonist' ? '主角' :
+                  selectedNode.character.role === 'antagonist' ? '反派' :
+                  selectedNode.character.role === 'supporting' ? '配角' : '次要角色'
+                }</p>
+                <p>人物描述：{selectedNode.character.description}</p>
               </div>
             </div>
 
@@ -539,19 +593,16 @@ const GraphPage: React.FC = () => {
             </div>
 
             <div>
-              <Text strong>主要出场章节</Text>
-              <List
-                size="small"
-                dataSource={selectedNode.character.chapters.slice(0, 5)}
-                renderItem={(chapterId) => (
-                  <List.Item
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => navigate(`/reader/${novelId}?chapter=${chapterId}`)}
-                  >
-                    <Button type="link">跳转到该章节</Button>
-                  </List.Item>
-                )}
-              />
+              <Text strong>首次出场</Text>
+              <div style={{ marginTop: 8 }}>
+                <p>{selectedNode.character.firstAppearance.chapterTitle}</p>
+                <Button 
+                  type="link" 
+                  onClick={() => navigate(`/reader/${novelId}?chapter=${selectedNode.character.firstAppearance.chapterId}`)}
+                >
+                  跳转阅读
+                </Button>
+              </div>
             </div>
 
             <Button
@@ -600,8 +651,8 @@ const GraphPage: React.FC = () => {
         footer={null}
       >
         <Space direction="vertical" style={{ width: '100%' }}>
-          <Button block onClick={() => handleExport('png')}>导出为PNG</Button>
-          <Button block onClick={() => handleExport('jpg')}>导出为JPG</Button>
+          <Button block onClick={() => handleExport('json')}>导出为JSON（完整数据）</Button>
+          <Button block onClick={() => handleExport('csv')}>导出为CSV（表格格式）</Button>
         </Space>
       </Modal>
 

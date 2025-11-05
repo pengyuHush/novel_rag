@@ -235,27 +235,8 @@ export const novelAPI = {
     return apiRequest<Chapter[]>(`/novels/${novelId}/chapters`);
   },
 
-  // 获取单个章节内容（包含段落信息）
-  async getChapter(novelId: string, chapterId: string): Promise<ChapterContent> {
-    if (USE_MOCK_API) {
-      // Mock API 返回的是 ChapterWithoutContent，需要转换为 ChapterContent
-      const chapterData = await mockNovelAPI.getChapter(novelId, chapterId);
-      return {
-        chapter: {
-          id: chapterData.id,
-          novelId: chapterData.novelId,
-          chapterNumber: chapterData.chapterNumber,
-          title: chapterData.title,
-          startPosition: chapterData.startPosition,
-          endPosition: chapterData.endPosition,
-          wordCount: chapterData.wordCount
-        },
-        content: chapterData.content || '',
-        paragraphs: chapterData.paragraphs || []
-      };
-    }
-    return apiRequest<ChapterContent>(`/novels/${novelId}/chapters/${chapterId}`);
-  }
+  // 注意：获取章节内容请使用 chapterAPI.getChapterContent(novelId, chapterId)
+  // 该方法返回简单的章节元数据，不包含完整内容
 };
 
 // 搜索和问答API
@@ -264,6 +245,7 @@ export const searchAPI = {
   async search(params: {
     query: string;
     novelIds?: string[];
+    searchMode?: 'keyword' | 'semantic';
     topK?: number;
     includeReferences?: boolean;
     saveHistory?: boolean;
@@ -276,10 +258,29 @@ export const searchAPI = {
       body: JSON.stringify({
         query: params.query,
         novelIds: params.novelIds || [],
+        searchMode: params.searchMode || 'semantic',
         topK: params.topK || 5,
         includeReferences: params.includeReferences !== false,
         saveHistory: params.saveHistory !== false,
       }),
+    });
+  }
+};
+
+// 章节API
+export const chapterAPI = {
+  // 获取章节内容
+  async getChapterContent(novelId: string, chapterId: string): Promise<{ content: string }> {
+    if (USE_MOCK_API) {
+      // Mock实现：返回模拟章节内容
+      return {
+        content: `这是章节 ${chapterId} 的内容。\n\n` +
+                 `在实际应用中，这里会显示从小说文件中读取的真实章节内容。\n\n` +
+                 `内容会根据章节的起始位置和结束位置从原文中提取。`
+      };
+    }
+    return apiRequest<{ content: string }>(`/novels/${novelId}/chapters/${chapterId}/content`, {
+      method: 'GET',
     });
   }
 };
@@ -343,7 +344,7 @@ export const systemAPI = {
         }
       };
     }
-    return apiRequest('/system/health');
+    return apiRequest('/health');
   },
 
   // 系统信息

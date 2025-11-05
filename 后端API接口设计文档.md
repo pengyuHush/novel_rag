@@ -252,11 +252,7 @@ curl -X POST https://api.novel-rag.com/api/v1/novels/novel_123/upload \
 | 接口 | 方法 | 描述 |
 |------|------|------|
 | `/api/v1/novels/{novelId}/chapters` | GET | 获取章节列表 |
-| `/api/v1/novels/{novelId}/chapters` | POST | 手动添加章节 |
-| `/api/v1/novels/{novelId}/chapters/{chapterId}` | GET | 获取章节内容 |
-| `/api/v1/novels/{novelId}/chapters/{chapterId}` | PUT | 更新章节信息 |
-| `/api/v1/novels/{novelId}/chapters/{chapterId}` | DELETE | 删除章节 |
-| `/api/v1/novels/{novelId}/chapters/redetect` | POST | 重新识别章节 |
+| `/api/v1/novels/{novelId}/chapters/{chapterId}/content` | GET | 获取章节内容 |
 
 #### 3.2 章节数据结构
 
@@ -288,54 +284,21 @@ curl -X POST https://api.novel-rag.com/api/v1/novels/novel_123/upload \
 Chapter\s+\d+
 ```
 
-**自定义章节识别**：
+#### 3.3 获取章节内容
 
-```bash
-# 请求
-POST /api/v1/novels/novel_123/chapters/redetect
-{
-  "chapterPattern": "第[\\d]+章",
-  "clearExisting": true
-}
-
-# 响应（HTTP 202）
-{
-  "message": "章节重新识别任务已启动"
-}
-```
-
-#### 3.4 获取章节内容
-
-**接口**：`GET /api/v1/novels/{novelId}/chapters/{chapterId}`
+**接口**：`GET /api/v1/novels/{novelId}/chapters/{chapterId}/content`
 
 **响应示例**：
 
 ```json
 {
-  "chapter": {
-    "id": "chapter_123",
-    "novelId": "novel_abc123",
-    "chapterNumber": 1,
-    "title": "第一章 初入江湖",
-    "startPosition": 0,
-    "endPosition": 5230,
-    "wordCount": 5230
-  },
-  "content": "章节完整文本内容...",
-  "paragraphs": [
-    {
-      "index": 0,
-      "content": "第一段内容...",
-      "startPosition": 0
-    },
-    {
-      "index": 1,
-      "content": "第二段内容...",
-      "startPosition": 120
-    }
-  ]
+  "content": "第一章 初入江湖\n\n清晨的第一缕阳光洒在青云山上，山间薄雾缭绕，宛如仙境...\n\n（章节完整文本内容）"
 }
 ```
+
+**说明**：
+- 该接口只返回章节的文本内容，用于阅读器按需加载
+- 章节元数据（标题、序号等）通过 `GET /novels/{novelId}/chapters` 接口获取
 
 ---
 

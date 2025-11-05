@@ -45,12 +45,32 @@ interface AppState {
   removeProcessingStatus: (novelId: string) => void;
 }
 
+// 从localStorage加载搜索历史
+const loadRecentQueries = (): string[] => {
+  try {
+    const saved = localStorage.getItem('recentQueries');
+    return saved ? JSON.parse(saved) : [];
+  } catch (error) {
+    console.error('Failed to load recent queries:', error);
+    return [];
+  }
+};
+
+// 保存搜索历史到localStorage
+const saveRecentQueries = (queries: string[]) => {
+  try {
+    localStorage.setItem('recentQueries', JSON.stringify(queries));
+  } catch (error) {
+    console.error('Failed to save recent queries:', error);
+  }
+};
+
 export const useStore = create<AppState>((set) => ({
   // 初始状态
   novels: [],
   selectedNovelIds: [],
   currentSearchResult: null,
-  recentQueries: [],
+  recentQueries: loadRecentQueries(),
   loading: false,
   searching: false,
   storageInfo: {
@@ -97,10 +117,14 @@ export const useStore = create<AppState>((set) => ({
     const filtered = state.recentQueries.filter(q => q !== query);
     const newQueries = [query, ...filtered].slice(0, 10); // 只保留最近10条查询
 
+    saveRecentQueries(newQueries);
     return { recentQueries: newQueries };
   }),
 
-  clearRecentQueries: () => set({ recentQueries: [] }),
+  clearRecentQueries: () => {
+    saveRecentQueries([]);
+    set({ recentQueries: [] });
+  },
 
   setLoading: (loading) => set({ loading }),
 

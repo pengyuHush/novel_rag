@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Modal, Form, Input, Select, Checkbox, Button, message } from 'antd';
+import { Modal, Form, Input, Select, Button, message } from 'antd';
 import { novelAPI } from '../utils/api';
 import type { Novel } from '../types';
 import { useStore } from '../store/useStore';
@@ -23,11 +23,10 @@ const EditNovelModal: React.FC<EditNovelModalProps> = ({ visible, novel, onClose
       form.setFieldsValue({
         title: novel.title,
         author: novel.author,
-        summary: novel.summary,
+        description: novel.description,
         tags: novel.tags || [],
-        isSeries: !!novel.series,
-        seriesOrder: novel.series?.order || 1,
-        relatedNovels: novel.series?.relatedNovels || [],
+        seriesName: novel.seriesName,
+        seriesOrder: novel.seriesOrder,
       });
     }
   }, [visible, novel, form]);
@@ -40,18 +39,11 @@ const EditNovelModal: React.FC<EditNovelModalProps> = ({ visible, novel, onClose
       const updates: Partial<Novel> = {
         title: values.title,
         author: values.author,
-        summary: values.summary,
+        description: values.description,
         tags: values.tags || [],
+        seriesName: values.seriesName || undefined,
+        seriesOrder: values.seriesOrder || undefined,
       };
-
-      if (values.isSeries) {
-        updates.series = {
-          relatedNovels: values.relatedNovels || [],
-          order: values.seriesOrder || 1,
-        };
-      } else {
-        updates.series = undefined;
-      }
 
       await novelAPI.updateNovel(novel.id, updates);
       updateNovel(novel.id, updates);
@@ -85,10 +77,6 @@ const EditNovelModal: React.FC<EditNovelModalProps> = ({ visible, novel, onClose
       <Form
         form={form}
         layout="vertical"
-        initialValues={{
-          isSeries: false,
-          seriesOrder: 1,
-        }}
       >
         <Form.Item
           label="书名"
@@ -102,7 +90,7 @@ const EditNovelModal: React.FC<EditNovelModalProps> = ({ visible, novel, onClose
           <Input placeholder="请输入作者" />
         </Form.Item>
 
-        <Form.Item label="简介" name="summary">
+        <Form.Item label="简介" name="description">
           <TextArea rows={3} placeholder="请输入简介" />
         </Form.Item>
 
@@ -114,23 +102,12 @@ const EditNovelModal: React.FC<EditNovelModalProps> = ({ visible, novel, onClose
           />
         </Form.Item>
 
-        <Form.Item name="isSeries" valuePropName="checked">
-          <Checkbox>这是系列小说的一部分</Checkbox>
+        <Form.Item label="系列名称" name="seriesName">
+          <Input placeholder="如果是系列小说，请输入系列名称（可选）" />
         </Form.Item>
 
-        <Form.Item
-          noStyle
-          shouldUpdate={(prevValues, currentValues) => 
-            prevValues.isSeries !== currentValues.isSeries
-          }
-        >
-          {({ getFieldValue }) =>
-            getFieldValue('isSeries') ? (
-              <Form.Item label="系列序号" name="seriesOrder">
-                <Input type="number" min={1} placeholder="第几部" />
-              </Form.Item>
-            ) : null
-          }
+        <Form.Item label="系列序号" name="seriesOrder">
+          <Input type="number" min={1} placeholder="该小说在系列中的序号（可选）" />
         </Form.Item>
       </Form>
     </Modal>
