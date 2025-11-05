@@ -80,6 +80,13 @@ const ReaderPage: React.FC = () => {
     autoSave: true
   });
 
+  // 计算当前章节和相关信息（需要在 useEffect 之前定义）
+  const currentChapter = novel?.chapters?.[currentChapterIndex];
+  const themeStyle = THEME_STYLES[settings.theme];
+  const readingProgress = (novel && novel.chapters && novel.chapters.length > 0) 
+    ? ((currentChapterIndex + 1) / novel.chapters.length) * 100 
+    : 0;
+
   // 检测移动端
   useEffect(() => {
     const checkMobile = () => {
@@ -218,12 +225,6 @@ const ReaderPage: React.FC = () => {
     );
   }, [novel, chapterSearchText]);
 
-  const currentChapter = novel?.chapters?.[currentChapterIndex];
-  const themeStyle = THEME_STYLES[settings.theme];
-  const readingProgress = (novel && novel.chapters && novel.chapters.length > 0) 
-    ? ((currentChapterIndex + 1) / novel.chapters.length) * 100 
-    : 0;
-
   return (
     <Layout className="page-container" style={{ minHeight: '100vh' }}>
       {/* 顶部工具栏 */}
@@ -340,8 +341,15 @@ const ReaderPage: React.FC = () => {
                     items={filteredChapters.map(chapter => ({
                       key: chapter.id,
                       label: (
-                        <div>
-                          <div>{chapter.title}</div>
+                        <div style={{ width: '100%' }}>
+                          <div style={{ 
+                            whiteSpace: 'normal',
+                            wordBreak: 'break-word',
+                            lineHeight: '1.4',
+                            marginBottom: '4px'
+                          }}>
+                            {chapter.title}
+                          </div>
                           <Text type="secondary" style={{ fontSize: '12px' }}>
                             约{Math.round(chapter.wordCount / 1000)}千字
                           </Text>
@@ -607,8 +615,17 @@ const ReaderPage: React.FC = () => {
                   items={filteredChapters.map(chapter => ({
                     key: chapter.id,
                     label: (
-                      <div>
-                        <div style={{ fontSize: '14px', fontWeight: 500 }}>{chapter.title}</div>
+                      <div style={{ width: '100%' }}>
+                        <div style={{ 
+                          fontSize: '14px', 
+                          fontWeight: 500,
+                          whiteSpace: 'normal',
+                          wordBreak: 'break-word',
+                          lineHeight: '1.4',
+                          marginBottom: '4px'
+                        }}>
+                          {chapter.title}
+                        </div>
                         <Text type="secondary" style={{ fontSize: '12px' }}>
                           约{Math.round(chapter.wordCount / 1000)}千字
                         </Text>

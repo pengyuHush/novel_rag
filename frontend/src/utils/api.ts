@@ -7,9 +7,18 @@ import type {
   NovelProcessingStatus,
   Reference
 } from '../types';
+import { mockNovelAPI, mockSearchAPI, mockGraphAPI } from './mockApi';
 
 // API基础配置
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+const USE_MOCK_API = import.meta.env.VITE_USE_MOCK_API === 'true';
+
+// 启动时输出配置信息
+console.log('🔧 API 配置信息:');
+console.log('  - API_BASE_URL:', API_BASE_URL);
+console.log('  - USE_MOCK_API:', USE_MOCK_API);
+console.log('  - VITE_USE_MOCK_API (raw):', import.meta.env.VITE_USE_MOCK_API);
+console.log('  - 模式:', USE_MOCK_API ? '🎭 Mock 模式' : '🌐 真实 API 模式');
 
 // 通用请求函数
 async function apiRequest<T>(
@@ -43,7 +52,7 @@ async function apiRequest<T>(
     if (error instanceof APIError) {
       throw error;
     }
-    throw new APIError(`Network error: ${error.message}`, 0, 'NETWORK_ERROR');
+    throw new APIError(`Network error: ${(error as Error).message}`, 0, 'NETWORK_ERROR');
   }
 }
 
@@ -63,11 +72,17 @@ export class APIError extends Error {
 export const novelAPI = {
   // 获取所有小说
   async getAllNovels(): Promise<Novel[]> {
+    if (USE_MOCK_API) {
+      return mockNovelAPI.getAllNovels();
+    }
     return apiRequest<Novel[]>('/novels');
   },
 
   // 获取单个小说详情
   async getNovel(id: string): Promise<Novel> {
+    if (USE_MOCK_API) {
+      return mockNovelAPI.getNovel(id);
+    }
     return apiRequest<Novel>(`/novels/${id}`);
   },
 
@@ -78,6 +93,9 @@ export const novelAPI = {
     description?: string;
     tags?: string[];
   }): Promise<Novel> {
+    if (USE_MOCK_API) {
+      throw new Error('Mock 模式请使用 uploadNovel 方法一次性上传');
+    }
     const response = await apiRequest<{ message: string; novel: Novel }>('/novels', {
       method: 'POST',
       body: JSON.stringify(metadata),
@@ -87,6 +105,10 @@ export const novelAPI = {
 
   // 上传小说文件（步骤2：上传文本内容）
   async uploadNovelFile(novelId: string, file: File): Promise<{ message: string; status: string }> {
+    if (USE_MOCK_API) {
+      throw new Error('Mock 模式请使用 uploadNovel 方法一次性上传');
+    }
+
     const formData = new FormData();
     formData.append('file', file);
 
@@ -113,6 +135,18 @@ export const novelAPI = {
     description?: string;
     tags?: string[];
   }): Promise<string> {
+    if (USE_MOCK_API) {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('title', metadata.title);
+      if (metadata.author) formData.append('author', metadata.author);
+      if (metadata.description) formData.append('description', metadata.description);
+      if (metadata.tags) formData.append('tags', metadata.tags.join(','));
+      
+      const result = await mockNovelAPI.uploadNovel(formData);
+      return result.novelId;
+    }
+
     // 先创建小说记录
     const novel = await this.createNovel(metadata);
     
@@ -124,6 +158,9 @@ export const novelAPI = {
 
   // 更新小说信息
   async updateNovel(id: string, updates: Partial<Novel>): Promise<Novel> {
+    if (USE_MOCK_API) {
+      return mockNovelAPI.updateNovel(id, updates);
+    }
     return apiRequest<Novel>(`/novels/${id}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
@@ -132,6 +169,9 @@ export const novelAPI = {
 
   // 删除小说
   async deleteNovel(id: string): Promise<void> {
+    if (USE_MOCK_API) {
+      return mockNovelAPI.deleteNovel(id);
+    }
     return apiRequest<void>(`/novels/${id}`, {
       method: 'DELETE',
     });
@@ -139,6 +179,9 @@ export const novelAPI = {
 
   // 获取小说处理状态
   async getProcessingStatus(id: string): Promise<NovelProcessingStatus> {
+    if (USE_MOCK_API) {
+      return mockNovelAPI.getProcessingStatus(id);
+    }
     return apiRequest<NovelProcessingStatus>(`/novels/${id}/status`);
   },
 
@@ -152,6 +195,19 @@ export const novelAPI = {
     warnings: string[];
     errors: string[];
   }> {
+    if (USE_MOCK_API) {
+      // Mock 模式直接返回成功
+      return {
+        valid: true,
+        encoding: 'UTF-8',
+        wordCount: Math.floor(Math.random() * 500000) + 100000,
+        chineseRatio: 0.95,
+        estimatedChapters: Math.floor(Math.random() * 50) + 10,
+        warnings: [],
+        errors: []
+      };
+    }
+
     const formData = new FormData();
     formData.append('file', file);
 
@@ -173,11 +229,31 @@ export const novelAPI = {
 
   // 获取小说章节列表
   async getChapters(novelId: string): Promise<Chapter[]> {
+    if (USE_MOCK_API) {
+      return mockNovelAPI.getChapters(novelId);
+    }
     return apiRequest<Chapter[]>(`/novels/${novelId}/chapters`);
   },
 
   // 获取单个章节内容（包含段落信息）
   async getChapter(novelId: string, chapterId: string): Promise<ChapterContent> {
+    if (USE_MOCK_API) {
+      // Mock API 返回的是 ChapterWithoutContent，需要转换为 ChapterContent
+      const chapterData = await mockNovelAPI.getChapter(novelId, chapterId);
+      return {
+        chapter: {
+          id: chapterData.id,
+          novelId: chapterData.novelId,
+          chapterNumber: chapterData.chapterNumber,
+          title: chapterData.title,
+          startPosition: chapterData.startPosition,
+          endPosition: chapterData.endPosition,
+          wordCount: chapterData.wordCount
+        },
+        content: chapterData.content || '',
+        paragraphs: chapterData.paragraphs || []
+      };
+    }
     return apiRequest<ChapterContent>(`/novels/${novelId}/chapters/${chapterId}`);
   }
 };
@@ -192,6 +268,9 @@ export const searchAPI = {
     includeReferences?: boolean;
     saveHistory?: boolean;
   }): Promise<SearchResult> {
+    if (USE_MOCK_API) {
+      return mockSearchAPI.search(params.query, params.novelIds || []);
+    }
     return apiRequest<SearchResult>('/search', {
       method: 'POST',
       body: JSON.stringify({
@@ -209,11 +288,17 @@ export const searchAPI = {
 export const graphAPI = {
   // 获取人物关系图谱
   async getGraph(novelId: string): Promise<CharacterGraph> {
+    if (USE_MOCK_API) {
+      return mockGraphAPI.getGraph(novelId);
+    }
     return apiRequest<CharacterGraph>(`/novels/${novelId}/graph`);
   },
 
   // 生成人物关系图谱
-  async generateGraph(novelId: string): Promise<{ taskId: string }> {
+  async generateGraph(novelId: string): Promise<{ taskId: string; message?: string }> {
+    if (USE_MOCK_API) {
+      return mockGraphAPI.generateGraph(novelId);
+    }
     return apiRequest<{ taskId: string }>(`/novels/${novelId}/graph`, {
       method: 'POST',
     });
@@ -221,6 +306,9 @@ export const graphAPI = {
 
   // 删除人物关系图谱
   async deleteGraph(novelId: string): Promise<void> {
+    if (USE_MOCK_API) {
+      return mockGraphAPI.deleteGraph(novelId);
+    }
     return apiRequest<void>(`/novels/${novelId}/graph`, {
       method: 'DELETE',
     });
@@ -228,6 +316,9 @@ export const graphAPI = {
 
   // 获取人物列表
   async getCharacters(novelId: string): Promise<CharacterGraph['characters']> {
+    if (USE_MOCK_API) {
+      return mockGraphAPI.getCharacters(novelId);
+    }
     const graph = await apiRequest<CharacterGraph>(`/novels/${novelId}/graph`);
     return graph.characters;
   }
@@ -241,6 +332,17 @@ export const systemAPI = {
     version: string;
     services: Record<string, string>;
   }> {
+    if (USE_MOCK_API) {
+      return {
+        status: 'healthy',
+        version: '1.0.0-mock',
+        services: {
+          database: 'healthy',
+          vector_db: 'healthy',
+          llm: 'healthy'
+        }
+      };
+    }
     return apiRequest('/system/health');
   },
 
@@ -253,6 +355,16 @@ export const systemAPI = {
       maxNovels: number;
     };
   }> {
+    if (USE_MOCK_API) {
+      return {
+        version: '1.0.0-mock',
+        features: ['search', 'graph', 'reader'],
+        limits: {
+          maxFileSize: 10 * 1024 * 1024, // 10MB
+          maxNovels: 100
+        }
+      };
+    }
     return apiRequest('/system/info');
   }
 };

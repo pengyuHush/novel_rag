@@ -134,10 +134,10 @@ const ImportNovelModal: React.FC<ImportNovelModalProps> = ({ visible, onClose, o
 
       // 上传文件（新的两步流程：先创建记录，再上传文件）
       const novelId = await novelAPI.uploadNovel(file, {
-        title: novelInfo.title,
-        author: novelInfo.author,
-        description: novelInfo.description,
-        tags: novelInfo.tags,
+        title: values.title,
+        author: values.author,
+        description: values.summary, // 表单字段名是 summary
+        tags: values.tags || [],
       });
 
       // 开始轮询处理状态
@@ -225,8 +225,8 @@ const ImportNovelModal: React.FC<ImportNovelModalProps> = ({ visible, onClose, o
                 <div>
                   <h4>文件信息</h4>
                   <p>文件名：{file?.name}</p>
-                  <p>文件大小：{formatFileSize(file?.size || 0)}</p>
-                  <p>字数统计：{formatWordCount(content.length)}</p>
+                  <p>文件大小：{apiUtils.formatFileSize(file?.size || 0)}</p>
+                  <p>字数统计：{apiUtils.formatWordCount(content.length)}</p>
                   <p>检测编码：<Tag color="blue">{encoding}</Tag></p>
                 </div>
 
@@ -242,7 +242,7 @@ const ImportNovelModal: React.FC<ImportNovelModalProps> = ({ visible, onClose, o
                         <div style={{ flex: 1 }}>
                           第{chapter.order}章：{chapter.title}
                         </div>
-                        <Tag>{formatWordCount(chapter.wordCount)}</Tag>
+                        <Tag>{apiUtils.formatWordCount(chapter.wordCount)}</Tag>
                       </List.Item>
                     )}
                   />

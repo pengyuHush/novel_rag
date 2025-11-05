@@ -163,3 +163,22 @@ body {
   color: #666;
 }
 
+/* 章节列表 Menu Item 样式优化 - 支持多行文本 */
+.ant-menu-item {
+  height: auto !important;
+  line-height: normal !important;
+  padding: 8px 16px !important;
+  min-height: 40px;
+}
+
+.ant-menu-item-selected {
+  background-color: #FFF4D6 !important;
+}
+
+/* 确保 Menu Item 内容能够换行 */
+.ant-menu-item .ant-menu-title-content {
+  display: block;
+  white-space: normal !important;
+  word-break: break-word;
+}
+

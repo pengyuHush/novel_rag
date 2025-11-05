@@ -19,7 +19,8 @@ import {
   Col,
   Popconfirm,
   Divider,
-  FloatButton
+  FloatButton,
+  Modal
 } from 'antd';
 import {
   SearchOutlined,
@@ -90,6 +91,7 @@ const SearchPage: React.FC = () => {
   const [autoSearch, setAutoSearch] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [novelDrawerVisible, setNovelDrawerVisible] = useState(false);
+  const [helpModalVisible, setHelpModalVisible] = useState(false);
 
   // 检测移动端
   useEffect(() => {
@@ -115,13 +117,18 @@ const SearchPage: React.FC = () => {
   const loadNovels = async () => {
     try {
       setLoading(true);
+      setNovelsLoading(true);
+      console.log('🔄 开始加载小说列表...');
+      
       const allNovels = await novelAPI.getAllNovels();
+      console.log('✅ 加载小说成功，共', allNovels.length, '部小说');
       setNovels(allNovels);
 
       const info = await apiUtils.getStorageInfo();
+      console.log('📊 存储信息:', info);
       setStorageInfo(info);
     } catch (error) {
-      console.error('加载小说列表失败:', error);
+      console.error('❌ 加载小说列表失败:', error);
       if (error instanceof APIError) {
         message.error(`加载小说列表失败: ${error.message}`);
       } else {
@@ -129,6 +136,8 @@ const SearchPage: React.FC = () => {
       }
     } finally {
       setLoading(false);
+      setNovelsLoading(false);
+      console.log('✅ 小说列表加载完成');
     }
   };
 
@@ -349,6 +358,7 @@ const SearchPage: React.FC = () => {
                 type="text"
                 size="large"
                 icon={<QuestionCircleOutlined style={{ fontSize: '16px' }} />}
+                onClick={() => setHelpModalVisible(true)}
                 style={{ 
                   color: '#8B7355',
                   fontWeight: 500
@@ -500,7 +510,7 @@ const SearchPage: React.FC = () => {
                                 )}
                                 <Space size={4} wrap>
                                   <Tag color="blue" style={{ fontSize: '11px' }}>
-                                    {formatWordCount(novel.wordCount)}
+                                    {apiUtils.formatWordCount(novel.wordCount)}
                                   </Tag>
                                   <Tag color="green" style={{ fontSize: '11px' }}>
                                     {novel.chapters.length}章
@@ -959,7 +969,7 @@ const SearchPage: React.FC = () => {
                               )}
                               <Space size={4} wrap>
                                 <Tag color="blue" style={{ fontSize: '12px' }}>
-                                  {formatWordCount(novel.wordCount)}
+                                  {apiUtils.formatWordCount(novel.wordCount)}
                                 </Tag>
                                 <Tag color="green" style={{ fontSize: '12px' }}>
                                   {novel.chapters.length}章
@@ -1076,6 +1086,105 @@ const SearchPage: React.FC = () => {
           onSuccess={loadNovels}
         />
       )}
+
+      {/* 帮助Modal */}
+      <Modal
+        title={<span><QuestionCircleOutlined /> 使用帮助</span>}
+        open={helpModalVisible}
+        onCancel={() => setHelpModalVisible(false)}
+        footer={[
+          <Button key="close" type="primary" onClick={() => setHelpModalVisible(false)}>
+            知道了
+          </Button>
+        ]}
+        width={700}
+      >
+        <div style={{ maxHeight: '60vh', overflowY: 'auto', padding: '8px 0' }}>
+          <Title level={4}>📚 小说管理</Title>
+          <Paragraph>
+            <ul>
+              <li><strong>导入小说</strong>：点击"导入小说"按钮，上传 TXT 格式的中文小说文件</li>
+              <li><strong>选择小说</strong>：勾选左侧列表中的小说，可以选择多部进行搜索</li>
+              <li><strong>编辑信息</strong>：点击"编辑"按钮修改小说的标题、作者、简介等信息</li>
+              <li><strong>删除小说</strong>：点击"删除"按钮移除不需要的小说</li>
+            </ul>
+          </Paragraph>
+
+          <Divider />
+
+          <Title level={4}>🔍 智能搜索</Title>
+          <Paragraph>
+            <ul>
+              <li><strong>提问</strong>：在搜索框输入你的问题，系统会基于选中的小说内容生成答案</li>
+              <li><strong>示例问题</strong>：
+                <ul>
+                  <li>"张三是谁？"</li>
+                  <li>"总结第5章的内容"</li>
+                  <li>"张三和李四的关系是什么？"</li>
+                </ul>
+              </li>
+              <li><strong>查看引用</strong>：答案下方会显示相关段落的原文引用和位置</li>
+              <li><strong>跳转阅读</strong>：点击引用可以直接跳转到对应章节阅读</li>
+            </ul>
+          </Paragraph>
+
+          <Divider />
+
+          <Title level={4}>👥 人物关系图谱</Title>
+          <Paragraph>
+            <ul>
+              <li><strong>查看图谱</strong>：点击小说列表中的"关系图"按钮</li>
+              <li><strong>生成图谱</strong>：首次使用需要点击"生成关系图"按钮</li>
+              <li><strong>交互操作</strong>：
+                <ul>
+                  <li>拖拽节点调整位置</li>
+                  <li>点击节点查看人物详情</li>
+                  <li>筛选关系类型（朋友、家人、师徒等）</li>
+                  <li>搜索特定人物</li>
+                </ul>
+              </li>
+            </ul>
+          </Paragraph>
+
+          <Divider />
+
+          <Title level={4}>📖 章节阅读</Title>
+          <Paragraph>
+            <ul>
+              <li><strong>打开阅读器</strong>：点击小说列表中的"阅读"按钮</li>
+              <li><strong>章节导航</strong>：左侧显示完整章节列表，点击切换章节</li>
+              <li><strong>阅读设置</strong>：调整字体大小、行距、主题等</li>
+              <li><strong>进度保存</strong>：系统会自动记录你的阅读进度</li>
+            </ul>
+          </Paragraph>
+
+          <Divider />
+
+          <Title level={4}>💡 使用技巧</Title>
+          <Paragraph>
+            <ul>
+              <li>支持多部小说联合搜索，获取跨作品的分析结果</li>
+              <li>搜索历史会自动保存，方便回顾之前的提问</li>
+              <li>在移动端使用时，点击浮动按钮访问侧边栏功能</li>
+              <li>目前支持 UTF-8、GBK、GB2312 编码的 TXT 文件</li>
+            </ul>
+          </Paragraph>
+
+          <Divider />
+
+          <Title level={4}>⚙️ 当前模式</Title>
+          <Paragraph>
+            <Tag color="blue" style={{ fontSize: '14px' }}>
+              {import.meta.env.VITE_USE_MOCK_API === 'true' ? '🎭 Mock 演示模式' : '🌐 在线模式'}
+            </Tag>
+            {import.meta.env.VITE_USE_MOCK_API === 'true' && (
+              <div style={{ marginTop: 8, color: '#666' }}>
+                当前使用模拟数据进行功能演示，刷新页面后数据会重置。
+              </div>
+            )}
+          </Paragraph>
+        </div>
+      </Modal>
     </Layout>
   );
 };

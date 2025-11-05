@@ -105,9 +105,10 @@ UI 组件库：Ant Design 5.28.0
 路由管理：React Router 7.9.5
 数据可视化：React Force Graph 2D 1.29.0
 文件处理：jschardet 3.1.4
-API 客户端：Fetch API + 自定义封装
+API 客户端：Fetch API + 自定义封装（支持 Mock 模式）
 时间处理：dayjs 1.11.19
 后端集成：FastAPI + LangChain API
+开发模式：Mock API 系统（预置数据 + 模拟延迟）
 ```
 
 ### 架构设计
@@ -136,7 +137,9 @@ frontend/
 │   │   └── index.ts          # 数据模型类型（匹配后端API）
 │   │
 │   └── utils/                # 工具函数
-│       ├── api.ts            # API 客户端（与后端通信）
+│       ├── api.ts            # API 客户端（支持 Mock/真实 API 切换）
+│       ├── mockApi.ts        # Mock API 实现（前端独立开发用）
+│       ├── mockData.ts       # Mock 数据生成器（预置小说、搜索结果等）
 │       ├── textProcessing.ts # 文本处理（编码检测、章节识别）
 │       └── constants.ts      # 常量配置
 │
@@ -352,11 +355,46 @@ cp .env.example .env
 # 后端API服务地址（包含 /api/v1 版本前缀）
 VITE_API_BASE_URL=http://localhost:8000/api/v1
 
+# Mock API 模式（可选，用于前端独立开发）
+# true: 使用 Mock 数据，无需后端服务
+# false: 使用真实后端 API（默认）
+VITE_USE_MOCK_API=false
+
 # 应用标题
 VITE_APP_TITLE=小说RAG分析系统
 ```
 
 **注意：** 确保后端服务正在运行，并且CORS配置正确。
+
+### Mock API 模式（前端独立开发）
+
+如果后端尚未开发完成，可以启用 Mock 模式进行前端开发和功能预览：
+
+**1. 创建 `.env.development` 文件**：
+```env
+VITE_API_BASE_URL=http://localhost:8000/api/v1
+VITE_USE_MOCK_API=true
+```
+
+**2. 启动开发服务器**：
+```bash
+npm run dev
+```
+
+**Mock 模式特性**：
+- ✅ **预置数据**：包含 3 部示例小说（修仙传奇、都市风云、星际争霸）
+- ✅ **完整功能**：支持所有前端功能（导入、搜索、关系图、阅读）
+- ✅ **模拟延迟**：200ms-1000ms 网络延迟，模拟真实体验
+- ✅ **异步任务**：模拟文件上传、图谱生成等长任务
+- ⚠️ **数据重置**：刷新页面后数据恢复为预置状态
+
+**切换到真实 API**：
+```env
+# 修改 .env.development
+VITE_USE_MOCK_API=false
+```
+
+重启开发服务器即可。
 
 ### 开发模式运行
 
