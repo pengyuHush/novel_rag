@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Modal, Form, Input, Select, Checkbox, Button, message } from 'antd';
-import { dbUtils } from '../utils/db';
+import { novelAPI } from '../utils/api';
 import type { Novel } from '../types';
 import { useStore } from '../store/useStore';
 
@@ -53,7 +53,7 @@ const EditNovelModal: React.FC<EditNovelModalProps> = ({ visible, novel, onClose
         updates.series = undefined;
       }
 
-      await dbUtils.updateNovel(novel.id, updates);
+      await novelAPI.updateNovel(novel.id, updates);
       updateNovel(novel.id, updates);
       
       message.success('小说信息已更新');

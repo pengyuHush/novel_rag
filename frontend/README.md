@@ -307,6 +307,28 @@ yarn install
 pnpm install
 ```
 
+### 环境配置
+
+**重要：** 在启动开发服务器前，必须配置后端API地址。
+
+```bash
+# 方式一：复制示例配置文件
+cp .env.example .env
+
+# 方式二：手动创建环境配置文件
+```
+
+创建 `.env` 文件并配置：
+```env
+# 后端API服务地址
+VITE_API_BASE_URL=http://localhost:8000
+
+# 应用标题
+VITE_APP_TITLE=小说RAG分析系统
+```
+
+**注意：** 确保后端服务正在运行，并且CORS配置正确。
+
 ### 开发模式运行
 
 ```bash
@@ -661,22 +683,97 @@ docker-compose up -d
 
 **必须配置**后端 API 地址，创建 `.env` 文件：
 
+#### 开发环境配置
+
+**方式一：使用预设环境文件**
+```bash
+# 复制开发环境配置文件
+cp .env.example .env.development
+
+# 或直接创建 .env.development 文件
+```
+
+**方式二：手动创建 `.env` 文件**
 ```env
-VITE_API_BASE_URL=http://localhost:8000  # 后端 FastAPI 服务地址
+# 后端API服务地址
+VITE_API_BASE_URL=http://localhost:8000
+
+# 应用标题
 VITE_APP_TITLE=小说RAG分析系统
 ```
 
-在代码中使用：
+#### 生产环境配置
 
-```typescript
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+创建生产环境配置文件 `.env.production`：
+```env
+# 生产环境API地址 - 需要替换为实际的部署地址
+VITE_API_BASE_URL=https://your-api-domain.com/api
+
+# 生产环境应用标题
+VITE_APP_TITLE=小说RAG分析系统
 ```
 
-**重要提示：**
+#### 环境变量说明
+
+| 变量名 | 说明 | 开发环境默认值 | 生产环境示例 |
+|--------|------|---------------|-------------|
+| `VITE_API_BASE_URL` | 后端API服务地址 | `http://localhost:8000` | `https://your-api-domain.com/api` |
+| `VITE_APP_TITLE` | 应用标题 | `小说RAG分析系统` | `小说RAG分析系统` |
+
+#### 在代码中使用
+
+```typescript
+// 获取API基础地址
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+
+// 获取应用标题
+const appTitle = import.meta.env.VITE_APP_TITLE;
+
+// 环境检测
+const isDevelopment = import.meta.env.DEV;
+const isProduction = import.meta.env.PROD;
+```
+
+#### 配置文件优先级
+
+Vite 按以下优先级加载环境变量：
+1. `.env.production`（生产环境）
+2. `.env.development`（开发环境）
+3. `.env`（通用配置）
+4. `.env.example`（示例配置，不会被加载）
+
+#### CORS 配置说明
+
+**重要：** 后端API必须配置正确的 CORS 策略以支持前端跨域访问。
+
+**开发环境 CORS 配置**（后端需要配置）：
+```python
+# FastAPI CORS 中间件配置
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",  # Vite 默认端口
+        "http://localhost:3000",  # 备用端口
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+**常见问题解决**：
+
+1. **CORS 错误**：确保前端域名在后端 CORS 允许列表中
+2. **API 连接失败**：检查 `VITE_API_BASE_URL` 配置是否正确
+3. **环境变量不生效**：确保变量名以 `VITE_` 开头，重启开发服务器
+
+#### **重要提示：**
 - ✅ 必须配置 `VITE_API_BASE_URL` 指向后端服务
-- Vite 环境变量必须以 `VITE_` 开头
-- 前端代码为公开代码，不要存储敏感信息
-- 开发环境默认指向 `http://localhost:8000`
+- ✅ 环境变量必须以 `VITE_` 开头才能被 Vite 识别
+- ✅ 生产环境需要替换为实际的API域名
+- ⚠️ 前端环境变量会暴露在浏览器中，不要存储敏感信息
+- ✅ 修改环境变量后需要重启开发服务器才能生效
+- ✅ 使用 `npm run dev` 启动时自动加载开发环境配置
 
 ---
 

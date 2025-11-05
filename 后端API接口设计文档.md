@@ -953,6 +953,29 @@ interface Relationship {
 - **监控**：基础健康检查
 - **日志**：Loguru
 
+#### 跨域配置（CORS）
+- **开发环境**：允许本地开发服务器跨域访问
+- **生产环境**：需要配置具体的域名白名单
+- **配置方式**：FastAPI CORSMiddleware
+
+**CORS 配置示例**：
+```python
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",  # Vite 开发服务器
+        "http://localhost:3000",  # 备用开发端口
+        # 生产环境需要添加实际域名
+        # "https://your-frontend-domain.com"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
 ### MVP vs 完整版对比
 
 | 组件 | MVP版本 | 完整版本 |
