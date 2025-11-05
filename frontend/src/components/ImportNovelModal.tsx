@@ -17,9 +17,9 @@ import {
 import { InboxOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import type { UploadProps } from 'antd';
 import { v4 as uuidv4 } from 'uuid';
-import { dbUtils, formatFileSize, formatWordCount } from '../utils/db';
+import { novelAPI, apiUtils, APIError } from '../utils/api';
 import { detectEncoding, readFileContent, detectChapters, cleanText } from '../utils/textProcessing';
-import type { Novel, Chapter } from '../types';
+import type { Novel, Chapter, NovelProcessingStatus } from '../types';
 
 const { Dragger } = Upload;
 const { Step } = Steps;
@@ -127,37 +127,44 @@ const ImportNovelModal: React.FC<ImportNovelModalProps> = ({ visible, onClose, o
       const values = await form.validateFields();
       setLoading(true);
 
-      const novel: Novel = {
-        id: uuidv4(),
-        title: values.title,
-        author: values.author,
-        summary: values.summary,
-        tags: values.tags || [],
-        wordCount: content.length,
-        fileSize: file?.size || 0,
-        importDate: new Date().toISOString(),
-        encoding: encoding,
-        chapters: chapters,
-        content: content,
-      };
-
-      // 如果是系列小说
-      if (values.isSeries) {
-        novel.series = {
-          relatedNovels: values.relatedNovels || [],
-          order: values.seriesOrder || 1,
-        };
+      if (!file) {
+        message.error('请选择文件');
+        return;
       }
 
-      // 保存到数据库
-      await dbUtils.addNovel(novel);
-      
+      // 上传文件
+      const uploadResult = await novelAPI.uploadNovel(file);
+      const { novelId } = uploadResult;
+
+      // 开始轮询处理状态
+      message.info('文件上传成功，开始处理...');
+      setCurrentStep(3); // 切换到处理进度步骤
+
+      // 使用轮询监听处理状态
+      await apiUtils.pollStatus(
+        novelId,
+        (status: NovelProcessingStatus) => {
+          setProgress(status.progress);
+
+          if (status.status === 'failed') {
+            throw new Error(`处理失败: ${status.message}`);
+          }
+        }
+      );
+
+      // 处理完成
       message.success('小说导入成功！');
       onSuccess();
       handleClose();
     } catch (error) {
       console.error('导入失败:', error);
-      message.error('导入失败，请重试');
+      if (error instanceof APIError) {
+        message.error(`导入失败: ${error.message}`);
+      } else {
+        message.error(`导入失败: ${error.message}`);
+      }
+      // 发生错误时回到第一步
+      setCurrentStep(0);
     } finally {
       setLoading(false);
     }
@@ -331,20 +338,46 @@ const ImportNovelModal: React.FC<ImportNovelModalProps> = ({ visible, onClose, o
           <div style={{ marginTop: 24, textAlign: 'right' }}>
             <Space>
               <Button onClick={() => setCurrentStep(1)}>上一步</Button>
-              <Button type="primary" onClick={() => setCurrentStep(3)}>
-                下一步
+              <Button
+                type="primary"
+                loading={loading}
+                onClick={handleImport}
+                icon={<CheckCircleOutlined />}
+              >
+                开始导入
               </Button>
             </Space>
           </div>
         </div>
       )}
 
-      {/* 步骤4：确认导入 */}
+      {/* 步骤3：处理进度 */}
       {currentStep === 3 && (
-        <div>
+        <div style={{ textAlign: 'center', padding: '20px' }}>
           <div style={{ marginBottom: 24 }}>
-            <h4 style={{ marginBottom: 16 }}>请确认以下信息：</h4>
-            <List size="small">
+            <CheckCircleOutlined style={{ fontSize: 48, color: '#52c41a' }} />
+            <h4 style={{ marginTop: 16, marginBottom: 8 }}>正在处理您的小说</h4>
+            <p style={{ color: '#666' }}>
+              正在进行章节识别、向量化等处理，请稍候...
+            </p>
+          </div>
+
+          <div style={{ marginBottom: 24 }}>
+            <Progress
+              percent={progress}
+              status={progress === 100 ? 'success' : 'active'}
+              strokeColor={{
+                '0%': '#108ee9',
+                '100%': '#52c41a',
+              }}
+            />
+            <p style={{ marginTop: 8, color: '#666', fontSize: '14px' }}>
+              处理进度: {progress}%
+            </p>
+          </div>
+
+          <div style={{ marginBottom: 24 }}>
+            <List size="small" style={{ textAlign: 'left', maxWidth: 400, margin: '0 auto' }}>
               <List.Item>
                 <span>书名：</span>
                 <span style={{ fontWeight: 'bold' }}>{form.getFieldValue('title')}</span>
@@ -356,32 +389,18 @@ const ImportNovelModal: React.FC<ImportNovelModalProps> = ({ visible, onClose, o
                 </List.Item>
               )}
               <List.Item>
-                <span>字数：</span>
-                <span>{formatWordCount(content.length)}</span>
+                <span>预计字数：</span>
+                <span>{apiUtils.formatWordCount(content.length)}</span>
               </List.Item>
               <List.Item>
-                <span>章节数：</span>
+                <span>预计章节数：</span>
                 <span>{chapters.length}章</span>
               </List.Item>
               <List.Item>
-                <span>编码：</span>
+                <span>文件编码：</span>
                 <span>{encoding}</span>
               </List.Item>
             </List>
-          </div>
-
-          <div style={{ textAlign: 'right' }}>
-            <Space>
-              <Button onClick={() => setCurrentStep(2)}>上一步</Button>
-              <Button
-                type="primary"
-                loading={loading}
-                onClick={handleImport}
-                icon={<CheckCircleOutlined />}
-              >
-                确认导入
-              </Button>
-            </Space>
           </div>
         </div>
       )}

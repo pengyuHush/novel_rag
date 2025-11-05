@@ -4,9 +4,9 @@
 
 本文档详细说明了小说 RAG 分析系统后端 API 的设计规范，完整覆盖前端所有功能需求。
 
-- **API 版本**：v1.0.0
+- **API 版本**：v1.0.0（简化版）
 - **规范标准**：OpenAPI 3.0.3
-- **认证方式**：JWT Bearer Token
+- **认证方式**：无（MVP阶段匿名访问）
 - **数据格式**：JSON
 - **字符编码**：UTF-8
 
@@ -36,16 +36,16 @@
 
 耗时操作（文件上传、向量化、关系图谱生成）采用异步模式：
 
-1. 接口立即返回任务 ID（HTTP 202）
-2. 客户端轮询 `/tasks/{taskId}/status` 查询进度
+1. 接口立即返回小说 ID（HTTP 202）
+2. 客户端轮询 `/novels/{novelId}/status` 查询进度
 3. 任务完成后返回结果
 
-### 4. 安全机制
+### 4. 简化安全机制（MVP阶段）
 
-- JWT 认证（有效期 7 天）
-- 速率限制（分级限流）
-- 存储配额管理
-- 敏感信息脱敏
+- 无用户认证，匿名访问
+- 基础速率限制
+- 文件大小限制
+- 基础错误处理
 
 ### 5. 错误处理
 
@@ -64,43 +64,31 @@
 
 ---
 
-## 🔐 认证与授权
+## 📚 核心功能模块（MVP简化版）
 
-### JWT 认证流程
-
+**API概览**：
 ```
-1. 用户登录 → POST /auth/login
-2. 服务端返回 JWT Token 和 Refresh Token
-3. 后续请求携带 Token：Authorization: Bearer <token>
-4. Token 过期前刷新 → POST /auth/refresh
+/api/v1/
+├── novels/
+│   ├── GET    /           # 获取小说列表
+│   ├── POST   /           # 创建小说记录
+│   ├── GET    /{id}       # 获取小说详情
+│   ├── PUT    /{id}       # 更新小说信息
+│   ├── DELETE /{id}       # 删除小说
+│   ├── POST   /{id}/upload # 上传文件
+│   └── GET    /{id}/status # 获取处理状态
+├── search/
+│   └── POST   /           # 搜索问答
+├── graph/
+│   ├── GET    /novels/{id} # 获取人物关系图谱
+│   └── POST   /novels/{id} # 生成图谱（异步）
+├── chapters/
+│   └── GET    /novels/{id}/chapters # 获取章节列表
+└── system/
+    └── GET    /health     # 健康检查
 ```
 
-### Token 结构
-
-**Access Token**（有效期 7 天）：
-```json
-{
-  "userId": "user_123",
-  "username": "novel_reader",
-  "exp": 1704096000
-}
-```
-
-**Refresh Token**（有效期 30 天）：
-用于获取新的 Access Token
-
-### 认证接口
-
-| 接口 | 方法 | 描述 | 认证 |
-|------|------|------|------|
-| `/auth/register` | POST | 用户注册 | ❌ |
-| `/auth/login` | POST | 用户登录 | ❌ |
-| `/auth/refresh` | POST | 刷新令牌 | ❌ |
-| `/auth/logout` | POST | 用户登出 | ✅ |
-
----
-
-## 📚 核心功能模块
+**说明**：MVP阶段采用匿名访问，无需认证机制，专注于核心功能实现。
 
 ### 1. 小说管理（Novels）
 
@@ -108,11 +96,11 @@
 
 | 接口 | 方法 | 描述 | 参数 |
 |------|------|------|------|
-| `/novels` | GET | 获取小说列表 | page, pageSize, sortBy, search, tags |
-| `/novels` | POST | 创建小说记录 | title, author, description, tags |
-| `/novels/{novelId}` | GET | 获取小说详情 | - |
-| `/novels/{novelId}` | PUT | 更新小说信息 | title, author, description, tags |
-| `/novels/{novelId}` | DELETE | 删除小说 | - |
+| `/api/v1/novels` | GET | 获取小说列表 | page, pageSize, sortBy, search, tags |
+| `/api/v1/novels` | POST | 创建小说记录 | title, author, description, tags |
+| `/api/v1/novels/{novelId}` | GET | 获取小说详情 | - |
+| `/api/v1/novels/{novelId}` | PUT | 更新小说信息 | title, author, description, tags |
+| `/api/v1/novels/{novelId}` | DELETE | 删除小说 | - |
 
 #### 1.2 小说列表响应示例
 
@@ -157,7 +145,7 @@
 
 #### 2.1 文件上传与处理
 
-**接口**：`POST /novels/{novelId}/upload`
+**接口**：`POST /api/v1/novels/{novelId}/upload`
 
 **处理流程**：
 
@@ -182,8 +170,7 @@
 **请求示例**：
 
 ```bash
-curl -X POST https://api.novel-rag.com/v1/novels/novel_123/upload \
-  -H "Authorization: Bearer <token>" \
+curl -X POST https://api.novel-rag.com/api/v1/novels/novel_123/upload \
   -F "file=@斗破苍穹.txt" \
   -F "autoDetectChapters=true"
 ```
@@ -193,7 +180,8 @@ curl -X POST https://api.novel-rag.com/v1/novels/novel_123/upload \
 ```json
 {
   "message": "文件上传成功，正在处理中",
-  "taskId": "task_abc123",
+  "novelId": "novel_123",
+  "status": "processing",
   "estimatedTime": 120
 }
 ```
@@ -210,7 +198,7 @@ curl -X POST https://api.novel-rag.com/v1/novels/novel_123/upload \
 
 #### 2.3 验证接口（预检查）
 
-**接口**：`POST /novels/{novelId}/validate`
+**接口**：`POST /api/v1/novels/{novelId}/validate`
 
 用于上传前快速验证文件是否合格，返回：
 
@@ -226,28 +214,31 @@ curl -X POST https://api.novel-rag.com/v1/novels/novel_123/upload \
 }
 ```
 
-#### 2.4 任务状态查询
+#### 2.4 处理状态查询
 
-**接口**：`GET /tasks/{taskId}/status`
+**接口**：`GET /api/v1/novels/{novelId}/status`
 
 **状态说明**：
 
 | 状态 | 说明 | 前端行为 |
 |------|------|----------|
-| `pending` | 等待处理 | 显示"排队中" |
-| `processing` | 处理中 | 显示进度条（progress: 0-100） |
-| `completed` | 完成 | 跳转到小说详情/提示成功 |
-| `failed` | 失败 | 显示错误信息，允许重试 |
+| `pending` | 已创建记录，等待上传文件 | 显示"待上传" |
+| `processing` | 正在处理文件 | 显示进度条（progress: 0-100） |
+| `completed` | 处理完成，可正常使用 | 显示"完成" |
+| `failed` | 处理失败 | 显示错误信息，允许重试 |
 
 **响应示例**：
 
 ```json
 {
-  "taskId": "task_abc123",
+  "novelId": "novel_abc123",
   "status": "processing",
   "progress": 65,
   "message": "正在构建向量索引...",
-  "createdAt": "2024-01-01T12:00:00Z",
+  "stage": "vectorizing",  // uploading, detecting_chapters, vectorizing, completed
+  "processedWords": 812500,
+  "totalWords": 1250000,
+  "estimatedTimeRemaining": 45,
   "updatedAt": "2024-01-01T12:02:30Z"
 }
 ```
@@ -260,12 +251,12 @@ curl -X POST https://api.novel-rag.com/v1/novels/novel_123/upload \
 
 | 接口 | 方法 | 描述 |
 |------|------|------|
-| `/novels/{novelId}/chapters` | GET | 获取章节列表 |
-| `/novels/{novelId}/chapters` | POST | 手动添加章节 |
-| `/novels/{novelId}/chapters/{chapterId}` | GET | 获取章节内容 |
-| `/novels/{novelId}/chapters/{chapterId}` | PUT | 更新章节信息 |
-| `/novels/{novelId}/chapters/{chapterId}` | DELETE | 删除章节 |
-| `/novels/{novelId}/chapters/redetect` | POST | 重新识别章节 |
+| `/api/v1/novels/{novelId}/chapters` | GET | 获取章节列表 |
+| `/api/v1/novels/{novelId}/chapters` | POST | 手动添加章节 |
+| `/api/v1/novels/{novelId}/chapters/{chapterId}` | GET | 获取章节内容 |
+| `/api/v1/novels/{novelId}/chapters/{chapterId}` | PUT | 更新章节信息 |
+| `/api/v1/novels/{novelId}/chapters/{chapterId}` | DELETE | 删除章节 |
+| `/api/v1/novels/{novelId}/chapters/redetect` | POST | 重新识别章节 |
 
 #### 3.2 章节数据结构
 
@@ -301,7 +292,7 @@ Chapter\s+\d+
 
 ```bash
 # 请求
-POST /novels/novel_123/chapters/redetect
+POST /api/v1/novels/novel_123/chapters/redetect
 {
   "chapterPattern": "第[\\d]+章",
   "clearExisting": true
@@ -309,14 +300,13 @@ POST /novels/novel_123/chapters/redetect
 
 # 响应（HTTP 202）
 {
-  "message": "章节重新识别任务已启动",
-  "taskId": "task_xyz789"
+  "message": "章节重新识别任务已启动"
 }
 ```
 
 #### 3.4 获取章节内容
 
-**接口**：`GET /novels/{novelId}/chapters/{chapterId}`
+**接口**：`GET /api/v1/novels/{novelId}/chapters/{chapterId}`
 
 **响应示例**：
 
@@ -353,7 +343,7 @@ POST /novels/novel_123/chapters/redetect
 
 #### 4.1 智能搜索接口
 
-**接口**：`POST /search`
+**接口**：`POST /api/v1/search`
 
 **核心功能**：
 
@@ -370,8 +360,7 @@ POST /novels/novel_123/chapters/redetect
   "query": "萧炎的师父是谁？",
   "novelIds": ["novel_123"],
   "topK": 5,
-  "includeReferences": true,
-  "saveHistory": true
+  "includeReferences": true
 }
 ```
 
@@ -383,7 +372,6 @@ POST /novels/novel_123/chapters/redetect
 | `novelIds` | array | ❌ | 搜索范围（空=全部） | [] |
 | `topK` | integer | ❌ | 返回结果数 | 5 |
 | `includeReferences` | boolean | ❌ | 是否包含引用 | true |
-| `saveHistory` | boolean | ❌ | 是否保存历史 | true |
 
 **响应示例**：
 
@@ -438,27 +426,6 @@ POST /novels/novel_123/chapters/redetect
 返回结果
 ```
 
-#### 4.3 搜索历史管理
-
-| 接口 | 方法 | 描述 |
-|------|------|------|
-| `/search/history` | GET | 获取搜索历史列表 |
-| `/search/history` | DELETE | 清空所有搜索历史 |
-| `/search/history/{historyId}` | DELETE | 删除单条搜索历史 |
-
-**历史记录结构**：
-
-```json
-{
-  "id": "history_123",
-  "query": "萧炎的师父是谁？",
-  "answer": "萧炎的师父是药尘...",
-  "novelIds": ["novel_123"],
-  "resultCount": 5,
-  "searchedAt": "2024-01-01T12:00:00Z"
-}
-```
-
 ---
 
 ### 5. 人物关系图谱（Character Graph）
@@ -467,15 +434,15 @@ POST /novels/novel_123/chapters/redetect
 
 | 接口 | 方法 | 描述 |
 |------|------|------|
-| `/novels/{novelId}/graph` | GET | 获取关系图谱 |
-| `/novels/{novelId}/graph` | POST | 生成关系图谱 |
-| `/novels/{novelId}/graph` | DELETE | 删除关系图谱 |
-| `/novels/{novelId}/characters` | GET | 获取人物列表 |
-| `/novels/{novelId}/characters/{characterId}` | GET | 获取人物详情 |
+| `/api/v1/novels/{novelId}/graph` | GET | 获取关系图谱 |
+| `/api/v1/novels/{novelId}/graph` | POST | 生成关系图谱 |
+| `/api/v1/novels/{novelId}/graph` | DELETE | 删除关系图谱 |
+| `/api/v1/novels/{novelId}/characters` | GET | 获取人物列表 |
+| `/api/v1/novels/{novelId}/characters/{characterId}` | GET | 获取人物详情 |
 
 #### 5.2 生成关系图谱
 
-**接口**：`POST /novels/{novelId}/graph`
+**接口**：`POST /api/v1/novels/{novelId}/graph`
 
 **处理流程**：
 
@@ -586,7 +553,7 @@ POST /novels/novel_123/chapters/redetect
 
 #### 5.5 人物详情
 
-**接口**：`GET /novels/{novelId}/characters/{characterId}`
+**接口**：`GET /api/v1/novels/{novelId}/characters/{characterId}`
 
 **响应**：
 
@@ -628,148 +595,88 @@ POST /novels/novel_123/chapters/redetect
 
 ---
 
-### 6. 统计信息（Statistics）
+### 6. 系统管理（System）
 
-#### 6.1 统计相关接口
+#### 6.1 系统接口
 
 | 接口 | 方法 | 描述 |
 |------|------|------|
-| `/stats/overview` | GET | 获取用户数据概览 |
-| `/stats/novels/{novelId}` | GET | 获取单部小说统计 |
+| `/api/v1/health` | GET | 健康检查 |
+| `/api/v1/system/info` | GET | 系统信息 |
 
-#### 6.2 用户概览
+#### 6.2 健康检查
 
-**接口**：`GET /stats/overview`
-
-**响应示例**：
-
-```json
-{
-  "novels": {
-    "total": 15,
-    "totalWordCount": 25000000,
-    "totalChapters": 3500
-  },
-  "storage": {
-    "used": 104857600,
-    "limit": 1073741824,
-    "usagePercentage": 9.77
-  },
-  "searches": {
-    "total": 342,
-    "last7Days": 28
-  },
-  "graphs": {
-    "generated": 8,
-    "totalCharacters": 456,
-    "totalRelationships": 1234
-  }
-}
-```
-
-#### 6.3 小说统计
-
-**接口**：`GET /stats/novels/{novelId}`
-
-**响应示例**：
-
-```json
-{
-  "novel": {
-    "id": "novel_123",
-    "title": "斗破苍穹",
-    "wordCount": 1250000,
-    "chapterCount": 450
-  },
-  "reading": {
-    "totalReadTime": 18600,
-    "currentChapter": 150,
-    "progress": 33.3
-  },
-  "searches": {
-    "count": 42,
-    "topQueries": [
-      {
-        "query": "萧炎的师父是谁？",
-        "count": 8
-      }
-    ]
-  },
-  "graph": {
-    "status": "completed",
-    "characterCount": 125,
-    "relationshipCount": 356,
-    "generatedAt": "2024-01-01T12:00:00Z"
-  }
-}
-```
-
----
-
-### 7. 系统管理（System）
-
-#### 7.1 系统接口
-
-| 接口 | 方法 | 描述 | 认证 |
-|------|------|------|------|
-| `/health` | GET | 健康检查 | ❌ |
-| `/system/info` | GET | 系统信息 | ❌ |
-
-#### 7.2 健康检查
-
-**接口**：`GET /health`
+**接口**：`GET /api/v1/health`
 
 **响应示例**：
 
 ```json
 {
   "status": "healthy",
-  "version": "1.0.0",
   "timestamp": "2024-01-01T12:00:00Z",
+  "version": "1.0.0",
   "services": {
-    "database": "healthy",
-    "vectorStore": "healthy",
-    "llm": "healthy"
+    "database": {
+      "status": "healthy",
+      "responseTime": 12
+    },
+    "redis": {
+      "status": "healthy",
+      "responseTime": 5
+    },
+    "qdrant": {
+      "status": "healthy",
+      "responseTime": 23,
+      "collections": 2
+    },
+    "zhipu_api": {
+      "status": "healthy",
+      "responseTime": 156
+    }
   }
 }
 ```
 
-#### 7.3 系统信息
+#### 6.3 系统信息
 
-**接口**：`GET /system/info`
+**接口**：`GET /api/v1/system/info`
 
 **响应示例**：
 
 ```json
 {
-  "version": "1.0.0",
+  "system": {
+    "name": "小说RAG分析系统",
+    "version": "1.0.0",
+    "environment": "development"
+  },
   "limits": {
     "maxFileSize": 52428800,
-    "maxNovelsPerUser": 50,
-    "maxStoragePerUser": 1073741824
+    "supportedFormats": ["txt"],
+    "maxNovels": 100,
+    "maxWordCount": 5000000
   },
   "features": {
-    "ragSearch": true,
-    "characterGraph": true,
-    "multiNovelSearch": true
-  },
-  "supportedEncodings": ["UTF-8", "GBK", "GB2312"],
-  "supportedFormats": ["TXT"]
+    "search": true,
+    "graph": true,
+    "upload": true,
+    "multiNovel": true
+  }
 }
 ```
 
 ---
 
-## 🚦 速率限制
+## 🚦 简化速率限制（MVP阶段）
 
-### 限流规则
+### 基础限流规则
 
 | 接口类型 | 限制 | 时间窗口 |
 |----------|------|----------|
-| 普通接口 | 100 次 | 1 分钟 |
-| 文件上传 | 10 次 | 1 分钟 |
-| RAG 问答 | 20 次 | 1 分钟 |
-| 关系图谱生成 | 5 次 | 1 分钟 |
+| 普通接口 | 60 次 | 1 分钟 |
+| 文件上传 | 5 次 | 1 分钟 |
+| RAG 问答 | 15 次 | 1 分钟 |
+| 图谱生成 | 3 次 | 1 分钟 |
 
 ### 限流响应
 
@@ -779,18 +686,13 @@ POST /novels/novel_123/chapters/redetect
 {
   "error": {
     "code": "RATE_LIMIT_EXCEEDED",
-    "message": "请求过于频繁，请稍后再试"
+    "message": "请求过于频繁，请稍后再试",
+    "retryAfter": 60
   }
 }
 ```
 
-**响应头**：
-
-```
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 0
-X-RateLimit-Reset: 1704096060
-```
+**说明**：MVP阶段采用简单的IP级别限流，无需复杂的用户级限流。
 
 ---
 
@@ -801,8 +703,6 @@ X-RateLimit-Reset: 1704096060
 | 错误码 | HTTP状态码 | 说明 |
 |--------|-----------|------|
 | `BAD_REQUEST` | 400 | 请求参数错误 |
-| `UNAUTHORIZED` | 401 | 未授权/令牌无效 |
-| `FORBIDDEN` | 403 | 无权限访问 |
 | `NOT_FOUND` | 404 | 资源不存在 |
 | `CONFLICT` | 409 | 资源冲突 |
 | `RATE_LIMIT_EXCEEDED` | 429 | 请求过于频繁 |
@@ -827,8 +727,7 @@ X-RateLimit-Reset: 1704096060
 |--------|------|
 | `NOVEL_NOT_FOUND` | 小说不存在 |
 | `NOVEL_NOT_READY` | 小说处理未完成 |
-| `STORAGE_LIMIT_EXCEEDED` | 存储空间不足 |
-| `NOVEL_LIMIT_EXCEEDED` | 小说数量超过限制 |
+| `SYSTEM_LIMIT_EXCEEDED` | 超过系统限制 |
 
 #### 搜索相关
 
@@ -939,7 +838,7 @@ interface Relationship {
 
 ## 🔄 前后端交互流程
 
-### 流程1：导入小说
+### 流程1：导入小说（简化版）
 
 ```
 前端                             后端
@@ -953,19 +852,19 @@ interface Relationship {
   | POST /novels/novel_123/upload |
   |------------------------------>|
   |                               | 验证文件
-  |                               | 启动异步任务
+  |                               | 启动后台处理
   |<------------------------------|
-  | 202 Accepted (task_abc)       |
+  | 202 Accepted                   |
   |                               |
-  | 轮询 GET /tasks/task_abc/status|
+  | 轮询 GET /novels/novel_123/status|
   |------------------------------>|
   |<------------------------------|
   | { status: "processing", progress: 30% }
   |                               |
-  | 轮询 GET /tasks/task_abc/status|
+  | 轮询 GET /novels/novel_123/status|
   |------------------------------>|
   |<------------------------------|
-  | { status: "completed", result: {...} }
+  | { status: "completed" }       |
   |                               |
   | GET /novels/novel_123         |
   |------------------------------>|
@@ -995,7 +894,7 @@ interface Relationship {
   | }                             |
 ```
 
-### 流程3：生成关系图谱
+### 流程3：生成关系图谱（简化版）
 
 ```
 前端                             后端
@@ -1004,17 +903,17 @@ interface Relationship {
   |------------------------------>|
   |                               | 启动图谱生成任务
   |<------------------------------|
-  | 202 Accepted (task_graph_123) |
+  | 202 Accepted                   |
   |                               |
-  | 轮询 GET /tasks/task_graph_123/status|
+  | 轮询 GET /novels/novel_123/status|
   |------------------------------>|
   |<------------------------------|
-  | { status: "processing", progress: 50% }
+  | { status: "processing", stage: "graph_generation" }
   |                               |
   | 轮询（完成后）                  |
   |------------------------------>|
   |<------------------------------|
-  | { status: "completed" }       |
+  | { status: "completed", hasGraph: true }
   |                               |
   | GET /novels/novel_123/graph   |
   |------------------------------>|
@@ -1024,150 +923,78 @@ interface Relationship {
 
 ---
 
-## 🛠️ 技术实现建议
+## 🛠️ 简化技术实现建议（MVP版本）
 
-### 推荐技术栈
+### 核心技术栈（按后端技术文档）
 
 #### 后端框架
-
-- **Python**：FastAPI / Django + DRF
-- **Node.js**：Express.js / Nest.js
-- **Java**：Spring Boot
-- **Go**：Gin / Echo
+- **Python 3.10+**：FastAPI（异步高性能，自动文档）
 
 #### 数据库
-
-- **关系型数据库**：PostgreSQL（存储结构化数据）
-- **向量数据库**：
-  - Milvus（大规模向量检索）
-  - Qdrant（轻量级）
-  - Pinecone（云服务）
-  - pgvector（PostgreSQL 扩展）
+- **主数据库**：SQLite（零配置，适合MVP）
+- **向量数据库**：Qdrant（轻量级，易部署）
+- **缓存**：Redis（基础缓存）
 
 #### RAG 相关
+- **Embedding 模型**：智谱 Embedding-3（与LLM配套）
+- **LLM 模型**：智谱 GLM-4.6（中文优化，性价比高）
+- **RAG 框架**：简化版 LangChain（仅核心功能）
 
-- **Embedding 模型**：
-  - text-embedding-3（OpenAI）
-  - BGE-M3（中文优化）
-  - m3e-base（中文）
-  
-- **LLM 模型**：
-  - GPT-4 / GPT-3.5（OpenAI）
-  - Claude（Anthropic）
-  - ChatGLM（智谱AI）
-  - Qwen（阿里）
+#### 文本处理
+- **编码检测**：chardet
+- **中文分词**：jieba
+- **章节识别**：正则表达式 + 启发式规则
 
-- **RAG 框架**：
-  - LangChain
-  - LlamaIndex
-  - Haystack
+#### 异步处理
+- **后台任务**：FastAPI BackgroundTasks（无需Celery）
 
-#### NLP 工具
+#### 部署和运维
+- **容器化**：Docker + Docker Compose
+- **监控**：基础健康检查
+- **日志**：Loguru
 
-- **分词**：jieba（中文）
-- **NER**：LAC（百度）、BERT-NER
-- **关系抽取**：UIE（通用信息抽取）
+### MVP vs 完整版对比
 
-#### 其他
-
-- **任务队列**：Celery / Bull
-- **缓存**：Redis
-- **对象存储**：MinIO / S3（存储原始文件）
-- **消息队列**：RabbitMQ / Kafka
-
-### 系统架构建议
-
-```
-                    ┌─────────────┐
-                    │   前端 Web  │
-                    └──────┬──────┘
-                           │
-                    ┌──────▼──────┐
-                    │  API Gateway │
-                    │  (Nginx/Kong)│
-                    └──────┬──────┘
-                           │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-   ┌────▼────┐      ┌──────▼──────┐   ┌──────▼──────┐
-   │ 认证服务 │      │  核心 API   │   │  RAG 服务  │
-   │  (JWT)  │      │  (FastAPI)  │   │ (LangChain)│
-   └────┬────┘      └──────┬──────┘   └──────┬──────┘
-        │                  │                  │
-        └──────────────────┼──────────────────┘
-                           │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-   ┌────▼────┐      ┌──────▼──────┐   ┌──────▼──────┐
-   │PostgreSQL│      │   Milvus   │   │   Redis    │
-   │  (数据)  │      │  (向量库)   │   │   (缓存)   │
-   └─────────┘      └────────────┘   └────────────┘
-```
-
-### 性能优化建议
-
-1. **向量检索优化**：
-   - 使用 HNSW 或 IVF 索引
-   - 设置合理的 Top-K 值
-   - 实现增量索引更新
-
-2. **缓存策略**：
-   - 热门搜索结果缓存
-   - 章节内容缓存
-   - 关系图谱缓存
-
-3. **异步处理**：
-   - 文件上传和处理异步化
-   - 关系图谱生成异步化
-   - 使用消息队列解耦
-
-4. **数据库优化**：
-   - 合理设计索引
-   - 使用连接池
-   - 读写分离
+| 组件 | MVP版本 | 完整版本 |
+|------|---------|----------|
+| 数据库 | SQLite | PostgreSQL |
+| 用户系统 | ❌ 简化无认证 | ✅ JWT + 用户管理 |
+| 任务队列 | BackgroundTasks | Celery + Redis |
+| 监控系统 | 基础健康检查 | Prometheus + Grafana |
+| 缓存策略 | Redis基础缓存 | 多级缓存策略 |
+| 部署复杂度 | ⭐⭐ 简单 | ⭐⭐⭐⭐ 复杂 |
 
 ---
 
-## 📖 API 使用示例
+## 📖 简化API使用示例（MVP版本）
 
-### 完整流程示例（Python）
+### 基础流程示例（Python）
 
 ```python
 import requests
+import time
 
-BASE_URL = "https://api.novel-rag.com/v1"
+BASE_URL = "http://localhost:8000/api/v1"
 
-# 1. 用户登录
-response = requests.post(f"{BASE_URL}/auth/login", json={
-    "identifier": "novel_reader",
-    "password": "SecurePass123!"
-})
-token = response.json()["token"]
-
-headers = {"Authorization": f"Bearer {token}"}
-
-# 2. 创建小说记录
-response = requests.post(f"{BASE_URL}/novels", headers=headers, json={
+# 1. 创建小说记录（无需认证）
+response = requests.post(f"{BASE_URL}/api/v1/novels", json={
     "title": "斗破苍穹",
     "author": "天蚕土豆",
     "tags": ["玄幻", "修仙"]
 })
-novel_id = response.json()["novel"]["id"]
+novel_id = response.json()["id"]
 
-# 3. 上传文件
+# 2. 上传文件
 with open("斗破苍穹.txt", "rb") as f:
     files = {"file": f}
     response = requests.post(
         f"{BASE_URL}/novels/{novel_id}/upload",
-        headers=headers,
         files=files
     )
-    task_id = response.json()["taskId"]
 
-# 4. 轮询任务状态
-import time
+# 3. 轮询处理状态
 while True:
-    response = requests.get(f"{BASE_URL}/tasks/{task_id}/status", headers=headers)
+    response = requests.get(f"{BASE_URL}/novels/{novel_id}/status")
     status = response.json()["status"]
     if status == "completed":
         print("处理完成！")
@@ -1178,44 +1005,25 @@ while True:
     print(f"处理中... {response.json()['progress']}%")
     time.sleep(2)
 
-# 5. RAG 搜索
-response = requests.post(f"{BASE_URL}/search", headers=headers, json={
+# 4. RAG 搜索
+response = requests.post(f"{BASE_URL}/search", json={
     "query": "萧炎的师父是谁？",
     "novelIds": [novel_id],
     "topK": 5
 })
 answer = response.json()["answer"]
-references = response.json()["references"]
 print(f"答案：{answer}")
-for ref in references:
-    print(f"- {ref['novelTitle']} {ref['chapterTitle']}: {ref['content'][:50]}...")
 
-# 6. 生成关系图谱
-response = requests.post(f"{BASE_URL}/novels/{novel_id}/graph", headers=headers, json={
-    "minAppearances": 5,
-    "maxCharacters": 50
+# 5. 生成关系图谱
+response = requests.post(f"{BASE_URL}/novels/{novel_id}/graph", json={
+    "minAppearances": 5
 })
-graph_task_id = response.json()["taskId"]
-
-# 7. 等待图谱生成完成后获取
-# (轮询 task_id...)
-response = requests.get(f"{BASE_URL}/novels/{novel_id}/graph", headers=headers)
-graph = response.json()
-print(f"识别到 {len(graph['characters'])} 个人物")
-print(f"提取了 {len(graph['relationships'])} 个关系")
+# 等待生成完成后获取结果...
 ```
 
 ---
 
-## 🚀 部署建议
-
-### Docker 容器化部署
-
-```yaml
-# docker-compose.yml
-version: '3.8'
-
-services:
+**总结**：本API设计文档基于简化的MVP架构，移除了复杂的用户认证和任务管理系统，专注于核心RAG功能的实现，适合快速原型开发和验证。
   api:
     image: novel-rag-api:latest
     ports:

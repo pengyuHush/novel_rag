@@ -29,7 +29,7 @@ import {
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
-import { dbUtils } from '../utils/db';
+import { graphAPI, APIError } from '../utils/api';
 import { generateMockCharacterGraph } from '../utils/mockData';
 import type { CharacterGraph, Character, Relationship } from '../types';
 import ForceGraph2D from 'react-force-graph-2d';
@@ -135,26 +135,32 @@ const GraphPage: React.FC = () => {
   const loadGraph = async (id: string) => {
     try {
       setLoading(true);
-      
-      // 尝试从数据库加载
-      let characterGraph = await dbUtils.getCharacterGraph(id);
-      
+
+      // 尝试从API加载
+      let characterGraph = await graphAPI.getGraph(id);
+
       if (!characterGraph) {
-        // 如果没有缓存，生成新的图谱
+        // 如果没有图谱，生成新的
         message.info('正在分析人物关系，请稍候...');
-        await new Promise(resolve => setTimeout(resolve, 2000)); // 模拟分析过程
-        
-        characterGraph = generateMockCharacterGraph(id);
-        
-        // 保存到数据库
-        await dbUtils.saveCharacterGraph(characterGraph);
+
+        const result = await graphAPI.generateGraph(id);
+        // 注意：这里可能需要等待一段时间，然后重新获取
+        message.success('人物关系图谱生成任务已提交');
+
+        // 重新获取生成的图谱
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        characterGraph = await graphAPI.getGraph(id);
       }
-      
+
       setGraph(characterGraph);
       message.success('人物关系图谱加载完成');
     } catch (error) {
       console.error('加载图谱失败:', error);
-      message.error('加载图谱失败');
+      if (error instanceof APIError) {
+        message.error(`加载图谱失败: ${error.message}`);
+      } else {
+        message.error('加载图谱失败');
+      }
     } finally {
       setLoading(false);
     }

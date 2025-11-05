@@ -25,7 +25,7 @@ import {
 } from '@ant-design/icons';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/useStore';
-import { dbUtils } from '../utils/db';
+import { novelAPI, APIError } from '../utils/api';
 import type { Novel, Chapter } from '../types';
 
 const { Header, Content, Sider } = Layout;
@@ -148,8 +148,8 @@ const ReaderPage: React.FC = () => {
   const loadNovel = async (id: string) => {
     try {
       setLoading(true);
-      const loadedNovel = await dbUtils.getNovelById(id);
-      
+      const loadedNovel = await novelAPI.getNovel(id);
+
       if (!loadedNovel) {
         message.error('小说未找到');
         navigate('/');
@@ -159,7 +159,11 @@ const ReaderPage: React.FC = () => {
       setNovel(loadedNovel);
     } catch (error) {
       console.error('加载小说失败:', error);
-      message.error('加载小说失败');
+      if (error instanceof APIError) {
+        message.error(`加载小说失败: ${error.message}`);
+      } else {
+        message.error('加载小说失败');
+      }
       navigate('/');
     } finally {
       setLoading(false);

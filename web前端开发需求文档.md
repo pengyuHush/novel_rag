@@ -6,10 +6,12 @@
 
 **重要说明：**
 
-- 当前阶段只需完成前端界面和交互逻辑
-- 暂时不涉及后端接口设计，请使用模拟数据（Mock Data）
-- 所有数据处理暂时在前端本地完成（使用 IndexedDB 存储）
-- 专注于UI/UX设计和用户交互流程
+- 采用MVP简化版本，与后端API集成
+- 数据存储在后端，前端通过API调用获取数据
+- 移除IndexedDB依赖，所有数据通过后端API管理
+- 移除复杂的用户认证系统，采用匿名访问
+- 专注于核心功能：小说导入、智能搜索、关系图谱
+- 简化异步处理，基于小说ID进行状态轮询
 
 ---
 
@@ -35,10 +37,11 @@
 - D3.js 或 Recharts（用于人物关系图谱）
 - React Flow 或 Cytoscape.js（网络图展示）
 
-**本地存储：**
+**数据管理：**
 
-- IndexedDB（使用 Dexie.js 封装）
-- LocalStorage（用于简单配置和搜索历史）
+- HTTP客户端（axios或fetch）与后端API通信
+- 状态管理（Zustand或React Context）
+- LocalStorage（仅用于UI配置缓存，如主题设置）
 
 **文件处理：**
 
@@ -191,7 +194,7 @@
 - 弹出确认对话框："确定要删除《书名》吗？此操作不可撤销。"
 - 二次确认按钮："确定删除"（红色）和"取消"
 - 删除后显示Toast提示："已删除《书名》"
-- 从IndexedDB中删除所有相关数据
+- 调用后端API删除小说及相关数据
 
 ---
 
@@ -409,7 +412,7 @@
 - 显示提示："正在分析人物关系，请稍候..."
 - 显示进度条："已分析 X / Y 章节"
 - 分析完成后自动显示图谱
-- 在IndexedDB中缓存图谱数据，下次直接加载
+- 从后端API获取图谱数据
 
 **已有图谱：**
 
@@ -621,7 +624,7 @@
 
 ---
 
-## 数据结构建议（Mock Data）
+## 数据结构（与后端API保持一致）
 
 ### 小说数据结构
 
@@ -630,33 +633,36 @@ interface Novel {
   id: string;
   title: string;
   author?: string;
-  summary?: string;
-  tags?: string[];
+  description?: string;
+  tags: string[];
   wordCount: number;
-  fileSize: number;
-  importDate: string;
-  encoding: 'UTF-8' | 'GBK' | 'GB2312';
-  
-  // 系列关系
-  series?: {
-    relatedNovels: string[]; // 关联小说的ID数组
-    order: number; // 系列序号
-  };
-  
-  // 章节数据
-  chapters: Chapter[];
-  
-  // 原文内容
-  content: string;
+  chapterCount: number;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  importedAt: string;      // ISO 8601格式
+  updatedAt: string;       // ISO 8601格式
+  hasGraph: boolean;       // 是否已生成关系图谱
 }
 
 interface Chapter {
   id: string;
-  order: number;
+  novelId: string;
+  chapterNumber: number;
   title: string;
+  startPosition: number;
+  endPosition: number;
   wordCount: number;
-  startPosition: number; // 在全文中的起始位置
-  endPosition: number;   // 在全文中的结束位置
+}
+
+interface NovelProcessingStatus {
+  novelId: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  progress: number;         // 0-100
+  message: string;         // 当前状态描述
+  stage: 'uploading' | 'detecting_chapters' | 'vectorizing' | 'completed';
+  processedWords: number;  // 已处理字数
+  totalWords: number;      // 总字数
+  estimatedTimeRemaining: number;
+  updatedAt: string;       // ISO 8601格式
 }
 ```
 
@@ -664,9 +670,12 @@ interface Chapter {
 
 ```typescript
 interface SearchResult {
+  query: string;
   answer: string; // AI生成的回答
+  confidence: number; // 答案置信度 0-1
   references: Reference[]; // 参考段落
-  timestamp: string;
+  relatedQuestions: string[]; // 相关推荐问题
+  searchTime: number; // 搜索耗时（毫秒）
 }
 
 interface Reference {
@@ -674,10 +683,12 @@ interface Reference {
   novelTitle: string;
   chapterId: string;
   chapterTitle: string;
+  chapterNumber: number;
   paragraphIndex: number;
-  excerpt: string; // 原文片段
-  relevance: number; // 相关度 0-1
-  highlightRanges: [number, number][]; // 高亮位置
+  content: string; // 原文内容片段
+  relevanceScore: number; // 相关度评分 0-1
+  startPosition: number;
+  highlightText: string; // 高亮文本
 }
 ```
 
@@ -685,38 +696,40 @@ interface Reference {
 
 ```typescript
 interface CharacterGraph {
+  id: string;
   novelId: string;
   characters: Character[];
   relationships: Relationship[];
+  generatedAt: string; // ISO 8601格式
+  version: string;
 }
 
 interface Character {
   id: string;
   name: string;
-  frequency: number; // 出现次数
-  importance: 'major' | 'minor'; // 主要/次要人物
-  chapters: string[]; // 出现的章节ID列表
+  aliases: string[]; // 别名/称号
+  role: 'protagonist' | 'antagonist' | 'supporting' | 'minor';
+  description: string; // 人物描述
+  appearances: number; // 出场次数
+  importance: number; // 重要程度 0-1
+  firstAppearance: { // 首次出场
+    chapterId: string;
+    chapterTitle: string;
+  };
+  attributes: Record<string, any>; // 自定义属性
 }
 
 interface Relationship {
   id: string;
-  from: string; // 人物ID
-  to: string;
-  type: 'family' | 'friend' | 'enemy' | 'mentor' | 'other';
-  strength: number; // 关系强度 0-1
-  chapters: string[]; // 共同出现的章节
-  representativeExcerpts: string[]; // 代表性原文片段
-}
-```
-
-### 搜索历史数据结构
-
-```typescript
-interface SearchHistory {
-  id: string;
-  query: string;
-  result: SearchResult;
-  timestamp: string;
+  source: string; // 源人物ID
+  target: string; // 目标人物ID
+  type: 'family' | 'friend' | 'enemy' | 'master-disciple' | 'lover' | 'ally' | 'rival';
+  description: string; // 关系描述
+  strength: number; // 关系强度 0-10
+  evidence: Array<{ // 关系证据
+    chapterId: string;
+    context: string;
+  }>;
 }
 ```
 
@@ -733,33 +746,33 @@ interface SearchHistory {
 
 ### 阶段二：首页和导入功能（2-3天）
 
-1. 小说列表展示（使用Mock数据）
-2. 导入小说流程（UI和交互，文件读取）
-3. 编辑和删除功能
-4. IndexedDB数据存储
+1. 小说列表展示（集成后端API）
+2. 导入小说流程（文件上传和状态轮询）
+3. 编辑和删除功能（API调用）
+4. 错误处理和用户反馈
 
 ### 阶段三：搜索与问答功能（3-4天）
 
 1. 搜索页面布局
 2. 搜索框和选项区
-3. 结果展示（使用Mock数据模拟回答）
+3. 结果展示（集成后端RAG API）
 4. 参考段落展示和交互
-5. 搜索历史功能
+5. 多小说联合搜索
 
 ### 阶段四：人物关系图谱（3-4天）
 
-1. 图谱可视化（使用Mock关系数据）
+1. 图谱可视化（集成后端图谱API）
 2. 筛选和图例面板
 3. 交互功能（拖拽、缩放、点击）
 4. 详情面板
-5. 导出功能
+5. 图谱生成状态显示
 
 ### 阶段五：章节阅读功能（2-3天）
 
-1. 目录树展示
+1. 目录树展示（API获取章节数据）
 2. 阅读内容显示
 3. 阅读设置和主题切换
-4. 跳转定位功能
+4. 从搜索结果跳转定位
 
 ### 阶段六：优化和完善（2-3天）
 
@@ -786,12 +799,12 @@ interface SearchHistory {
 - 提供手动选择编码的选项
 - 处理编码错误，显示友好提示
 
-### 3. 本地存储限制
+### 3. API调用和错误处理
 
-- IndexedDB在不同浏览器有不同的存储限制
-- 显示存储空间使用情况
-- 存储接近限制时提示用户
-- 提供清理数据的选项
+- 实现基于小说ID的状态轮询机制
+- 处理API错误和网络异常
+- 实现重试机制和用户友好的错误提示
+- 优化大文件上传的用户体验
 
 ### 4. 性能优化
 
@@ -804,14 +817,15 @@ interface SearchHistory {
 
 - 所有耗时操作显示加载状态
 - 操作成功/失败提供明确反馈
-- 关键数据自动保存，避免丢失
+- 实现状态持久化，避免数据丢失
 - 提供帮助文档和操作指引
 
-### 6. Mock数据
+### 6. API集成
 
-- 创建合理的Mock数据用于开发和演示
-- Mock数据要有代表性（包含各种边界情况）
-- 预留API接口调用的位置，便于后续接入后端
+- 与后端API完全集成，无Mock数据
+- 实现错误处理和重试机制
+- 优化API调用性能和缓存策略
+- 确保前后端数据格式一致性
 
 ---
 
@@ -827,7 +841,7 @@ interface SearchHistory {
 2. **实现所有页面和功能**
    - 按照上述详细需求实现4个核心页面
    - 实现所有交互功能
-   - 使用Mock数据模拟后端返回
+   - 完整集成后端API，无Mock数据
 
 3. **代码质量**
    - 组件化开发，拆分合理
@@ -835,15 +849,22 @@ interface SearchHistory {
    - 代码注释清晰
    - 遵循React最佳实践
 
-4. **样式和UI**
+4. **API集成**
+   - 实现完整的API调用层
+   - 错误处理和重试机制
+   - 状态轮询和异步处理
+   - 数据缓存策略
+
+5. **样式和UI**
    - 符合设计要求
    - 响应式布局
    - 动画流畅自然
+   - 加载状态和错误提示
 
-5. **文档**
+6. **文档**
    - README.md说明项目启动方式
-   - 简要的组件说明
-   - Mock数据说明
+   - API集成说明
+   - 组件使用文档
 
 ---
 
@@ -851,9 +872,9 @@ interface SearchHistory {
 
 如果时间允许，可以考虑添加：
 
-1. 搜索建议（输入时显示历史问题）
+1. 搜索建议（输入时显示相关问题）
 2. 键盘快捷键支持
 3. 暗色模式全局切换
-4. 数据导出和导入功能
+4. 网络状态监控
 5. 更丰富的图表统计（词频、章节长度等）
-6. 阅读时的书签功能
+6. 阅读进度书签功能

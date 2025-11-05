@@ -26,8 +26,10 @@
 - 🔍 **智能检索**：基于语义理解的自然语言问答
 - 🎨 **关系图谱**：自动生成交互式人物关系网络
 - 📱 **响应式设计**：完美适配桌面和移动设备
-- 💾 **本地存储**：使用 IndexedDB 实现浏览器端数据持久化
+- 🌐 **后端集成**：与 FastAPI 后端完全集成，支持大文件处理
 - 🎯 **精准定位**：搜索结果直接定位到原文段落和章节
+- 🔄 **异步处理**：基于小说ID的状态轮询机制
+- 💾 **后端存储**：所有数据存储在后端，支持跨设备同步
 
 ---
 
@@ -46,7 +48,7 @@
 
 - ✅ 自然语言问题输入
 - ✅ 多小说联合检索
-- ✅ 搜索历史记录
+- ✅ 最近查询记录（简单存储）
 - ✅ 搜索结果展示：
   - 智能回答生成
   - 原文段落引用
@@ -102,9 +104,10 @@ UI 组件库：Ant Design 5.28.0
 状态管理：Zustand 5.0.8
 路由管理：React Router 7.9.5
 数据可视化：React Force Graph 2D 1.29.0
-本地存储：Dexie.js 4.2.1 (IndexedDB)
 文件处理：jschardet 3.1.4
+API 客户端：Fetch API + 自定义封装
 时间处理：dayjs 1.11.19
+后端集成：FastAPI + LangChain API
 ```
 
 ### 架构设计
@@ -123,19 +126,19 @@ frontend/
 │   │   └── ReaderPage.tsx    # 章节阅读器页
 │   │
 │   ├── components/           # 通用组件
-│   │   ├── ImportNovelModal.tsx    # 导入小说弹窗
+│   │   ├── ImportNovelModal.tsx    # 导入小说弹窗（支持状态轮询）
 │   │   └── EditNovelModal.tsx      # 编辑小说信息弹窗
 │   │
 │   ├── store/                # 状态管理
 │   │   └── useStore.ts       # Zustand 全局状态
 │   │
 │   ├── types/                # TypeScript 类型定义
-│   │   └── index.ts          # 数据模型类型
+│   │   └── index.ts          # 数据模型类型（匹配后端API）
 │   │
 │   └── utils/                # 工具函数
-│       ├── db.ts             # IndexedDB 数据库配置
+│       ├── api.ts            # API 客户端（与后端通信）
 │       ├── textProcessing.ts # 文本处理（编码检测、章节识别）
-│       └── mockData.ts       # 模拟数据生成
+│       └── constants.ts      # 常量配置
 │
 ├── public/                   # 静态资源
 ├── index.html                # HTML 模板
@@ -147,22 +150,24 @@ frontend/
 
 ### 数据模型
 
-#### Novel（小说）
+#### Novel（小说）- 匹配后端API
 ```typescript
 interface Novel {
-  id: string;              // 唯一标识符
-  title: string;           // 书名
-  author: string;          // 作者
-  description: string;     // 简介
-  tags: string[];          // 标签
-  content: string;         // 全文内容
-  chapters: Chapter[];     // 章节列表
-  wordCount: number;       // 总字数
-  importedAt: number;      // 导入时间戳
+  id: string;                    // 唯一标识符
+  title: string;                 // 书名
+  author?: string;               // 作者
+  description?: string;          // 简介
+  tags: string[];                // 标签
+  wordCount: number;             // 总字数
+  chapterCount: number;          // 章节数量
+  status: 'pending' | 'processing' | 'completed' | 'failed'; // 处理状态
+  importedAt: string;            // 导入时间 (ISO 8601)
+  updatedAt: string;             // 更新时间 (ISO 8601)
+  hasGraph: boolean;             // 是否已生成关系图谱
 }
 ```
 
-#### Chapter（章节）
+#### Chapter（章节）- 匹配后端API
 ```typescript
 interface Chapter {
   id: string;              // 章节标识符
@@ -175,30 +180,58 @@ interface Chapter {
 }
 ```
 
-#### CharacterGraph（人物关系图）
+#### NovelProcessingStatus（小说处理状态）
+```typescript
+interface NovelProcessingStatus {
+  novelId: string;                    // 小说ID
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  progress: number;                   // 处理进度 0-100
+  message: string;                    // 当前状态描述
+  stage: 'uploading' | 'detecting_chapters' | 'vectorizing' | 'completed';
+  processedWords: number;             // 已处理字数
+  totalWords: number;                 // 总字数
+  estimatedTimeRemaining: number;     // 预计剩余时间
+  updatedAt: string;                  // 更新时间 (ISO 8601)
+}
+```
+
+#### CharacterGraph（人物关系图）- 匹配后端API
 ```typescript
 interface CharacterGraph {
-  id: string;              // 图谱标识符
-  novelId: string;         // 所属小说ID
-  characters: Character[]; // 人物列表
-  relationships: Relationship[]; // 关系列表
-  generatedAt: number;     // 生成时间戳
+  id: string;                         // 图谱标识符
+  novelId: string;                    // 所属小说ID
+  characters: Character[];            // 人物列表
+  relationships: Relationship[];      // 关系列表
+  generatedAt: string;                // 生成时间 (ISO 8601)
+  version: string;                    // 版本号
 }
 
 interface Character {
-  id: string;              // 人物标识符
-  name: string;            // 姓名
-  role: string;            // 角色类型
-  description: string;     // 描述
-  appearances: number;     // 出场次数
+  id: string;                         // 人物标识符
+  name: string;                       // 姓名
+  aliases: string[];                  // 别名/称号
+  role: 'protagonist' | 'antagonist' | 'supporting' | 'minor';
+  description: string;                // 人物描述
+  appearances: number;                // 出场次数
+  importance: number;                 // 重要程度 0-1
+  firstAppearance: {                  // 首次出场
+    chapterId: string;
+    chapterTitle: string;
+  };
+  attributes: Record<string, any>;    // 自定义属性
 }
 
 interface Relationship {
-  source: string;          // 源人物ID
-  target: string;          // 目标人物ID
-  type: string;            // 关系类型
-  strength: number;        // 关系强度 (1-10)
-  description: string;     // 关系描述
+  id: string;                         // 关系标识符
+  source: string;                     // 源人物ID
+  target: string;                     // 目标人物ID
+  type: 'family' | 'friend' | 'enemy' | 'master-disciple' | 'lover' | 'ally' | 'rival';
+  description: string;                // 关系描述
+  strength: number;                   // 关系强度 0-10
+  evidence: Array<{                   // 关系证据
+    chapterId: string;
+    context: string;
+  }>;
 }
 ```
 
@@ -208,37 +241,44 @@ interface Relationship {
 
 ```typescript
 interface AppState {
-  novels: Novel[];                    // 小说列表
-  searchHistory: SearchHistory[];     // 搜索历史
-  storageInfo: StorageInfo;           // 存储信息
-  
+  novels: Novel[];                        // 小说列表
+  selectedNovelIds: string[];             // 当前选中的小说ID
+  currentSearchResult: SearchResult | null; // 当前搜索结果
+  recentQueries: string[];                 // 最近查询记录
+  processingStatuses: Record<string, NovelProcessingStatus>; // 处理状态
+
+  // 状态
+  loading: boolean;                       // 全局加载状态
+  searching: boolean;                      // 搜索状态
+
   // Actions
-  loadNovels: () => Promise<void>;
-  addNovel: (novel: Novel) => Promise<void>;
-  updateNovel: (novel: Novel) => Promise<void>;
-  deleteNovel: (id: string) => Promise<void>;
-  // ... 更多操作
+  setNovels: (novels: Novel[]) => void;
+  setSelectedNovelIds: (ids: string[]) => void;
+  setCurrentSearchResult: (result: SearchResult | null) => void;
+  addRecentQuery: (query: string) => void;
+  setProcessingStatus: (novelId: string, status: NovelProcessingStatus) => void;
 }
 ```
 
-### 本地存储方案
+### API 客户端架构
 
-使用 **IndexedDB** 存储小说数据，通过 Dexie.js 封装：
+使用自定义的 API 客户端与后端 FastAPI 集成：
 
 ```typescript
-class NovelDatabase extends Dexie {
-  novels!: Dexie.Table<Novel, string>;
-  chapters!: Dexie.Table<Chapter, string>;
-  characterGraphs!: Dexie.Table<CharacterGraph, string>;
-  searchHistory!: Dexie.Table<SearchHistory, string>;
-}
+// API 模块
+- novelAPI: 小说管理（上传、列表、删除、状态查询）
+- searchAPI: 搜索与问答（语义搜索、关键词搜索）
+- graphAPI: 人物关系图谱（生成、查询、删除）
+- apiUtils: 通用工具（错误处理、轮询、格式化）
 ```
 
-**优势：**
-- 支持存储大容量数据（数百MB级别）
-- 异步操作，不阻塞主线程
-- 支持索引和高效查询
-- 数据持久化，刷新页面不丢失
+**特点：**
+- 基于 Fetch API 的现代化 HTTP 客户端
+- 统一的错误处理机制（APIError）
+- 类型安全的请求/响应处理
+- 自动状态轮询机制
+- 支持匿名访问（MVP版本）
+- 完全后端数据存储，无 IndexedDB 依赖
 
 ---
 
@@ -619,10 +659,10 @@ docker-compose up -d
 
 ### 环境变量配置
 
-如果需要配置环境变量（如 API 地址），创建 `.env` 文件：
+**必须配置**后端 API 地址，创建 `.env` 文件：
 
 ```env
-VITE_API_BASE_URL=https://api.example.com
+VITE_API_BASE_URL=http://localhost:8000  # 后端 FastAPI 服务地址
 VITE_APP_TITLE=小说RAG分析系统
 ```
 
@@ -632,10 +672,11 @@ VITE_APP_TITLE=小说RAG分析系统
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
 ```
 
-**注意：**
+**重要提示：**
+- ✅ 必须配置 `VITE_API_BASE_URL` 指向后端服务
 - Vite 环境变量必须以 `VITE_` 开头
-- 构建时会被静态替换
-- 不要在环境变量中存储敏感信息（前端代码是公开的）
+- 前端代码为公开代码，不要存储敏感信息
+- 开发环境默认指向 `http://localhost:8000`
 
 ---
 
@@ -652,16 +693,19 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
 
 ### 核心功能依赖
 
-- **IndexedDB**：所有现代浏览器均支持
+- **Fetch API**：HTTP 请求（所有现代浏览器支持）
 - **File API**：用于文件上传
 - **ES2020**：现代 JavaScript 特性
 - **CSS Grid & Flexbox**：响应式布局
+- **后端 API 连接**：需要运行 FastAPI 后端服务
 
 ### 已知限制
 
 - ❌ 不支持 IE 11 及更早版本
 - ⚠️ Safari 旧版本可能在文件编码检测上有兼容问题
 - ⚠️ 移动端浏览器建议使用 Chrome 或 Safari
+- ⚠️ 需要稳定的网络连接与后端 API 通信
+- ⚠️ 大文件上传受网络环境和服务端限制
 
 ---
 
@@ -714,50 +758,49 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL;
 2. 尝试使用文本编辑器转换为 UTF-8 编码
 3. 确保文件没有损坏
 
-### Q2：小说字数过大导致导入失败？
+### Q2：小说上传失败或处理卡住？
 
-**A**：IndexedDB 理论上支持存储数百 MB 数据，但：
-1. 注意浏览器的存储配额限制
-2. Chrome/Edge 通常允许存储更大的数据
-3. 可以在浏览器设置中增加存储配额
+**A**：检查以下几点：
+1. 确认后端服务正在运行（`http://localhost:8000`）
+2. 检查网络连接是否稳定
+3. 文件大小是否超过后端限制（默认50MB）
+4. 查看浏览器控制台的错误信息
 
-### Q3：章节识别不准确怎么办？
+### Q3：上传后一直显示"处理中"？
 
-**A**：当前版本章节识别基于正则表达式匹配：
-- 支持的格式：第X章、第X回、Chapter X 等
-- 如识别错误，未来版本将支持手动调整
+**A**：大文件处理需要时间：
+1. 系统会自动轮询处理状态，请耐心等待
+2. 处理过程中可以看到进度条和状态信息
+3. 如果长时间无响应，检查后端服务状态
 
-### Q4：搜索功能如何工作？
+### Q4：搜索功能无结果？
 
-**A**：当前版本使用**模拟数据**演示功能：
-- 搜索仅为前端演示，会返回预设的模拟结果
-- 真实的语义搜索需要后端 RAG 系统支持
-- 计划在未来版本接入后端 API
+**A**：确保以下条件满足：
+1. 至少选择一部小说进行搜索
+2. 小说必须完成处理（状态为"completed"）
+3. 后端搜索服务正常运行
+4. 网络连接正常
 
-### Q5：人物关系图如何生成？
+### Q5：人物关系图谱无法生成？
 
-**A**：当前版本使用**模拟数据**：
-- 关系图为随机生成的演示数据
-- 真实的关系提取需要 NLP 模型支持
-- 未来将接入后端人物关系抽取服务
+**A**：图谱生成需要：
+1. 小说已完成向量化处理
+2. 后端图谱生成服务运行正常
+3. 处理时间可能较长，请等待完成
 
-### Q6：数据存储在哪里？
+### Q6：如何配置后端地址？
 
-**A**：所有数据存储在浏览器的 **IndexedDB** 中：
-- 数据仅保存在本地，不会上传到服务器
-- 清除浏览器数据会导致数据丢失
-- 建议定期备份重要小说文件
-
-### Q7：如何清除所有数据？
-
-**A**：
-```javascript
-// 打开浏览器控制台，执行：
-indexedDB.deleteDatabase('NovelDatabase');
-// 然后刷新页面
+**A**：在项目根目录创建 `.env` 文件：
+```env
+VITE_API_BASE_URL=http://your-backend-url:8000
 ```
 
-或在浏览器设置中清除站点数据。
+### Q7：前端的小说数据存储在哪里？
+
+**A**：所有数据存储在后端服务器：
+- 小说内容存储在服务器数据库中（SQLite）
+- 前端仅缓存UI配置和临时状态
+- 数据更安全，支持跨设备同步
 
 ### Q8：为什么开发服务器启动慢？
 
@@ -856,42 +899,45 @@ const THEME_STYLES = {
 
 ## 📝 开发路线图
 
-### 当前版本（v1.0）- MVP
+### 当前版本（v2.0）- MVP 后端集成版
 
-- ✅ 小说导入和管理
-- ✅ 章节识别和阅读器
-- ✅ 模拟搜索和问答
-- ✅ 模拟人物关系图谱
+- ✅ 完整的后端 API 集成（FastAPI + LangChain）
+- ✅ 真实的语义搜索和问答
+- ✅ 基于小说ID的状态轮询机制
+- ✅ 后端数据存储（SQLite + Qdrant）
+- ✅ 匿名访问（简化用户体验）
+- ✅ 异步文件处理和进度跟踪
 - ✅ 响应式设计
+- ✅ 移除 IndexedDB 依赖
 
 ### 未来版本
 
-#### v1.1 - 后端集成
+#### v2.1 - 功能完善
 
-- [ ] 接入后端 RAG API
-- [ ] 真实的语义搜索
-- [ ] 人物关系抽取服务
-- [ ] 用户认证和权限管理
+- [ ] 章节内容加载优化
+- [ ] 人物关系图谱实时生成
+- [ ] 搜索结果相关性优化
+- [ ] 批量文件上传支持
 
-#### v1.2 - 功能增强
+#### v2.2 - 用户体验增强
+
+- [ ] 用户认证系统（可选）
+- [ ] 个人收藏和书签
+- [ ] 阅读历史记录
+- [ ] 搜索历史管理
+
+#### v2.3 - 高级分析功能
 
 - [ ] 多小说关联分析
 - [ ] 情节时间线可视化
-- [ ] 阅读笔记和标注
-- [ ] 导出和分享功能
+- [ ] 阅读统计和报告
+- [ ] 情感分析
 
-#### v1.3 - 性能优化
+#### v3.0 - 平台化
 
-- [ ] 虚拟滚动优化大列表
-- [ ] Service Worker 离线支持
-- [ ] Web Worker 后台处理
-- [ ] 增量式章节加载
-
-#### v2.0 - 高级特性
-
-- [ ] AI 辅助创作
-- [ ] 小说对比分析
-- [ ] 社区分享和讨论
+- [ ] 社区分享功能
+- [ ] 小说推荐系统
+- [ ] 评论和讨论
 - [ ] 移动端原生应用
 
 ---
@@ -916,9 +962,10 @@ const THEME_STYLES = {
 - [React](https://reactjs.org/) - 用户界面构建库
 - [Vite](https://vitejs.dev/) - 下一代前端构建工具
 - [Ant Design](https://ant.design/) - 企业级 UI 设计语言
-- [Dexie.js](https://dexie.org/) - IndexedDB 封装库
 - [React Force Graph](https://github.com/vasturiano/react-force-graph) - 力导向图可视化
 - [jschardet](https://github.com/aadsm/jschardet) - 字符编码检测
+- [FastAPI](https://fastapi.tiangolo.com/) - 现代、快速的 Web 框架
+- [LangChain](https://github.com/langchain-ai/langchain) - LLM 应用开发框架
 
 ---
 

@@ -26,7 +26,6 @@ import {
   BookOutlined,
   CopyOutlined,
   ReloadOutlined,
-  HistoryOutlined,
   DeleteOutlined,
   ExpandAltOutlined,
   ReadOutlined,
@@ -43,11 +42,11 @@ import {
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '../store/useStore';
-import { dbUtils, formatWordCount } from '../utils/db';
-import { generateMockSearchResult, EXAMPLE_QUERIES } from '../utils/mockData';
+import { novelAPI, searchAPI, apiUtils, APIError } from '../utils/api';
+import { EXAMPLE_QUERIES } from '../utils/mockData';
 import ImportNovelModal from '../components/ImportNovelModal';
 import EditNovelModal from '../components/EditNovelModal';
-import type { SearchResult, SearchHistory, Novel } from '../types';
+import type { SearchResult, Novel } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -63,14 +62,25 @@ const { Title, Paragraph, Text } = Typography;
 const SearchPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { novels, setNovels, removeNovel, searchHistory, setSearchHistory, addSearchHistory, storageInfo, setStorageInfo } = useStore();
+  const {
+    novels,
+    setNovels,
+    removeNovel,
+    recentQueries,
+    addRecentQuery,
+    currentSearchResult,
+    setCurrentSearchResult,
+    loading,
+    setLoading,
+    searching,
+    setSearching,
+    storageInfo,
+    setStorageInfo
+  } = useStore();
   
   const [query, setQuery] = useState('');
   const [selectedNovelIds, setSelectedNovelIds] = useState<string[]>([]);
-  const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
-  const [loading, setLoading] = useState(false);
   const [searchMode, setSearchMode] = useState<'keyword' | 'semantic'>('semantic');
-  const [historyDrawerVisible, setHistoryDrawerVisible] = useState(false);
   const [expandedContexts, setExpandedContexts] = useState<Set<number>>(new Set());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [importModalVisible, setImportModalVisible] = useState(false);
@@ -104,27 +114,21 @@ const SearchPage: React.FC = () => {
   // 加载小说列表
   const loadNovels = async () => {
     try {
-      setNovelsLoading(true);
-      const allNovels = await dbUtils.getAllNovels();
+      setLoading(true);
+      const allNovels = await novelAPI.getAllNovels();
       setNovels(allNovels);
-      
-      const info = await dbUtils.getStorageInfo();
+
+      const info = await apiUtils.getStorageInfo();
       setStorageInfo(info);
     } catch (error) {
       console.error('加载小说列表失败:', error);
-      message.error('加载小说列表失败');
+      if (error instanceof APIError) {
+        message.error(`加载小说列表失败: ${error.message}`);
+      } else {
+        message.error('加载小说列表失败');
+      }
     } finally {
-      setNovelsLoading(false);
-    }
-  };
-
-  // 加载搜索历史
-  const loadSearchHistory = async () => {
-    try {
-      const history = await dbUtils.getSearchHistory(20);
-      setSearchHistory(history);
-    } catch (error) {
-      console.error('加载搜索历史失败:', error);
+      setLoading(false);
     }
   };
 
@@ -141,34 +145,33 @@ const SearchPage: React.FC = () => {
     }
 
     try {
-      setLoading(true);
-      
-      // 模拟搜索延迟
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // 生成模拟搜索结果
-      const result = generateMockSearchResult(query, selectedNovelIds);
-      setSearchResult(result);
+      setSearching(true);
 
-      // 保存到搜索历史
-      const historyItem: SearchHistory = {
-        id: uuidv4(),
+      // 调用API进行搜索
+      const result = await searchAPI.search({
         query,
-        result,
-        timestamp: new Date().toISOString()
-      };
-      
-      await dbUtils.addSearchHistory(historyItem);
-      addSearchHistory(historyItem);
-      
-      message.success('搜索完成');
+        novelIds: selectedNovelIds,
+        mode: searchMode,
+        topK: 5
+      });
+
+      setCurrentSearchResult(result);
+
+      // 添加到最近查询
+      addRecentQuery(query);
+
+      message.success(`搜索完成，找到${result.references.length}处相关内容`);
     } catch (error) {
       console.error('搜索失败:', error);
-      message.error('搜索失败，请重试');
+      if (error instanceof APIError) {
+        message.error(`搜索失败: ${error.message}`);
+      } else {
+        message.error('搜索失败，请重试');
+      }
     } finally {
-      setLoading(false);
+      setSearching(false);
     }
-  }, [query, selectedNovelIds, addSearchHistory]);
+  }, [query, selectedNovelIds, searchMode, setCurrentSearchResult, addRecentQuery]);
 
   // 从location state中获取预选的小说和查询
   useEffect(() => {
@@ -196,29 +199,32 @@ const SearchPage: React.FC = () => {
     }
   }, [autoSearch, query, selectedNovelIds, handleSearch]);
 
-  // 加载小说列表和搜索历史
+  // 加载小说列表
   useEffect(() => {
     loadNovels();
-    loadSearchHistory();
   }, []);
 
   // 删除小说
   const handleDelete = async (id: string, title: string) => {
     try {
-      await dbUtils.deleteNovel(id);
+      await novelAPI.deleteNovel(id);
       removeNovel(id);
-      
+
       // 从选中列表中移除
       setSelectedNovelIds(prev => prev.filter(novelId => novelId !== id));
-      
+
       message.success(`已删除《${title}》`);
-      
+
       // 更新存储信息
-      const info = await dbUtils.getStorageInfo();
+      const info = await apiUtils.getStorageInfo();
       setStorageInfo(info);
     } catch (error) {
       console.error('删除失败:', error);
-      message.error('删除失败');
+      if (error instanceof APIError) {
+        message.error(`删除失败: ${error.message}`);
+      } else {
+        message.error('删除失败');
+      }
     }
   };
 
@@ -239,24 +245,7 @@ const SearchPage: React.FC = () => {
     setQuery(exampleQuery);
   };
 
-  // 查看历史记录
-  const handleViewHistory = (item: SearchHistory) => {
-    setQuery(item.query);
-    setSearchResult(item.result);
-    setHistoryDrawerVisible(false);
-  };
-
-  // 清空历史
-  const handleClearHistory = async () => {
-    try {
-      await dbUtils.clearSearchHistory();
-      setSearchHistory([]);
-      message.success('历史记录已清空');
-    } catch (error) {
-      message.error('清空失败');
-    }
-  };
-
+  
   // 跳转到章节阅读
   const handleJumpToReader = (novelId: string, chapterId: string, paragraphIndex: number) => {
     navigate(`/reader/${novelId}?chapter=${chapterId}&paragraph=${paragraphIndex}`);
@@ -354,19 +343,7 @@ const SearchPage: React.FC = () => {
             </h1>
           </div>
           <Space size={isMobile ? 'small' : 'large'}>
-            <Button 
-              type="text" 
-              size={isMobile ? 'middle' : 'large'}
-              icon={<HistoryOutlined style={{ fontSize: '16px' }} />} 
-              onClick={() => setHistoryDrawerVisible(true)}
-              style={{ 
-                color: '#8B7355',
-                fontWeight: 500
-              }}
-            >
-              {!isMobile && '历史记录'}
-            </Button>
-            {!isMobile && (
+                        {!isMobile && (
               <Button 
                 type="text"
                 size="large"
@@ -690,7 +667,7 @@ const SearchPage: React.FC = () => {
           </Card>
 
           {/* 搜索结果或默认状态 */}
-          {loading ? (
+          {loading || searching ? (
             <Card>
               <div style={{ textAlign: 'center', padding: '60px 0' }}>
                 <Spin size="large" />
@@ -699,7 +676,7 @@ const SearchPage: React.FC = () => {
                 </p>
               </div>
             </Card>
-          ) : searchResult ? (
+          ) : currentSearchResult ? (
             <Space direction="vertical" style={{ width: '100%' }} size="large">
               {/* 回答区域 */}
               <Card
@@ -707,9 +684,9 @@ const SearchPage: React.FC = () => {
                 extra={
                   <Space>
                     <Text type="secondary" style={{ fontSize: '12px' }}>
-                      基于 {searchResult.references.length} 处原文生成
+                      基于 {currentSearchResult.references.length} 处原文生成
                     </Text>
-                    <Button size="small" icon={<CopyOutlined />} onClick={() => handleCopy(searchResult.answer)}>
+                    <Button size="small" icon={<CopyOutlined />} onClick={() => handleCopy(currentSearchResult.answer)}>
                       复制
                     </Button>
                     <Button size="small" icon={<ReloadOutlined />} onClick={handleSearch}>
@@ -720,7 +697,7 @@ const SearchPage: React.FC = () => {
                 style={{ background: '#fafafa' }}
               >
                 <Paragraph style={{ fontSize: '16px', lineHeight: 1.8, margin: 0 }}>
-                  {searchResult.answer}
+                  {currentSearchResult.answer}
                 </Paragraph>
               </Card>
 
@@ -728,7 +705,7 @@ const SearchPage: React.FC = () => {
               <div>
                 <Title level={4}>相关原文引用</Title>
                 <List
-                  dataSource={searchResult.references}
+                  dataSource={currentSearchResult.references}
                   renderItem={(ref, index) => (
                     <Card
                       key={index}
@@ -811,20 +788,21 @@ const SearchPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* 最近搜索 */}
-                {searchHistory.length > 0 && (
+                {/* 最近查询 */}
+                {recentQueries.length > 0 && (
                   <div style={{ marginTop: 32, maxWidth: 600, margin: '32px auto 0' }}>
-                    <Text strong>最近的搜索：</Text>
+                    <Text strong>最近的查询：</Text>
                     <List
                       size="small"
-                      dataSource={searchHistory.slice(0, 5)}
-                      renderItem={(item) => (
+                      dataSource={recentQueries.slice(0, 5)}
+                      renderItem={(query) => (
                         <List.Item
                           style={{ cursor: 'pointer' }}
-                          onClick={() => handleViewHistory(item)}
+                          onClick={() => {
+                            setQuery(query);
+                          }}
                         >
-                          <Text>{item.query}</Text>
-                          <Text type="secondary">{dayjs(item.timestamp).fromNow()}</Text>
+                          <Text>{query}</Text>
                         </List.Item>
                       )}
                     />
@@ -1077,49 +1055,7 @@ const SearchPage: React.FC = () => {
         </>
       )}
 
-      {/* 搜索历史抽屉 */}
-      <Drawer
-        title="搜索历史"
-        placement="right"
-        onClose={() => setHistoryDrawerVisible(false)}
-        open={historyDrawerVisible}
-        extra={
-          <Button
-            size="small"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={handleClearHistory}
-          >
-            清空历史
-          </Button>
-        }
-      >
-        {searchHistory.length === 0 ? (
-          <Empty description="暂无搜索历史" />
-        ) : (
-          <List
-            dataSource={searchHistory}
-            renderItem={(item) => (
-              <Card
-                size="small"
-                style={{ marginBottom: 12, cursor: 'pointer' }}
-                onClick={() => handleViewHistory(item)}
-                hoverable
-              >
-                <div>
-                  <Text strong>{item.query}</Text>
-                </div>
-                <div style={{ marginTop: 4 }}>
-                  <Text type="secondary" style={{ fontSize: '12px' }}>
-                    {dayjs(item.timestamp).format('YYYY-MM-DD HH:mm')}
-                  </Text>
-                </div>
-              </Card>
-            )}
-          />
-        )}
-      </Drawer>
-
+      
       {/* 导入小说Modal */}
       <ImportNovelModal
         visible={importModalVisible}

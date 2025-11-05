@@ -39,12 +39,13 @@ info:
     5. **字数统计**：自动统计并验证字数（最少 1000 字）
     
     ## 认证机制
-    
-    API 使用 JWT（JSON Web Token）进行身份认证：
-    
-    - 客户端登录后获取 JWT Token
-    - 后续请求在 Header 中携带：`Authorization: Bearer <token>`
-    - Token 有效期：7 天（可刷新）
+
+    API 采用匿名访问模式，无需身份认证：
+
+    - 无需用户注册和登录
+    - 无需 JWT Token
+    - 所有接口可直接访问
+    - 基础速率限制（基于IP）
     
     ## 错误处理
     
@@ -84,8 +85,6 @@ servers:
     description: 本地开发环境
 
 tags:
-  - name: 认证
-    description: 用户认证和授权相关接口
   - name: 小说管理
     description: 小说的增删改查操作
   - name: 章节管理
@@ -96,178 +95,10 @@ tags:
     description: 智能搜索和问答功能
   - name: 关系图谱
     description: 人物关系提取和图谱生成
-  - name: 统计信息
-    description: 数据统计和分析
   - name: 系统管理
     description: 系统健康检查和配置
 
 paths:
-  # ==================== 认证相关 ====================
-  /auth/register:
-    post:
-      tags:
-        - 认证
-      summary: 用户注册
-      description: 创建新用户账号
-      operationId: registerUser
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - username
-                - email
-                - password
-              properties:
-                username:
-                  type: string
-                  minLength: 3
-                  maxLength: 30
-                  description: 用户名
-                  example: "novel_reader"
-                email:
-                  type: string
-                  format: email
-                  description: 邮箱地址
-                  example: "user@example.com"
-                password:
-                  type: string
-                  minLength: 8
-                  format: password
-                  description: 密码（至少 8 位）
-                  example: "SecurePass123!"
-      responses:
-        '201':
-          description: 注册成功
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "注册成功"
-                  user:
-                    $ref: '#/components/schemas/User'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '409':
-          description: 用户已存在
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
-  /auth/login:
-    post:
-      tags:
-        - 认证
-      summary: 用户登录
-      description: 使用用户名/邮箱和密码登录
-      operationId: loginUser
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - identifier
-                - password
-              properties:
-                identifier:
-                  type: string
-                  description: 用户名或邮箱
-                  example: "novel_reader"
-                password:
-                  type: string
-                  format: password
-                  description: 密码
-                  example: "SecurePass123!"
-      responses:
-        '200':
-          description: 登录成功
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "登录成功"
-                  token:
-                    type: string
-                    description: JWT 访问令牌
-                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                  refreshToken:
-                    type: string
-                    description: 刷新令牌
-                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                  user:
-                    $ref: '#/components/schemas/User'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
-  /auth/refresh:
-    post:
-      tags:
-        - 认证
-      summary: 刷新访问令牌
-      description: 使用刷新令牌获取新的访问令牌
-      operationId: refreshToken
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - refreshToken
-              properties:
-                refreshToken:
-                  type: string
-                  description: 刷新令牌
-      responses:
-        '200':
-          description: 刷新成功
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  token:
-                    type: string
-                    description: 新的访问令牌
-                  refreshToken:
-                    type: string
-                    description: 新的刷新令牌
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
-  /auth/logout:
-    post:
-      tags:
-        - 认证
-      summary: 用户登出
-      description: 登出并使当前令牌失效
-      operationId: logoutUser
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: 登出成功
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "登出成功"
-        '401':
-          $ref: '#/components/responses/Unauthorized'
 
   # ==================== 小说管理 ====================
   /novels:
@@ -275,10 +106,8 @@ paths:
       tags:
         - 小说管理
       summary: 获取小说列表
-      description: 获取当前用户的所有小说，支持分页和筛选
+      description: 获取所有小说列表，支持分页和筛选
       operationId: getNovels
-      security:
-        - bearerAuth: []
       parameters:
         - name: page
           in: query
@@ -346,9 +175,7 @@ paths:
         
         注意：实际的文本内容需要通过 `/novels/{novelId}/upload` 接口上传
       operationId: createNovel
-      security:
-        - bearerAuth: []
-      requestBody:
+        requestBody:
         required: true
         content:
           application/json:
@@ -405,9 +232,7 @@ paths:
       summary: 获取小说详情
       description: 获取指定小说的详细信息（包含章节列表）
       operationId: getNovelById
-      security:
-        - bearerAuth: []
-      parameters:
+        parameters:
         - $ref: '#/components/parameters/NovelIdParam'
       responses:
         '200':
@@ -416,8 +241,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NovelDetail'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -427,9 +250,7 @@ paths:
       summary: 更新小说信息
       description: 更新小说的元数据（不包含内容）
       operationId: updateNovel
-      security:
-        - bearerAuth: []
-      parameters:
+        parameters:
         - $ref: '#/components/parameters/NovelIdParam'
       requestBody:
         required: true
@@ -472,8 +293,6 @@ paths:
                     $ref: '#/components/schemas/Novel'
         '400':
           $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -491,9 +310,7 @@ paths:
         - 关系图谱
         - 搜索历史
       operationId: deleteNovel
-      security:
-        - bearerAuth: []
-      parameters:
+        parameters:
         - $ref: '#/components/parameters/NovelIdParam'
       responses:
         '200':
@@ -506,8 +323,6 @@ paths:
                   message:
                     type: string
                     example: "删除成功"
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -532,9 +347,7 @@ paths:
         - 最大文件大小：50MB
         - 处理时间取决于文件大小，可能需要几分钟
       operationId: uploadNovelFile
-      security:
-        - bearerAuth: []
-      parameters:
+        parameters:
         - $ref: '#/components/parameters/NovelIdParam'
       requestBody:
         required: true
@@ -574,10 +387,10 @@ paths:
                   message:
                     type: string
                     example: "文件上传成功，正在处理中"
-                  taskId:
+                  novelId:
                     type: string
-                    description: 异步任务 ID，用于查询处理状态
-                    example: "task_abc123"
+                    description: 小说 ID，用于查询处理状态
+                    example: "novel_abc123"
                   estimatedTime:
                     type: integer
                     description: 预计处理时间（秒）
@@ -614,8 +427,6 @@ paths:
                     error:
                       code: "CONTENT_TOO_SHORT"
                       message: "文本内容过短，至少需要 1000 字"
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
         '413':
@@ -625,22 +436,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /tasks/{taskId}/status:
+  /novels/{novelId}/status:
     get:
       tags:
         - 文本处理
-      summary: 查询异步任务状态
-      description: 查询文件上传处理等异步任务的状态
-      operationId: getTaskStatus
-      security:
-        - bearerAuth: []
+      summary: 查询小说处理状态
+      description: 查询小说文件上传处理的状态
+      operationId: getNovelStatus
       parameters:
-        - name: taskId
-          in: path
-          required: true
-          description: 任务 ID
-          schema:
-            type: string
+        - $ref: '#/components/parameters/NovelIdParam'
       responses:
         '200':
           description: 查询成功
@@ -649,14 +453,14 @@ paths:
               schema:
                 type: object
                 properties:
-                  taskId:
+                  novelId:
                     type: string
-                    example: "task_abc123"
+                    example: "novel_abc123"
                   status:
                     type: string
                     enum: [pending, processing, completed, failed]
                     description: |
-                      任务状态：
+                      处理状态：
                       - pending: 等待处理
                       - processing: 处理中
                       - completed: 完成
@@ -672,35 +476,26 @@ paths:
                     type: string
                     description: 当前状态描述
                     example: "正在识别章节结构..."
-                  result:
-                    type: object
-                    description: 任务完成后的结果（仅当 status=completed）
-                    properties:
-                      novelId:
-                        type: string
-                      wordCount:
-                        type: integer
-                      chapterCount:
-                        type: integer
-                      processingTime:
-                        type: number
-                        description: 处理耗时（秒）
-                  error:
-                    type: object
-                    description: 错误信息（仅当 status=failed）
-                    properties:
-                      code:
-                        type: string
-                      message:
-                        type: string
-                  createdAt:
+                  stage:
                     type: string
-                    format: date-time
+                    enum: [uploading, detecting_chapters, vectorizing, completed]
+                    description: 当前处理阶段
+                    example: "vectorizing"
+                  processedWords:
+                    type: integer
+                    description: 已处理字数
+                    example: 812500
+                  totalWords:
+                    type: integer
+                    description: 总字数
+                    example: 1250000
+                  estimatedTimeRemaining:
+                    type: integer
+                    description: 预计剩余时间（秒）
+                    example: 45
                   updatedAt:
                     type: string
                     format: date-time
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -714,8 +509,6 @@ paths:
         
         用于前端预检查，快速反馈文件是否合格
       operationId: validateNovelFile
-      security:
-        - bearerAuth: []
       parameters:
         - $ref: '#/components/parameters/NovelIdParam'
       requestBody:
@@ -769,8 +562,6 @@ paths:
                       type: string
                     description: 错误信息
                     example: []
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -782,9 +573,7 @@ paths:
       summary: 获取章节列表
       description: 获取指定小说的所有章节
       operationId: getChapters
-      security:
-        - bearerAuth: []
-      parameters:
+        parameters:
         - $ref: '#/components/parameters/NovelIdParam'
         - name: page
           in: query
@@ -813,8 +602,6 @@ paths:
                       $ref: '#/components/schemas/Chapter'
                   pagination:
                     $ref: '#/components/schemas/Pagination'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -824,9 +611,7 @@ paths:
       summary: 手动添加章节
       description: 手动创建章节划分（用于自动识别不准确的情况）
       operationId: createChapter
-      security:
-        - bearerAuth: []
-      parameters:
+        parameters:
         - $ref: '#/components/parameters/NovelIdParam'
       requestBody:
         required: true
@@ -870,8 +655,6 @@ paths:
                     $ref: '#/components/schemas/Chapter'
         '400':
           $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -882,9 +665,7 @@ paths:
       summary: 获取章节内容
       description: 获取指定章节的完整内容
       operationId: getChapterContent
-      security:
-        - bearerAuth: []
-      parameters:
+        parameters:
         - $ref: '#/components/parameters/NovelIdParam'
         - name: chapterId
           in: path
@@ -919,8 +700,6 @@ paths:
                         startPosition:
                           type: integer
                           description: 段落在章节中的起始位置
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -930,9 +709,7 @@ paths:
       summary: 更新章节信息
       description: 更新章节的标题或边界
       operationId: updateChapter
-      security:
-        - bearerAuth: []
-      parameters:
+        parameters:
         - $ref: '#/components/parameters/NovelIdParam'
         - name: chapterId
           in: path
@@ -973,8 +750,6 @@ paths:
                     $ref: '#/components/schemas/Chapter'
         '400':
           $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -984,9 +759,7 @@ paths:
       summary: 删除章节
       description: 删除指定章节（不删除内容，仅删除章节划分）
       operationId: deleteChapter
-      security:
-        - bearerAuth: []
-      parameters:
+        parameters:
         - $ref: '#/components/parameters/NovelIdParam'
         - name: chapterId
           in: path
@@ -1004,8 +777,6 @@ paths:
                   message:
                     type: string
                     example: "删除成功"
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -1019,9 +790,7 @@ paths:
         
         用于章节识别结果不满意时重新处理
       operationId: redetectChapters
-      security:
-        - bearerAuth: []
-      parameters:
+        parameters:
         - $ref: '#/components/parameters/NovelIdParam'
       requestBody:
         content:
@@ -1050,8 +819,6 @@ paths:
                     example: "章节重新识别任务已启动"
                   taskId:
                     type: string
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -1075,9 +842,7 @@ paths:
         - 结果包含原文引用和位置信息
         - 支持历史记录保存
       operationId: search
-      security:
-        - bearerAuth: []
-      requestBody:
+        requestBody:
         required: true
         content:
           application/json:
@@ -1159,105 +924,7 @@ paths:
         '429':
           $ref: '#/components/responses/TooManyRequests'
 
-  /search/history:
-    get:
-      tags:
-        - RAG 搜索
-      summary: 获取搜索历史
-      description: 获取当前用户的搜索历史记录
-      operationId: getSearchHistory
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: page
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            default: 1
-        - name: pageSize
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 20
-        - name: novelId
-          in: query
-          description: 筛选指定小说的搜索历史
-          schema:
-            type: string
-      responses:
-        '200':
-          description: 获取成功
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/SearchHistory'
-                  pagination:
-                    $ref: '#/components/schemas/Pagination'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
-    delete:
-      tags:
-        - RAG 搜索
-      summary: 清空搜索历史
-      description: 删除所有搜索历史记录
-      operationId: clearSearchHistory
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: 清空成功
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "搜索历史已清空"
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
-  /search/history/{historyId}:
-    delete:
-      tags:
-        - RAG 搜索
-      summary: 删除单条搜索历史
-      description: 删除指定的搜索历史记录
-      operationId: deleteSearchHistory
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: historyId
-          in: path
-          required: true
-          description: 搜索历史 ID
-          schema:
-            type: string
-      responses:
-        '200':
-          description: 删除成功
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "删除成功"
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+  
   # ==================== 人物关系图谱 ====================
   /novels/{novelId}/graph:
     get:
@@ -1266,9 +933,7 @@ paths:
       summary: 获取人物关系图谱
       description: 获取指定小说的人物关系图谱
       operationId: getCharacterGraph
-      security:
-        - bearerAuth: []
-      parameters:
+        parameters:
         - $ref: '#/components/parameters/NovelIdParam'
       responses:
         '200':
@@ -1314,9 +979,7 @@ paths:
         - 建议异步调用
         - 如图谱已存在，将重新生成
       operationId: generateCharacterGraph
-      security:
-        - bearerAuth: []
-      parameters:
+        parameters:
         - $ref: '#/components/parameters/NovelIdParam'
       requestBody:
         content:
@@ -1357,8 +1020,6 @@ paths:
                     type: integer
                     description: 预计耗时（秒）
                     example: 300
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
         '429':
@@ -1370,9 +1031,7 @@ paths:
       summary: 删除人物关系图谱
       description: 删除指定小说的人物关系图谱
       operationId: deleteCharacterGraph
-      security:
-        - bearerAuth: []
-      parameters:
+        parameters:
         - $ref: '#/components/parameters/NovelIdParam'
       responses:
         '200':
@@ -1385,8 +1044,6 @@ paths:
                   message:
                     type: string
                     example: "删除成功"
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -1397,9 +1054,7 @@ paths:
       summary: 获取人物列表
       description: 获取小说中的所有识别的人物
       operationId: getCharacters
-      security:
-        - bearerAuth: []
-      parameters:
+        parameters:
         - $ref: '#/components/parameters/NovelIdParam'
         - name: sortBy
           in: query
@@ -1428,8 +1083,6 @@ paths:
                       $ref: '#/components/schemas/Character'
                   total:
                     type: integer
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -1440,9 +1093,7 @@ paths:
       summary: 获取人物详情
       description: 获取指定人物的详细信息和关系
       operationId: getCharacterDetail
-      security:
-        - bearerAuth: []
-      parameters:
+        parameters:
         - $ref: '#/components/parameters/NovelIdParam'
         - name: characterId
           in: path
@@ -1481,164 +1132,10 @@ paths:
                     items:
                       $ref: '#/components/schemas/Character'
                     description: 相关人物
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
 
-  # ==================== 统计信息 ====================
-  /stats/overview:
-    get:
-      tags:
-        - 统计信息
-      summary: 获取用户数据概览
-      description: 获取当前用户的整体数据统计
-      operationId: getStatsOverview
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: 获取成功
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  novels:
-                    type: object
-                    properties:
-                      total:
-                        type: integer
-                        description: 小说总数
-                        example: 15
-                      totalWordCount:
-                        type: integer
-                        description: 总字数
-                        example: 25000000
-                      totalChapters:
-                        type: integer
-                        description: 总章节数
-                        example: 3500
-                  storage:
-                    type: object
-                    properties:
-                      used:
-                        type: integer
-                        description: 已使用存储空间（字节）
-                        example: 104857600
-                      limit:
-                        type: integer
-                        description: 存储空间限制（字节）
-                        example: 1073741824
-                      usagePercentage:
-                        type: number
-                        description: 使用百分比
-                        example: 9.77
-                  searches:
-                    type: object
-                    properties:
-                      total:
-                        type: integer
-                        description: 总搜索次数
-                        example: 342
-                      last7Days:
-                        type: integer
-                        description: 最近 7 天搜索次数
-                        example: 28
-                  graphs:
-                    type: object
-                    properties:
-                      generated:
-                        type: integer
-                        description: 已生成图谱数量
-                        example: 8
-                      totalCharacters:
-                        type: integer
-                        description: 识别的总人物数
-                        example: 456
-                      totalRelationships:
-                        type: integer
-                        description: 识别的总关系数
-                        example: 1234
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
-  /stats/novels/{novelId}:
-    get:
-      tags:
-        - 统计信息
-      summary: 获取单部小说统计
-      description: 获取指定小说的详细统计信息
-      operationId: getNovelStats
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: '#/components/parameters/NovelIdParam'
-      responses:
-        '200':
-          description: 获取成功
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  novel:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                      title:
-                        type: string
-                      wordCount:
-                        type: integer
-                      chapterCount:
-                        type: integer
-                  reading:
-                    type: object
-                    properties:
-                      totalReadTime:
-                        type: integer
-                        description: 总阅读时间（秒）
-                      currentChapter:
-                        type: integer
-                        description: 当前阅读到的章节
-                      progress:
-                        type: number
-                        description: 阅读进度（百分比）
-                  searches:
-                    type: object
-                    properties:
-                      count:
-                        type: integer
-                        description: 针对此小说的搜索次数
-                      topQueries:
-                        type: array
-                        items:
-                          type: object
-                          properties:
-                            query:
-                              type: string
-                            count:
-                              type: integer
-                        description: 热门问题
-                  graph:
-                    type: object
-                    properties:
-                      status:
-                        type: string
-                        enum: [not_generated, generating, completed, failed]
-                      characterCount:
-                        type: integer
-                      relationshipCount:
-                        type: integer
-                      generatedAt:
-                        type: string
-                        format: date-time
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+  
   # ==================== 系统管理 ====================
   /health:
     get:
@@ -1704,14 +1201,14 @@ paths:
                         type: integer
                         description: 最大文件大小（字节）
                         example: 52428800
-                      maxNovelsPerUser:
+                      maxNovels:
                         type: integer
-                        description: 每用户最大小说数
-                        example: 50
-                      maxStoragePerUser:
+                        description: 系统最大小说数
+                        example: 100
+                      maxStorage:
                         type: integer
-                        description: 每用户最大存储空间（字节）
-                        example: 1073741824
+                        description: 系统最大存储空间（字节）
+                        example: 10737418240
                   features:
                     type: object
                     properties:
@@ -1737,12 +1234,6 @@ paths:
 
 # ==================== 组件定义 ====================
 components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: JWT 访问令牌
 
   parameters:
     NovelIdParam:
@@ -1755,30 +1246,6 @@ components:
         example: "novel_abc123"
 
   schemas:
-    # 用户
-    User:
-      type: object
-      properties:
-        id:
-          type: string
-          example: "user_123"
-        username:
-          type: string
-          example: "novel_reader"
-        email:
-          type: string
-          format: email
-          example: "user@example.com"
-        createdAt:
-          type: string
-          format: date-time
-        storageUsed:
-          type: integer
-          description: 已使用存储空间（字节）
-        storageLimit:
-          type: integer
-          description: 存储空间限制（字节）
-
     # 小说
     Novel:
       type: object
@@ -1926,35 +1393,7 @@ components:
           description: 高亮文本（关键匹配部分）
           example: "药尘"
 
-    # 搜索历史
-    SearchHistory:
-      type: object
-      properties:
-        id:
-          type: string
-          example: "history_123"
-        query:
-          type: string
-          description: 搜索问题
-          example: "萧炎的师父是谁？"
-        answer:
-          type: string
-          description: 答案摘要
-          example: "萧炎的师父是药尘..."
-        novelIds:
-          type: array
-          items:
-            type: string
-          description: 搜索范围小说 ID
-        resultCount:
-          type: integer
-          description: 结果数量
-          example: 5
-        searchedAt:
-          type: string
-          format: date-time
-
-    # 人物关系图谱
+      # 人物关系图谱
     CharacterGraph:
       type: object
       properties:

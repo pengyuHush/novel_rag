@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Novel, SearchHistory } from '../types';
+import type { Novel, SearchResult, NovelProcessingStatus } from '../types';
 
 interface AppState {
   // 小说列表
@@ -8,20 +8,28 @@ interface AppState {
   addNovel: (novel: Novel) => void;
   updateNovel: (id: string, novel: Partial<Novel>) => void;
   removeNovel: (id: string) => void;
-  
+
   // 当前选中的小说
   selectedNovelIds: string[];
   setSelectedNovelIds: (ids: string[]) => void;
-  
-  // 搜索历史
-  searchHistory: SearchHistory[];
-  setSearchHistory: (history: SearchHistory[]) => void;
-  addSearchHistory: (item: SearchHistory) => void;
-  
+
+  // 当前搜索结果
+  currentSearchResult: SearchResult | null;
+  setCurrentSearchResult: (result: SearchResult | null) => void;
+
+  // 最近搜索查询（简单存储，不包含结果）
+  recentQueries: string[];
+  addRecentQuery: (query: string) => void;
+  clearRecentQueries: () => void;
+
   // 加载状态
   loading: boolean;
   setLoading: (loading: boolean) => void;
-  
+
+  // 搜索状态
+  searching: boolean;
+  setSearching: (searching: boolean) => void;
+
   // 存储统计
   storageInfo: {
     novelCount: number;
@@ -30,48 +38,87 @@ interface AppState {
     formattedSize: string;
   };
   setStorageInfo: (info: AppState['storageInfo']) => void;
+
+  // 小说处理状态跟踪
+  processingStatuses: Record<string, NovelProcessingStatus>;
+  setProcessingStatus: (novelId: string, status: NovelProcessingStatus) => void;
+  removeProcessingStatus: (novelId: string) => void;
 }
 
 export const useStore = create<AppState>((set) => ({
   // 初始状态
   novels: [],
   selectedNovelIds: [],
-  searchHistory: [],
+  currentSearchResult: null,
+  recentQueries: [],
   loading: false,
+  searching: false,
   storageInfo: {
     novelCount: 0,
     totalWords: 0,
     totalSize: 0,
     formattedSize: '0 B'
   },
-  
+  processingStatuses: {},
+
   // Actions
   setNovels: (novels) => set({ novels }),
-  
+
   addNovel: (novel) => set((state) => ({
     novels: [...state.novels, novel]
   })),
-  
+
   updateNovel: (id, updatedNovel) => set((state) => ({
     novels: state.novels.map((novel) =>
       novel.id === id ? { ...novel, ...updatedNovel } : novel
     )
   })),
-  
-  removeNovel: (id) => set((state) => ({
-    novels: state.novels.filter((novel) => novel.id !== id)
-  })),
-  
+
+  removeNovel: (id) => set((state) => {
+    const newNovels = state.novels.filter((novel) => novel.id !== id);
+    const newSelectedIds = state.selectedNovelIds.filter(selectedId => selectedId !== id);
+    const newProcessingStatuses = { ...state.processingStatuses };
+    delete newProcessingStatuses[id];
+
+    return {
+      novels: newNovels,
+      selectedNovelIds: newSelectedIds,
+      processingStatuses: newProcessingStatuses
+    };
+  }),
+
   setSelectedNovelIds: (ids) => set({ selectedNovelIds: ids }),
-  
-  setSearchHistory: (history) => set({ searchHistory: history }),
-  
-  addSearchHistory: (item) => set((state) => ({
-    searchHistory: [item, ...state.searchHistory].slice(0, 20) // 只保留最近20条
-  })),
-  
+
+  setCurrentSearchResult: (result) => set({ currentSearchResult: result }),
+
+  addRecentQuery: (query) => set((state) => {
+    if (!query.trim()) return state;
+
+    const filtered = state.recentQueries.filter(q => q !== query);
+    const newQueries = [query, ...filtered].slice(0, 10); // 只保留最近10条查询
+
+    return { recentQueries: newQueries };
+  }),
+
+  clearRecentQueries: () => set({ recentQueries: [] }),
+
   setLoading: (loading) => set({ loading }),
-  
-  setStorageInfo: (info) => set({ storageInfo: info })
+
+  setSearching: (searching) => set({ searching }),
+
+  setStorageInfo: (info) => set({ storageInfo: info }),
+
+  setProcessingStatus: (novelId, status) => set((state) => ({
+    processingStatuses: {
+      ...state.processingStatuses,
+      [novelId]: status
+    }
+  })),
+
+  removeProcessingStatus: (novelId) => set((state) => {
+    const newStatuses = { ...state.processingStatuses };
+    delete newStatuses[novelId];
+    return { processingStatuses: newStatuses };
+  })
 }));
 
