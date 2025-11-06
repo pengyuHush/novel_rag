@@ -510,7 +510,7 @@ const SearchPage: React.FC = () => {
                                     {apiUtils.formatWordCount(novel.wordCount)}
                                   </Tag>
                                   <Tag color="green" style={{ fontSize: '11px' }}>
-                                    {novel.chapters.length}章
+                                    {novel.chapterCount}章
                                   </Tag>
                                 </Space>
                               </Space>
@@ -969,7 +969,7 @@ const SearchPage: React.FC = () => {
                                   {apiUtils.formatWordCount(novel.wordCount)}
                                 </Tag>
                                 <Tag color="green" style={{ fontSize: '12px' }}>
-                                  {novel.chapters.length}章
+                                  {novel.chapterCount}章
                                 </Tag>
                               </Space>
                               <Space size={4} wrap style={{ marginTop: 4 }}>

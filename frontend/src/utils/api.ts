@@ -75,7 +75,8 @@ export const novelAPI = {
     if (USE_MOCK_API) {
       return mockNovelAPI.getAllNovels();
     }
-    return apiRequest<Novel[]>('/novels');
+    const response = await apiRequest<{ data: Novel[]; pagination: any }>('/novels?page=1&page_size=1000');
+    return response.data;
   },
 
   // 获取单个小说详情
@@ -96,11 +97,11 @@ export const novelAPI = {
     if (USE_MOCK_API) {
       throw new Error('Mock 模式请使用 uploadNovel 方法一次性上传');
     }
-    const response = await apiRequest<{ message: string; novel: Novel }>('/novels', {
+    // 后端直接返回 NovelDetail，不是 { message, novel } 包装
+    return apiRequest<Novel>('/novels', {
       method: 'POST',
       body: JSON.stringify(metadata),
     });
-    return response.novel;
   },
 
   // 上传小说文件（步骤2：上传文本内容）
