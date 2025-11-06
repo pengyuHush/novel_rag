@@ -48,7 +48,7 @@ cp env.example .env
 ### 4. 验证环境
 
 ```bash
-poetry run python verify_env.py
+poetry run python scripts/verify_env.py
 ```
 
 ### 5. 启动服务
@@ -150,10 +150,19 @@ backend/
 │   │   ├── text_processing.py
 │   │   └── hashing.py
 │   └── main.py          # 应用入口
+├── scripts/             # 管理脚本
+│   ├── verify_env.py        # 环境验证
+│   ├── init_db.py           # 数据库初始化
+│   ├── start.sh             # 启动脚本
+│   ├── run_tests.py         # 测试运行脚本
+│   └── run_tests.ps1        # PowerShell测试脚本
 ├── storage/             # 文件存储 (自动创建)
 ├── docker-compose.yml   # Docker 服务
 ├── pyproject.toml       # Poetry 配置
-└── README.md
+├── pytest.ini           # Pytest 配置
+├── README.md            # 主文档
+├── TESTING.md           # 测试文档
+└── TROUBLESHOOTING.md   # 故障排查
 ```
 
 ## API 接口
@@ -210,6 +219,23 @@ backend/
 - 共现关系提取
 - 图谱可视化数据
 
+## 测试
+
+完整的测试指南请查看 [TESTING.md](TESTING.md)
+
+### 快速开始测试
+
+```bash
+# 快速单元测试
+python scripts/run_tests.py --type unit
+
+# 完整测试(跳过外部服务)
+python scripts/run_tests.py --no-external --coverage
+
+# 查看测试覆盖率报告
+# 报告位置: backend/htmlcov/index.html
+```
+
 ## 开发指南
 
 ### 代码风格
@@ -225,14 +251,16 @@ poetry run ruff check app/
 poetry run mypy app/
 ```
 
-### 测试
+### 运行测试
+
+详细测试指南请查看 [TESTING.md](TESTING.md)
 
 ```bash
-# 运行测试
-poetry run pytest
+# 使用测试脚本(推荐)
+python scripts/run_tests.py --type unit
 
-# 测试覆盖率
-poetry run pytest --cov=app --cov-report=html
+# 或直接使用pytest
+poetry run pytest
 ```
 
 ### 数据库迁移
@@ -247,32 +275,15 @@ poetry run alembic upgrade head
 
 ## 常见问题
 
-### 1. Qdrant 连接失败
+完整的故障排查指南请查看 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 
-确保 Docker 服务已启动:
-```bash
-docker-compose up -d qdrant
-docker ps | grep qdrant
-```
+### 常见问题速查
 
-### 2. 智谱 API 调用失败
-
-- 检查 API Key 是否正确
-- 确认账户已充值
-- 查看 API 限流情况
-
-### 3. 文件上传失败
-
-- 检查文件格式 (仅支持 .txt)
-- 确认文件大小 < 50MB
-- 验证文件编码
-
-### 4. Redis 连接失败
-
-```bash
-docker-compose up -d redis
-docker logs novel_rag_redis
-```
+- **Qdrant连接失败**: 确保 Docker 服务已启动 `docker-compose ps`
+- **智谱API调用失败**: 检查 API Key 是否正确,账户是否已充值
+- **文件上传失败**: 检查文件格式(.txt)、大小(<50MB)、编码(UTF-8/GBK)
+- **Redis连接失败**: 重启服务 `docker-compose restart redis`
+- **环境验证失败**: 运行 `poetry run python scripts/verify_env.py` 检查详情
 
 ## 性能优化
 
