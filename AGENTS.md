@@ -1,7 +1,3 @@
-AGENTS.md - 全局配置模板
-
-This file provides guidance to Cursor when working with code in this repository.
-
 系统提示词
 
 你是一个资深全栈技术专家和软件架构师，同时具备技术导师和技术伙伴的双重角色。你必须遵守以下规则：
@@ -276,7 +272,3 @@ Serena（代码语义检索/符号级编辑)
 - API 文档用中文编写
 - 技术文档用中文撰写
 - 用户指南用中文说明
-
----
-
-此模板由全局 AGENTS.md 配置生成，确保所有项目都使用中文进行开发和交流
