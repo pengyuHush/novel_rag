@@ -333,6 +333,107 @@ class RAGService:
             logger.warning(f"Context expansion failed: {e}")
             return []
     
+    async def _generate_hypothetical_answer(self, query: str) -> str:
+        """HyDE: 生成假设性答案用于检索.
+        
+        与其直接用问题检索，不如让LLM先生成一个假设性答案，
+        然后用这个答案的向量去检索。假设答案的语义往往更接近真实答案。
+        
+        Args:
+            query: 用户问题
+            
+        Returns:
+            str: 假设性答案（50-100字）
+        """
+        if not self.client:
+            logger.warning("HyDE: LLM client not available, using original query")
+            return query  # 如果LLM不可用，返回原问题
+        
+        try:
+            # 优化策略：不用"假设答案"，而是让模型扩写/改述问题
+            # 这样模型更容易理解和生成内容
+            prompt = f"""请将下面的问题扩展成一段更详细的描述，包含可能的答案形式和相关背景。
+
+原问题：{query}
+
+扩展描述："""
+
+            # 使用配置的HYDE_MODEL（默认glm-4-flash，更稳定）
+            hyde_model = settings.HYDE_MODEL
+            
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.client.chat.completions.create(
+                    model=hyde_model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "你是小说分析助手。请将用户的简短问题扩展成一段包含上下文和可能答案形式的描述。"
+                        },
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.8,  # 稍高温度增加生成多样性
+                    max_tokens=200,
+                ),
+            )
+            
+            # 详细的响应检查
+            if not response:
+                logger.error("HyDE: API returned None response")
+                return query
+            
+            if not response.choices:
+                logger.error("HyDE: API response has no choices")
+                return query
+            
+            if not response.choices[0].message:
+                logger.error("HyDE: API response choice has no message")
+                return query
+                
+            hypothetical = response.choices[0].message.content
+            
+            if not hypothetical or not hypothetical.strip():
+                logger.warning("HyDE: First attempt generated empty content, trying fallback strategy")
+                
+                # 备选策略：使用更简单的任务 - 直接扩写问题
+                fallback_response = await loop.run_in_executor(
+                    None,
+                    lambda: self.client.chat.completions.create(
+                        model=hyde_model,
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": f"请用50-100字扩写这个问题，添加更多细节和上下文：\n\n{query}\n\n扩写："
+                            }
+                        ],
+                        temperature=0.7,
+                        max_tokens=150,
+                    ),
+                )
+                
+                if fallback_response and fallback_response.choices:
+                    hypothetical = fallback_response.choices[0].message.content
+                    if hypothetical and hypothetical.strip():
+                        hypothetical = hypothetical.strip()
+                        logger.info(f"HyDE fallback strategy succeeded (length={len(hypothetical)})")
+                        return hypothetical
+                
+                logger.warning("HyDE: Both strategies failed, using original query")
+                return query
+            
+            hypothetical = hypothetical.strip()
+            logger.info(f"HyDE generated hypothetical answer successfully (length={len(hypothetical)})")
+            logger.debug(f"Original query: {query}")
+            logger.debug(f"Hypothetical answer: {hypothetical[:100]}...")
+            
+            return hypothetical
+                
+        except Exception as e:
+            logger.error(f"HyDE generation failed with exception: {type(e).__name__}: {str(e)}")
+            logger.exception("HyDE generation exception details:")
+            return query
+    
     async def _simple_rerank(
         self, 
         query: str, 
@@ -434,16 +535,30 @@ class RAGService:
         except Exception as e:
             logger.warning(f"Failed to check collections: {e}")
         
-        # 查询列表：原始查询 + 改写查询（如果启用）
+        # 查询列表：原始查询 + 改写查询/HyDE查询（如果启用）
         queries_to_search = [request.query]
+        hyde_used = False
         
-        # 1. 查询改写（如果启用）
-        if settings.ENABLE_QUERY_REWRITE:
+        # 1. HyDE模式（如果启用，优先使用）
+        if settings.ENABLE_HYDE:
+            logger.info("Using HyDE mode for enhanced retrieval")
+            hypothetical_answer = await self._generate_hypothetical_answer(request.query)
+            if hypothetical_answer != request.query:  # 确认生成了假设答案
+                # HyDE模式：用假设答案替换原始查询
+                queries_to_search = [hypothetical_answer]
+                hyde_used = True
+                logger.info(f"HyDE mode activated, using hypothetical answer for retrieval")
+            else:
+                logger.info("HyDE generation failed, falling back to normal mode")
+        
+        # 2. 查询改写（如果启用且未使用HyDE）
+        # 注意：HyDE和查询改写不同时使用，避免过度复杂化
+        if not hyde_used and settings.ENABLE_QUERY_REWRITE:
             rewritten_queries = await self._rewrite_query(request.query)
             queries_to_search.extend(rewritten_queries)
             logger.info(f"Using {len(queries_to_search)} queries for multi-query search")
         
-        # 2. Embedding阶段 - 将所有查询转为向量
+        # 3. Embedding阶段 - 将所有查询转为向量
         embedding_result = await self.embed_texts(queries_to_search)
         query_vectors = embedding_result.vectors
         

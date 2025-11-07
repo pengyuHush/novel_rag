@@ -58,9 +58,11 @@ class Settings(BaseSettings):
     EMBEDDING_DIMENSION: int = 1024  # 向量维度 (支持256/512/1024/2048, 默认1024平衡精度和性能)
     
     # RAG搜索优化配置
-    ENABLE_QUERY_REWRITE: bool = True  # 是否启用查询改写
+    ENABLE_QUERY_REWRITE: bool = False  # 是否启用查询改写
     ENABLE_RERANKING: bool = False  # 是否启用重排序 (需要额外模型)
     ENABLE_HYBRID_SEARCH: bool = False  # 是否启用混合检索
+    ENABLE_HYDE: bool = True  # 是否启用HyDE (假设文档嵌入)
+    HYDE_MODEL: str = "glm-4-flash"  # HyDE使用的模型 (glm-4-flash更稳定, glm-4-plus质量更高)
     CONTEXT_EXPAND_WINDOW: int = 1  # 上下文扩展窗口 (前后各扩展N个chunk)
 
     # Background processing
