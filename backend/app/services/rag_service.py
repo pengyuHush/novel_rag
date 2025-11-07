@@ -26,7 +26,7 @@ except ImportError as exc:  # pragma: no cover - dependency guaranteed by pyproj
 
 
 EMBEDDING_MODEL = "embedding-3"
-CHAT_MODEL = "glm-4-plus"
+CHAT_MODEL = "glm-4.5"
 
 
 @dataclass
