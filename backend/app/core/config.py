@@ -4,6 +4,7 @@ from functools import lru_cache
 from typing import List
 
 from pydantic import Field, field_validator
+from pydantic.types import T
 from pydantic_settings import BaseSettings
 
 
@@ -58,12 +59,18 @@ class Settings(BaseSettings):
     EMBEDDING_DIMENSION: int = 1024  # 向量维度 (支持256/512/1024/2048, 默认1024平衡精度和性能)
     
     # RAG搜索优化配置
-    ENABLE_QUERY_REWRITE: bool = False  # 是否启用查询改写
-    ENABLE_RERANKING: bool = False  # 是否启用重排序 (需要额外模型)
-    ENABLE_HYBRID_SEARCH: bool = False  # 是否启用混合检索
+    ENABLE_QUERY_REWRITE: bool = True  # 是否启用查询改写
+    ENABLE_RERANKING: bool = True  # 是否启用重排序 (需要额外模型)
+    ENABLE_HYBRID_SEARCH: bool = True  # 是否启用混合检索
     ENABLE_HYDE: bool = True  # 是否启用HyDE (假设文档嵌入)
-    HYDE_MODEL: str = "glm-4-flash"  # HyDE使用的模型 (glm-4-flash更稳定, glm-4-plus质量更高)
+    HYDE_MODEL: str = "glm-4.5"  # HyDE使用的模型 (glm-4-flash更稳定, glm-4-plus质量更高)
     CONTEXT_EXPAND_WINDOW: int = 1  # 上下文扩展窗口 (前后各扩展N个chunk)
+    
+    # 🔥 元数据丰富化配置
+    ENABLE_METADATA_EXTRACTION: bool = True  # 是否启用元数据提取
+    METADATA_EXTRACTION_MODEL: str = "glm-4.5"  # 元数据提取模型 (推荐glm-4-flash，更稳定且成本低；glm-4.5会输出推理过程)
+    ENABLE_METADATA_FILTERING: bool = True  # 是否启用基于元数据的过滤
+    ENABLE_METADATA_WEIGHTING: bool = True  # 是否启用基于元数据的加权
 
     # Background processing
     MAX_BACKGROUND_CONCURRENCY: int = 2

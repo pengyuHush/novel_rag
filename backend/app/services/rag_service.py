@@ -57,9 +57,16 @@ class ChunkPayload:
     chapter_number: int | None
     paragraph_index: int
     start_position: int | None
+    
+    # 🔥 元数据丰富化字段
+    characters: List[str] | None = None  # 该chunk中出现的角色
+    keywords: List[str] | None = None     # 关键词
+    summary: str | None = None            # chunk摘要
+    scene_type: str | None = None         # 场景类型（对话/描述/动作/心理）
+    emotional_tone: str | None = None     # 情感基调（积极/消极/中性/紧张/温馨等）
 
     def to_payload(self) -> dict:
-        return {
+        payload = {
             "chunk_id": self.id,
             "content": self.content,
             "novel_id": self.novel_id,
@@ -70,6 +77,20 @@ class ChunkPayload:
             "paragraph_index": self.paragraph_index,
             "start_position": self.start_position,
         }
+        
+        # 添加元数据字段（如果存在）
+        if self.characters:
+            payload["characters"] = self.characters
+        if self.keywords:
+            payload["keywords"] = self.keywords
+        if self.summary:
+            payload["summary"] = self.summary
+        if self.scene_type:
+            payload["scene_type"] = self.scene_type
+        if self.emotional_tone:
+            payload["emotional_tone"] = self.emotional_tone
+            
+        return payload
 
 
 class RAGService:
@@ -83,6 +104,27 @@ class RAGService:
         self.client = ZhipuAiClient(api_key=api_key) if api_key else None
         self.qdrant: QdrantClient = get_qdrant_client()
         self.collection_name = settings.QDRANT_COLLECTION
+    
+    @staticmethod
+    def _extract_message_content(response) -> str:
+        """从智谱AI响应中提取内容.
+        
+        根据智谱AI官方文档，实际输出内容在 content 字段，
+        reasoning_content 是推理过程文本。此函数优先读取 content。
+        
+        Args:
+            response: 智谱AI API响应对象
+            
+        Returns:
+            str: 提取的内容文本
+        """
+        if not response or not response.choices:
+            return ""
+        
+        message = response.choices[0].message
+        # 优先读取 content（实际输出），reasoning_content 是推理过程
+        content = message.content or getattr(message, 'reasoning_content', None) or ""
+        return content
 
     async def ensure_collection(self, vector_size: int) -> None:
         collections = self.qdrant.get_collections().collections
@@ -250,7 +292,7 @@ class RAGService:
                 ),
             )
             
-            content = response.choices[0].message.content if response.choices else ""
+            content = self._extract_message_content(response)
             if not content:
                 return []
             
@@ -373,6 +415,9 @@ class RAGService:
                         },
                         {"role": "user", "content": prompt}
                     ],
+                    thinking={
+                        "type": "disable",  # 启用深度思考模式
+                    },
                     temperature=0.8,  # 稍高温度增加生成多样性
                     max_tokens=200,
                 ),
@@ -391,7 +436,7 @@ class RAGService:
                 logger.error("HyDE: API response choice has no message")
                 return query
                 
-            hypothetical = response.choices[0].message.content
+            hypothetical = self._extract_message_content(response)
             
             if not hypothetical or not hypothetical.strip():
                 logger.warning("HyDE: First attempt generated empty content, trying fallback strategy")
@@ -407,13 +452,16 @@ class RAGService:
                                 "content": f"请用50-100字扩写这个问题，添加更多细节和上下文：\n\n{query}\n\n扩写："
                             }
                         ],
+                        thinking={
+                            "type": "disable",  # 启用深度思考模式
+                        },
                         temperature=0.7,
                         max_tokens=150,
                     ),
                 )
                 
                 if fallback_response and fallback_response.choices:
-                    hypothetical = fallback_response.choices[0].message.content
+                    hypothetical = self._extract_message_content(fallback_response)
                     if hypothetical and hypothetical.strip():
                         hypothetical = hypothetical.strip()
                         logger.info(f"HyDE fallback strategy succeeded (length={len(hypothetical)})")
@@ -476,12 +524,15 @@ class RAGService:
                             {"role": "system", "content": "你是文本相关性评估专家。"},
                             {"role": "user", "content": prompt}
                         ],
+                        thinking={
+                            "type": "disable",  # 启用深度思考模式
+                        },
                         temperature=0.1,
                         max_tokens=10,
                     ),
                 )
                 
-                content_text = response.choices[0].message.content if response.choices else ""
+                content_text = self._extract_message_content(response)
                 try:
                     # 提取数字评分
                     score = float(''.join(c for c in content_text if c.isdigit() or c == '.'))
@@ -568,16 +619,48 @@ class RAGService:
             total_tokens += embedding_tokens
             api_calls += 1
 
-        filter_condition = None
+        # 构建过滤条件（小说ID + 元数据过滤）
+        filter_conditions = []
+        
+        # 小说ID过滤
         if request.novel_ids:
-            filter_condition = qmodels.Filter(
-                must=[
-                    qmodels.FieldCondition(
-                        key="novel_id",
-                        match=qmodels.MatchAny(any=request.novel_ids),
-                    )
-                ]
+            filter_conditions.append(
+                qmodels.FieldCondition(
+                    key="novel_id",
+                    match=qmodels.MatchAny(any=request.novel_ids),
+                )
             )
+        
+        # 🔥 元数据过滤（如果启用）
+        if settings.ENABLE_METADATA_FILTERING:
+            # 角色过滤
+            if request.filter_characters:
+                filter_conditions.append(
+                    qmodels.FieldCondition(
+                        key="characters",
+                        match=qmodels.MatchAny(any=request.filter_characters),
+                    )
+                )
+            
+            # 场景类型过滤
+            if request.filter_scene_type:
+                filter_conditions.append(
+                    qmodels.FieldCondition(
+                        key="scene_type",
+                        match=qmodels.MatchValue(value=request.filter_scene_type),
+                    )
+                )
+            
+            # 情感基调过滤
+            if request.filter_emotional_tone:
+                filter_conditions.append(
+                    qmodels.FieldCondition(
+                        key="emotional_tone",
+                        match=qmodels.MatchValue(value=request.filter_emotional_tone),
+                    )
+                )
+        
+        filter_condition = qmodels.Filter(must=filter_conditions) if filter_conditions else None
 
         # 3. 多查询向量检索 - 收集所有结果
         all_results_map = {}  # 用于去重，key为chunk_id
@@ -617,7 +700,12 @@ class RAGService:
                 elapsed=elapsed,
             )
 
-        # 4. 相似度阈值过滤
+        # 4. 🔥 元数据加权（如果启用）
+        if settings.ENABLE_METADATA_WEIGHTING and merged_results:
+            logger.info("Applying metadata-based score weighting")
+            merged_results = self._apply_metadata_weighting(merged_results, request)
+        
+        # 5. 相似度阈值过滤
         min_score = settings.MIN_RELEVANCE_SCORE
         filtered_results = [point for point in merged_results if point.score >= min_score]
         
@@ -627,7 +715,7 @@ class RAGService:
         
         logger.info(f"Retrieved {len(merged_results)} results, {len(filtered_results)} after filtering (threshold={min_score})")
         
-        # 5. 重排序（如果配置启用）
+        # 6. 重排序（如果配置启用）
         results_with_content = [(point, point.payload.get("content", "")) for point in filtered_results if point.payload]
         
         if settings.ENABLE_RERANKING and len(results_with_content) > 3:
@@ -637,7 +725,7 @@ class RAGService:
         else:
             final_results = filtered_results[:request.top_k]
         
-        # 6. 构建上下文和引用
+        # 7. 构建上下文和引用
         references: List[SearchReference] = []
         context_parts: List[str] = []
         seen_contents = set()  # 用于去重相同内容
@@ -654,7 +742,7 @@ class RAGService:
             
             context_parts.append(content)
             
-            # 7. 上下文窗口扩展（如果配置启用）
+            # 8. 上下文窗口扩展（如果配置启用）
             if settings.CONTEXT_EXPAND_WINDOW > 0:
                 expanded = await self._expand_context_window(
                     novel_id=payload.get("novel_id"),
@@ -664,6 +752,7 @@ class RAGService:
                 )
                 context_parts.extend(expanded)
             
+            # 🔥 包含元数据信息
             references.append(
                 SearchReference(
                     novel_id=payload.get("novel_id"),
@@ -674,10 +763,14 @@ class RAGService:
                     paragraph_index=payload.get("paragraph_index"),
                     content=content[:500],
                     relevance_score=point.score or 0.0,
+                    characters=payload.get("characters"),
+                    keywords=payload.get("keywords"),
+                    scene_type=payload.get("scene_type"),
+                    emotional_tone=payload.get("emotional_tone"),
                 )
             )
 
-        # 7. 答案生成阶段（支持思维链）
+        # 9. 答案生成阶段（支持思维链）
         use_cot = len(context_parts) > 5  # 如果上下文较多，使用思维链
         answer, chat_usage = await self._generate_answer(
             request.query, 
@@ -808,12 +901,15 @@ class RAGService:
                     },
                     {"role": "user", "content": prompt},
                 ],
+                thinking={
+                    "type": "enabled",  # 启用深度思考模式
+                },
                 temperature=0.3,  # 降低temperature提高准确性
                 top_p=0.8,  # 添加top_p控制
             ),
         )
 
-        content = response.choices[0].message.content if response.choices else ""
+        content = self._extract_message_content(response)
         answer = content or "未能生成有效回答，请稍后重试。"
         
         # 提取token使用情况
@@ -831,6 +927,102 @@ class RAGService:
         
         return answer, usage
 
+    def _apply_metadata_weighting(self, results: List, request: SearchRequest) -> List:
+        """基于元数据对检索结果进行加权.
+        
+        根据查询中提到的角色、关键词、场景类型等，调整相关度分数。
+        
+        Args:
+            results: 检索结果列表
+            request: 搜索请求
+            
+        Returns:
+            List: 加权后的结果列表（按新分数排序）
+        """
+        if not results:
+            return results
+        
+        query_lower = request.query.lower()
+        weighted_results = []
+        
+        for point in results:
+            if not point.payload:
+                weighted_results.append(point)
+                continue
+            
+            # 基础分数（向量相似度）
+            base_score = point.score or 0.0
+            boost = 0.0
+            
+            # 1. 角色匹配加权（权重: +5%）
+            characters = point.payload.get("characters", [])
+            if characters:
+                for char in characters:
+                    if char and char.lower() in query_lower:
+                        boost += 0.05
+                        logger.debug(f"Character match boost: {char} (+0.05)")
+                        break
+            
+            # 2. 关键词匹配加权（权重: +3%）
+            keywords = point.payload.get("keywords", [])
+            if keywords:
+                matched_keywords = [kw for kw in keywords if kw and kw.lower() in query_lower]
+                if matched_keywords:
+                    boost += 0.03 * min(len(matched_keywords), 2)  # 最多+6%
+                    logger.debug(f"Keyword match boost: {matched_keywords} (+{0.03 * min(len(matched_keywords), 2)})")
+            
+            # 3. 场景类型匹配加权（权重: +4%）
+            scene_type = point.payload.get("scene_type")
+            if scene_type:
+                scene_keywords = {
+                    "对话": ["说", "道", "问", "答", "讲", "谈"],
+                    "动作": ["打", "跑", "跳", "飞", "走", "击"],
+                    "描述": ["景色", "环境", "样子", "外观"],
+                    "心理": ["想", "思", "念", "感觉", "认为"],
+                }
+                if scene_type in scene_keywords:
+                    for keyword in scene_keywords[scene_type]:
+                        if keyword in query_lower:
+                            boost += 0.04
+                            logger.debug(f"Scene type match boost: {scene_type} (+0.04)")
+                            break
+            
+            # 4. 情感基调匹配加权（权重: +3%）
+            emotional_tone = point.payload.get("emotional_tone")
+            if emotional_tone:
+                emotion_keywords = {
+                    "积极": ["高兴", "快乐", "喜悦", "幸福"],
+                    "消极": ["悲伤", "痛苦", "难过", "绝望"],
+                    "紧张": ["紧张", "危险", "惊险", "激烈"],
+                    "温馨": ["温暖", "温馨", "温柔", "平和"],
+                }
+                if emotional_tone in emotion_keywords:
+                    for keyword in emotion_keywords[emotional_tone]:
+                        if keyword in query_lower:
+                            boost += 0.03
+                            logger.debug(f"Emotional tone match boost: {emotional_tone} (+0.03)")
+                            break
+            
+            # 应用加权（限制最大boost为+20%）
+            final_boost = min(boost, 0.20)
+            new_score = base_score * (1 + final_boost)
+            
+            if final_boost > 0:
+                logger.debug(
+                    f"Metadata weighting: base_score={base_score:.4f}, "
+                    f"boost={final_boost:.2%}, new_score={new_score:.4f}"
+                )
+            
+            # 更新分数
+            point.score = new_score
+            weighted_results.append(point)
+        
+        # 按新分数重新排序
+        weighted_results.sort(key=lambda x: x.score or 0.0, reverse=True)
+        
+        logger.info(f"Metadata weighting applied to {len(weighted_results)} results")
+        return weighted_results
+    
     def _cache_key(self, request: SearchRequest) -> str:
         payload = {
             "query": request.query,

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Novel, SearchResult, NovelProcessingStatus } from '../types';
+import type { Novel, SearchResult, NovelProcessingStatus, SearchHistory } from '../types';
 
 interface AppState {
   // 小说列表
@@ -17,10 +17,17 @@ interface AppState {
   currentSearchResult: SearchResult | null;
   setCurrentSearchResult: (result: SearchResult | null) => void;
 
-  // 最近搜索查询（简单存储，不包含结果）
+  // 最近搜索查询（简单存储，不包含结果）- 保留用于兼容性
   recentQueries: string[];
   addRecentQuery: (query: string) => void;
   clearRecentQueries: () => void;
+
+  // 历史搜索记录（完整记录，包含答案）
+  searchHistory: SearchHistory[];
+  addSearchHistory: (history: SearchHistory) => void;
+  removeSearchHistory: (id: string) => void;
+  clearSearchHistory: () => void;
+  loadSearchHistoryItem: (history: SearchHistory) => void;
 
   // 加载状态
   loading: boolean;
@@ -45,7 +52,7 @@ interface AppState {
   removeProcessingStatus: (novelId: string) => void;
 }
 
-// 从localStorage加载搜索历史
+// 从localStorage加载搜索查询历史（简单）
 const loadRecentQueries = (): string[] => {
   try {
     const saved = localStorage.getItem('recentQueries');
@@ -56,12 +63,34 @@ const loadRecentQueries = (): string[] => {
   }
 };
 
-// 保存搜索历史到localStorage
+// 保存搜索查询历史到localStorage
 const saveRecentQueries = (queries: string[]) => {
   try {
     localStorage.setItem('recentQueries', JSON.stringify(queries));
   } catch (error) {
     console.error('Failed to save recent queries:', error);
+  }
+};
+
+// 从localStorage加载完整搜索历史
+const loadSearchHistory = (): SearchHistory[] => {
+  try {
+    const saved = localStorage.getItem('searchHistory');
+    return saved ? JSON.parse(saved) : [];
+  } catch (error) {
+    console.error('Failed to load search history:', error);
+    return [];
+  }
+};
+
+// 保存完整搜索历史到localStorage
+const saveSearchHistory = (history: SearchHistory[]) => {
+  try {
+    // 只保留最近50条记录，避免localStorage过大
+    const limitedHistory = history.slice(0, 50);
+    localStorage.setItem('searchHistory', JSON.stringify(limitedHistory));
+  } catch (error) {
+    console.error('Failed to save search history:', error);
   }
 };
 
@@ -71,6 +100,7 @@ export const useStore = create<AppState>((set) => ({
   selectedNovelIds: [],
   currentSearchResult: null,
   recentQueries: loadRecentQueries(),
+  searchHistory: loadSearchHistory(),
   loading: false,
   searching: false,
   storageInfo: {
@@ -125,6 +155,41 @@ export const useStore = create<AppState>((set) => ({
     saveRecentQueries([]);
     set({ recentQueries: [] });
   },
+
+  // 历史搜索记录管理
+  addSearchHistory: (history) => set((state) => {
+    // 检查是否已存在相同的查询（避免重复）
+    const filtered = state.searchHistory.filter(h => h.id !== history.id);
+    const newHistory = [history, ...filtered];
+    
+    saveSearchHistory(newHistory);
+    return { searchHistory: newHistory };
+  }),
+
+  removeSearchHistory: (id) => set((state) => {
+    const newHistory = state.searchHistory.filter(h => h.id !== id);
+    saveSearchHistory(newHistory);
+    return { searchHistory: newHistory };
+  }),
+
+  clearSearchHistory: () => {
+    saveSearchHistory([]);
+    set({ searchHistory: [] });
+  },
+
+  loadSearchHistoryItem: (history) => set((state) => {
+    // 恢复历史记录到当前搜索状态
+    return {
+      currentSearchResult: {
+        query: history.query,
+        answer: history.answer,
+        references: history.references,
+        elapsed: history.elapsed,
+        tokenStats: history.tokenStats
+      },
+      selectedNovelIds: history.selectedNovelIds
+    };
+  }),
 
   setLoading: (loading) => set({ loading }),
 

@@ -28,11 +28,17 @@ UI 组件库: Ant Design 5.28.0
 - ✅ 自然语言问题输入
 - ✅ 多小说联合检索
 - ✅ 搜索结果展示:
-  - 智能回答生成
+  - 智能回答生成 (Markdown 格式渲染)
   - 原文段落引用
   - 章节位置定位
   - 一键跳转阅读
   - Token 消耗统计 (总 Token/Embedding/Chat/预估费用/耗时)
+- ✅ 搜索历史管理:
+  - 自动保存搜索记录 (问题、答案、选中的小说)
+  - 左侧栏历史记录浏览
+  - 一键恢复历史搜索
+  - 支持删除单条或清空全部历史
+  - 本地持久化存储 (localStorage)
 
 ### 3. 人物关系图谱
 - ✅ 交互式力导向图可视化
@@ -53,6 +59,42 @@ UI 组件库: Ant Design 5.28.0
 ### 5. 响应式设计
 - ✅ 桌面端: 多栏布局，侧边栏导航
 - ✅ 移动端: 底部抽屉导航，悬浮按钮，触摸友好
+
+## 使用指南
+
+### 搜索历史功能
+
+**自动保存**
+- 每次成功搜索后，系统会自动保存完整的搜索记录
+- 记录包括：问题、答案、选中的小说、搜索模式、Token统计、时间戳
+
+**查看历史**
+1. 在搜索页面左侧栏，点击"搜索历史"标签
+2. 查看所有历史记录，按时间倒序排列
+3. 每条记录显示：
+   - 搜索问题
+   - 搜索时间 (相对时间，如"2分钟前")
+   - 选中的小说标题
+   - 搜索模式 (语义/关键词)
+   - Token消耗量
+
+**恢复历史搜索**
+- 点击任意历史记录卡片
+- 系统会自动恢复该次搜索的完整状态：
+  - 搜索框填充原问题
+  - 自动选中当时的小说
+  - 恢复搜索模式
+  - 显示原答案和引用
+
+**管理历史**
+- **删除单条**: 点击记录卡片右下角的删除按钮
+- **清空全部**: 点击右上角"清空"按钮，需确认操作
+
+**数据存储**
+- 历史记录保存在浏览器本地 (localStorage)
+- 最多保存 50 条记录 (自动清理最旧的记录)
+- 不会占用后端存储空间
+- 清除浏览器数据会删除历史记录
 
 ## 快速开始
 
@@ -249,12 +291,33 @@ interface AppState {
   recentQueries: string[];
   processingStatuses: Record<string, NovelProcessingStatus>;
   
+  // 搜索历史 (完整记录)
+  searchHistory: SearchHistory[];
+  
   // Actions
   setNovels: (novels: Novel[]) => void;
   setSelectedNovelIds: (ids: string[]) => void;
   setCurrentSearchResult: (result: SearchResult | null) => void;
   addRecentQuery: (query: string) => void;
+  addSearchHistory: (history: SearchHistory) => void;
+  removeSearchHistory: (id: string) => void;
+  clearSearchHistory: () => void;
+  loadSearchHistoryItem: (history: SearchHistory) => void;
   setProcessingStatus: (novelId: string, status: NovelProcessingStatus) => void;
+}
+
+// 搜索历史记录类型
+interface SearchHistory {
+  id: string;                    // 唯一标识
+  query: string;                 // 搜索问题
+  answer: string;                // AI回答
+  selectedNovelIds: string[];    // 选中的小说ID列表
+  selectedNovelTitles: string[]; // 选中的小说标题列表
+  searchMode: 'keyword' | 'semantic'; // 搜索模式
+  references: Reference[];       // 参考段落
+  tokenStats?: TokenStats;       // Token统计
+  timestamp: string;             // 搜索时间 (ISO 8601)
+  elapsed?: number;              // 耗时（秒）
 }
 ```
 

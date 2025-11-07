@@ -133,3 +133,17 @@ export interface Relationship {
   }>;
 }
 
+// 历史搜索记录（用于本地存储）
+export interface SearchHistory {
+  id: string;                    // 唯一标识
+  query: string;                 // 搜索问题
+  answer: string;                // AI回答
+  selectedNovelIds: string[];    // 选中的小说ID列表
+  selectedNovelTitles: string[]; // 选中的小说标题列表
+  searchMode: 'keyword' | 'semantic'; // 搜索模式
+  references: Reference[];       // 参考段落
+  tokenStats?: TokenStats;       // Token统计
+  timestamp: string;             // 搜索时间 (ISO 8601)
+  elapsed?: number;              // 耗时（秒）
+}
+

@@ -18,6 +18,7 @@ from app.models import Chapter, Novel
 from app.repositories.chapter_repository import ChapterRepository
 from app.repositories.novel_repository import NovelRepository
 from app.services.rag_service import ChunkPayload, RAGService
+from app.services.metadata_extraction_service import MetadataExtractionService
 from app.utils.text_processing import chinese_character_ratio, clean_text, detect_chapters, split_paragraphs
 
 
@@ -29,6 +30,7 @@ class TextProcessingService:
         self.novel_repo = NovelRepository(session)
         self.chapter_repo = ChapterRepository(session)
         self.rag = RAGService(redis_client=redis_client)
+        self.metadata_service = MetadataExtractionService()
 
     async def validate_file(self, file_content: bytes, filename: str) -> dict:
         """Validate uploaded file and return metadata."""
@@ -240,6 +242,31 @@ class TextProcessingService:
         if not chunks:
             logger.warning(f"No chunks created for novel {novel.id}")
             return
+        
+        # 🔥 元数据提取阶段
+        if progress_callback:
+            await progress_callback(0.35, "开始提取文本元数据")
+        
+        logger.info(f"Extracting metadata for {len(chunks)} chunks")
+        metadata_list = await self.metadata_service.extract_metadata_batch(
+            chunk_texts,
+            batch_size=5  # 并发批次大小
+        )
+        
+        # 将元数据附加到chunk
+        for chunk, metadata in zip(chunks, metadata_list):
+            if metadata:
+                chunk.characters = metadata.characters
+                chunk.keywords = metadata.keywords
+                chunk.summary = metadata.summary
+                chunk.scene_type = metadata.scene_type
+                chunk.emotional_tone = metadata.emotional_tone
+        
+        successful_extractions = sum(1 for m in metadata_list if m is not None)
+        logger.info(f"Metadata extraction completed: {successful_extractions}/{len(chunks)} successful")
+        
+        if progress_callback:
+            await progress_callback(0.4, f"元数据提取完成 ({successful_extractions}/{len(chunks)})")
 
         # 使用配置的batch_size进行批量embedding
         batch_size = settings.EMBEDDING_BATCH_SIZE

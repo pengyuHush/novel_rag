@@ -12,6 +12,11 @@ class SearchRequest(BaseModel):
     novel_ids: Optional[List[str]] = Field(None, description="限定的小说ID列表", alias="novelIds")
     top_k: int = Field(5, ge=1, le=10, alias="topK")
     include_references: bool = Field(True, alias="includeReferences")
+    
+    # 🔥 元数据过滤参数
+    filter_characters: Optional[List[str]] = Field(None, description="过滤指定角色", alias="filterCharacters")
+    filter_scene_type: Optional[str] = Field(None, description="过滤指定场景类型", alias="filterSceneType")
+    filter_emotional_tone: Optional[str] = Field(None, description="过滤指定情感基调", alias="filterEmotionalTone")
 
     class Config:
         populate_by_name = True
@@ -27,6 +32,12 @@ class SearchReference(BaseModel):
     paragraph_index: Optional[int] = Field(None, alias="paragraphIndex")
     content: str
     relevance_score: float = Field(0.0, alias="relevanceScore")
+    
+    # 🔥 元数据字段（可选显示）
+    characters: Optional[List[str]] = Field(None, description="角色列表")
+    keywords: Optional[List[str]] = Field(None, description="关键词列表")
+    scene_type: Optional[str] = Field(None, alias="sceneType", description="场景类型")
+    emotional_tone: Optional[str] = Field(None, alias="emotionalTone", description="情感基调")
 
     class Config:
         populate_by_name = True

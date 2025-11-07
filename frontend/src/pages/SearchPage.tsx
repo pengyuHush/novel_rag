@@ -42,7 +42,8 @@ import {
   AppstoreOutlined,
   ThunderboltOutlined,
   ApiOutlined,
-  ClockCircleOutlined
+  ClockCircleOutlined,
+  HistoryOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '../store/useStore';
@@ -74,6 +75,11 @@ const SearchPage: React.FC = () => {
     removeNovel,
     recentQueries,
     addRecentQuery,
+    searchHistory,
+    addSearchHistory,
+    removeSearchHistory,
+    clearSearchHistory,
+    loadSearchHistoryItem,
     currentSearchResult,
     setCurrentSearchResult,
     loading,
@@ -176,6 +182,24 @@ const SearchPage: React.FC = () => {
       // 添加到最近查询
       addRecentQuery(query);
 
+      // 保存完整历史记录
+      const selectedNovelTitles = novels
+        .filter(n => selectedNovelIds.includes(n.id))
+        .map(n => n.title);
+      
+      addSearchHistory({
+        id: uuidv4(),
+        query: result.query,
+        answer: result.answer,
+        selectedNovelIds,
+        selectedNovelTitles,
+        searchMode,
+        references: result.references,
+        tokenStats: result.tokenStats,
+        timestamp: new Date().toISOString(),
+        elapsed: result.elapsed
+      });
+
       message.success(`搜索完成，找到${result.references.length}处相关内容`);
     } catch (error) {
       console.error('搜索失败:', error);
@@ -187,7 +211,7 @@ const SearchPage: React.FC = () => {
     } finally {
       setSearching(false);
     }
-  }, [query, selectedNovelIds, searchMode, setCurrentSearchResult, addRecentQuery]);
+  }, [query, selectedNovelIds, searchMode, novels, setCurrentSearchResult, addRecentQuery, addSearchHistory]);
 
   // 从location state中获取预选的小说和查询
   useEffect(() => {
@@ -320,6 +344,15 @@ const SearchPage: React.FC = () => {
     }
   };
 
+  // 点击历史记录
+  const handleHistoryClick = (history: typeof searchHistory[0]) => {
+    loadSearchHistoryItem(history);
+    setQuery(history.query);
+    setSelectedNovelIds(history.selectedNovelIds);
+    setSearchMode(history.searchMode);
+    message.success('已恢复历史搜索记录');
+  };
+
   return (
     <Layout className="page-container" style={{ minHeight: '100vh' }}>
       {/* 顶部导航栏 */}
@@ -445,163 +478,294 @@ const SearchPage: React.FC = () => {
 
                 <Divider style={{ margin: '8px 0' }} />
 
-                {/* 小说列表 */}
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <Text strong>小说列表</Text>
-                    <Button
-                      type="link"
-                      size="small"
-                      onClick={handleSelectAll}
-                    >
-                      {selectedNovelIds.length === novels.length ? '取消全选' : '全选'}
-                    </Button>
-                  </div>
+                {/* Tabs: 小说列表 & 历史记录 */}
+                <Tabs
+                  defaultActiveKey="novels"
+                  size="small"
+                  items={[
+                    {
+                      key: 'novels',
+                      label: (
+                        <span>
+                          <BookOutlined style={{ marginRight: 4 }} />
+                          小说列表
+                        </span>
+                      ),
+                      children: (
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                            <Text type="secondary" style={{ fontSize: '12px' }}>
+                              选择小说进行搜索
+                            </Text>
+                            <Button
+                              type="link"
+                              size="small"
+                              onClick={handleSelectAll}
+                            >
+                              {selectedNovelIds.length === novels.length ? '取消全选' : '全选'}
+                            </Button>
+                          </div>
 
-                  {novelsLoading ? (
-                    <div style={{ textAlign: 'center', padding: '20px 0' }}>
-                      <Spin />
-                    </div>
-                  ) : novels.length === 0 ? (
-                    <Empty
-                      image={Empty.PRESENTED_IMAGE_SIMPLE}
-                      description="还没有导入小说"
-                      style={{ padding: '20px 0' }}
-                    >
-                      <Button type="link" onClick={() => setImportModalVisible(true)}>
-                        立即导入
-                      </Button>
-                    </Empty>
-                  ) : (
-                    <List
-                      size="small"
-                      dataSource={novels}
-                      renderItem={(novel) => (
-                        <List.Item
-                          style={{
-                            padding: '8px 12px',
-                            cursor: 'pointer',
-                            background: selectedNovelIds.includes(novel.id) ? '#e6f7ff' : 'transparent',
-                            borderRadius: 4,
-                            marginBottom: 4
-                          }}
-                          onClick={() => toggleNovelSelection(novel.id)}
-                        >
-                          <List.Item.Meta
-                            avatar={
-                              <Checkbox
-                                checked={selectedNovelIds.includes(novel.id)}
-                                onChange={(e) => {
-                                  e.stopPropagation();
-                                  toggleNovelSelection(novel.id);
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                            }
-                            title={
-                              <div>
-                                <Text strong style={{ fontSize: '14px' }}>{novel.title}</Text>
-                              </div>
-                            }
-                            description={
-                              <Space direction="vertical" size={0} style={{ width: '100%' }}>
-                                {novel.author && (
-                                  <Text type="secondary" style={{ fontSize: '12px' }}>
-                                    {novel.author}
-                                  </Text>
-                                )}
-                                <Space size={4} wrap>
-                                  <Tag color="blue" style={{ fontSize: '11px' }}>
-                                    {apiUtils.formatWordCount(novel.wordCount)}
-                                  </Tag>
-                                  <Tag color="green" style={{ fontSize: '11px' }}>
-                                    {novel.chapterCount}章
-                                  </Tag>
-                                </Space>
-                              </Space>
-                            }
-                          />
-                          <Space direction="vertical" size={4} style={{ alignItems: 'flex-end' }}>
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<TeamOutlined />}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate(`/graph/${novel.id}`);
-                              }}
-                              style={{ 
-                                width: '70px',
-                                justifyContent: 'flex-start',
-                                padding: '2px 8px'
-                              }}
+                          {novelsLoading ? (
+                            <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                              <Spin />
+                            </div>
+                          ) : novels.length === 0 ? (
+                            <Empty
+                              image={Empty.PRESENTED_IMAGE_SIMPLE}
+                              description="还没有导入小说"
+                              style={{ padding: '20px 0' }}
                             >
-                              关系图
-                            </Button>
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<ReadOutlined />}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate(`/reader/${novel.id}`);
-                              }}
-                              style={{ 
-                                width: '70px',
-                                justifyContent: 'flex-start',
-                                padding: '2px 8px'
-                              }}
-                            >
-                              阅读
-                            </Button>
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<EditOutlined />}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleEdit(novel);
-                              }}
-                              style={{ 
-                                width: '70px',
-                                justifyContent: 'flex-start',
-                                padding: '2px 8px'
-                              }}
-                            >
-                              编辑
-                            </Button>
-                            <Popconfirm
-                              title="确定删除？"
-                              description={`确定要删除《${novel.title}》吗？`}
-                              onConfirm={(e) => {
-                                e?.stopPropagation();
-                                handleDelete(novel.id, novel.title);
-                              }}
-                              okText="确定"
-                              cancelText="取消"
-                              okButtonProps={{ danger: true }}
-                            >
-                              <Button
-                                type="text"
-                                size="small"
-                                danger
-                                icon={<DeleteOutlined />}
-                                onClick={(e) => e.stopPropagation()}
-                                style={{ 
-                                  width: '70px',
-                                  justifyContent: 'flex-start',
-                                  padding: '2px 8px'
-                                }}
-                              >
-                                删除
+                              <Button type="link" onClick={() => setImportModalVisible(true)}>
+                                立即导入
                               </Button>
-                            </Popconfirm>
-                          </Space>
-                        </List.Item>
-                      )}
-                    />
-                  )}
-                </div>
+                            </Empty>
+                          ) : (
+                            <List
+                              size="small"
+                              dataSource={novels}
+                              renderItem={(novel) => (
+                                <List.Item
+                                  style={{
+                                    padding: '8px 12px',
+                                    cursor: 'pointer',
+                                    background: selectedNovelIds.includes(novel.id) ? '#e6f7ff' : 'transparent',
+                                    borderRadius: 4,
+                                    marginBottom: 4
+                                  }}
+                                  onClick={() => toggleNovelSelection(novel.id)}
+                                >
+                                  <List.Item.Meta
+                                    avatar={
+                                      <Checkbox
+                                        checked={selectedNovelIds.includes(novel.id)}
+                                        onChange={(e) => {
+                                          e.stopPropagation();
+                                          toggleNovelSelection(novel.id);
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                      />
+                                    }
+                                    title={
+                                      <div>
+                                        <Text strong style={{ fontSize: '14px' }}>{novel.title}</Text>
+                                      </div>
+                                    }
+                                    description={
+                                      <Space direction="vertical" size={0} style={{ width: '100%' }}>
+                                        {novel.author && (
+                                          <Text type="secondary" style={{ fontSize: '12px' }}>
+                                            {novel.author}
+                                          </Text>
+                                        )}
+                                        <Space size={4} wrap>
+                                          <Tag color="blue" style={{ fontSize: '11px' }}>
+                                            {apiUtils.formatWordCount(novel.wordCount)}
+                                          </Tag>
+                                          <Tag color="green" style={{ fontSize: '11px' }}>
+                                            {novel.chapterCount}章
+                                          </Tag>
+                                        </Space>
+                                      </Space>
+                                    }
+                                  />
+                                  <Space direction="vertical" size={4} style={{ alignItems: 'flex-end' }}>
+                                    <Button
+                                      type="text"
+                                      size="small"
+                                      icon={<TeamOutlined />}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        navigate(`/graph/${novel.id}`);
+                                      }}
+                                      style={{ 
+                                        width: '70px',
+                                        justifyContent: 'flex-start',
+                                        padding: '2px 8px'
+                                      }}
+                                    >
+                                      关系图
+                                    </Button>
+                                    <Button
+                                      type="text"
+                                      size="small"
+                                      icon={<ReadOutlined />}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        navigate(`/reader/${novel.id}`);
+                                      }}
+                                      style={{ 
+                                        width: '70px',
+                                        justifyContent: 'flex-start',
+                                        padding: '2px 8px'
+                                      }}
+                                    >
+                                      阅读
+                                    </Button>
+                                    <Button
+                                      type="text"
+                                      size="small"
+                                      icon={<EditOutlined />}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleEdit(novel);
+                                      }}
+                                      style={{ 
+                                        width: '70px',
+                                        justifyContent: 'flex-start',
+                                        padding: '2px 8px'
+                                      }}
+                                    >
+                                      编辑
+                                    </Button>
+                                    <Popconfirm
+                                      title="确定删除？"
+                                      description={`确定要删除《${novel.title}》吗？`}
+                                      onConfirm={(e) => {
+                                        e?.stopPropagation();
+                                        handleDelete(novel.id, novel.title);
+                                      }}
+                                      okText="确定"
+                                      cancelText="取消"
+                                      okButtonProps={{ danger: true }}
+                                    >
+                                      <Button
+                                        type="text"
+                                        size="small"
+                                        danger
+                                        icon={<DeleteOutlined />}
+                                        onClick={(e) => e.stopPropagation()}
+                                        style={{ 
+                                          width: '70px',
+                                          justifyContent: 'flex-start',
+                                          padding: '2px 8px'
+                                        }}
+                                      >
+                                        删除
+                                      </Button>
+                                    </Popconfirm>
+                                  </Space>
+                                </List.Item>
+                              )}
+                            />
+                          )}
+                        </div>
+                      )
+                    },
+                    {
+                      key: 'history',
+                      label: (
+                        <span>
+                          <HistoryOutlined style={{ marginRight: 4 }} />
+                          搜索历史
+                        </span>
+                      ),
+                      children: (
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                            <Text type="secondary" style={{ fontSize: '12px' }}>
+                              共 {searchHistory.length} 条记录
+                            </Text>
+                            {searchHistory.length > 0 && (
+                              <Popconfirm
+                                title="确定清空历史记录？"
+                                onConfirm={clearSearchHistory}
+                                okText="确定"
+                                cancelText="取消"
+                                okButtonProps={{ danger: true }}
+                              >
+                                <Button
+                                  type="link"
+                                  size="small"
+                                  danger
+                                >
+                                  清空
+                                </Button>
+                              </Popconfirm>
+                            )}
+                          </div>
+
+                          {searchHistory.length === 0 ? (
+                            <Empty
+                              image={Empty.PRESENTED_IMAGE_SIMPLE}
+                              description="暂无搜索历史"
+                              style={{ padding: '40px 0' }}
+                            />
+                          ) : (
+                            <List
+                              size="small"
+                              dataSource={searchHistory}
+                              renderItem={(history) => (
+                                <List.Item
+                                  style={{
+                                    padding: '12px',
+                                    cursor: 'pointer',
+                                    borderRadius: 8,
+                                    marginBottom: 8,
+                                    border: '1px solid #E8E3D6',
+                                    background: '#FFFEF9',
+                                    transition: 'all 0.3s'
+                                  }}
+                                  className="hover-card"
+                                  onClick={() => handleHistoryClick(history)}
+                                >
+                                  <div style={{ width: '100%' }}>
+                                    <div style={{ marginBottom: 8 }}>
+                                      <Text strong style={{ fontSize: '13px', display: 'block', marginBottom: 4 }}>
+                                        {history.query}
+                                      </Text>
+                                      <Text type="secondary" style={{ fontSize: '11px' }}>
+                                        {dayjs(history.timestamp).fromNow()}
+                                      </Text>
+                                    </div>
+                                    <Space size={4} wrap style={{ marginBottom: 4 }}>
+                                      {history.selectedNovelTitles.map((title, idx) => (
+                                        <Tag key={idx} color="blue" style={{ fontSize: '10px', margin: 0 }}>
+                                          {title}
+                                        </Tag>
+                                      ))}
+                                    </Space>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <Space size={4}>
+                                        <Tag color={history.searchMode === 'semantic' ? 'green' : 'orange'} style={{ fontSize: '10px', margin: 0 }}>
+                                          {history.searchMode === 'semantic' ? '语义' : '关键词'}
+                                        </Tag>
+                                        {history.tokenStats && (
+                                          <Text type="secondary" style={{ fontSize: '10px' }}>
+                                            {history.tokenStats.totalTokens} tokens
+                                          </Text>
+                                        )}
+                                      </Space>
+                                      <Popconfirm
+                                        title="确定删除这条记录？"
+                                        onConfirm={(e) => {
+                                          e?.stopPropagation();
+                                          removeSearchHistory(history.id);
+                                        }}
+                                        okText="确定"
+                                        cancelText="取消"
+                                        okButtonProps={{ danger: true }}
+                                      >
+                                        <Button
+                                          type="text"
+                                          size="small"
+                                          danger
+                                          icon={<DeleteOutlined />}
+                                          onClick={(e) => e.stopPropagation()}
+                                          style={{ padding: '0 4px', height: 'auto' }}
+                                        />
+                                      </Popconfirm>
+                                    </div>
+                                  </div>
+                                </List.Item>
+                              )}
+                            />
+                          )}
+                        </div>
+                      )
+                    }
+                  ]}
+                />
               </Space>
             </div>
           </Sider>
