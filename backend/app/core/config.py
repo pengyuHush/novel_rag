@@ -50,11 +50,18 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE_MB: int = 50
     MIN_WORD_COUNT: int = 1000
     MIN_CHINESE_RATIO: float = 0.6
-    CHUNK_SIZE: int = 1500  # 每个chunk的最大字符数 (优化: 800→1500, 提升token利用率)
-    CHUNK_OVERLAP: int = 150  # chunk之间的重叠字符数 (优化: 保持10%重叠率)
-    MAX_TOP_K: int = 8
+    CHUNK_SIZE: int = 1200  # 每个chunk的最大字符数 (优化: 1500→1200, 让每个chunk更聚焦)
+    CHUNK_OVERLAP: int = 200  # chunk之间的重叠字符数 (优化: 150→200, 约17%重叠率避免信息断裂)
+    MAX_TOP_K: int = 15  # 最大检索数量 (优化: 8→15, 获取更多候选)
+    MIN_RELEVANCE_SCORE: float = 0.65  # 最低相似度阈值 (过滤低相关度结果)
     EMBEDDING_BATCH_SIZE: int = 64  # 单次embedding请求的最大文本数量 (优化: 6→64, 智谱AI官方最大限制)
     EMBEDDING_DIMENSION: int = 1024  # 向量维度 (支持256/512/1024/2048, 默认1024平衡精度和性能)
+    
+    # RAG搜索优化配置
+    ENABLE_QUERY_REWRITE: bool = True  # 是否启用查询改写
+    ENABLE_RERANKING: bool = False  # 是否启用重排序 (需要额外模型)
+    ENABLE_HYBRID_SEARCH: bool = False  # 是否启用混合检索
+    CONTEXT_EXPAND_WINDOW: int = 1  # 上下文扩展窗口 (前后各扩展N个chunk)
 
     # Background processing
     MAX_BACKGROUND_CONCURRENCY: int = 2

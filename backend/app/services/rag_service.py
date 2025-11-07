@@ -212,6 +212,195 @@ class RAGService:
                 filter=qmodels.Filter(must=[qmodels.FieldCondition(key="novel_id", match=qmodels.MatchValue(value=novel_id))])
             ),
         )
+    
+    async def _rewrite_query(self, original_query: str) -> List[str]:
+        """查询改写 - 生成改写的查询以提高召回率.
+        
+        Args:
+            original_query: 原始查询
+            
+        Returns:
+            List[str]: 改写后的查询列表（不包含原查询）
+        """
+        if not self.client:
+            return []
+        
+        try:
+            prompt = f"""请将下面的问题改写成2个不同但意思相近的版本，用于搜索小说内容。
+要求：
+1. 保持原问题的核心意图
+2. 使用不同的表达方式和关键词
+3. 每行一个改写版本，不要编号
+
+原问题：{original_query}
+
+改写版本："""
+
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.client.chat.completions.create(
+                    model=CHAT_MODEL,
+                    messages=[
+                        {"role": "system", "content": "你是查询改写助手，擅长用不同方式表达同一个问题。"},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.8,
+                    max_tokens=200,
+                ),
+            )
+            
+            content = response.choices[0].message.content if response.choices else ""
+            if not content:
+                return []
+            
+            # 解析改写的查询
+            rewritten = [line.strip() for line in content.split('\n') if line.strip()]
+            # 过滤掉包含"改写"、"版本"等元信息的行
+            rewritten = [q for q in rewritten if not any(word in q for word in ['改写', '版本', '：', ':'])]
+            
+            logger.info(f"Query rewriting: '{original_query}' -> {rewritten}")
+            return rewritten[:2]  # 最多返回2个改写
+            
+        except Exception as e:
+            logger.warning(f"Query rewriting failed: {e}")
+            return []
+    
+    async def _expand_context_window(
+        self,
+        novel_id: str,
+        chapter_id: Optional[str],
+        paragraph_index: int,
+        window_size: int = 1
+    ) -> List[str]:
+        """扩展上下文窗口 - 获取相邻的chunk内容.
+        
+        Args:
+            novel_id: 小说ID
+            chapter_id: 章节ID
+            paragraph_index: 段落索引
+            window_size: 窗口大小（前后各扩展N个段落）
+            
+        Returns:
+            List[str]: 扩展的上下文内容列表
+        """
+        if window_size <= 0:
+            return []
+        
+        try:
+            expanded_contexts = []
+            
+            # 构建查询条件：同一章节，段落索引在范围内
+            for offset in range(-window_size, window_size + 1):
+                if offset == 0:  # 跳过当前段落
+                    continue
+                
+                target_index = paragraph_index + offset
+                if target_index < 0:  # 跳过负数索引
+                    continue
+                
+                # 构建过滤条件
+                filter_conditions = [
+                    qmodels.FieldCondition(key="novel_id", match=qmodels.MatchValue(value=novel_id)),
+                    qmodels.FieldCondition(key="paragraph_index", match=qmodels.MatchValue(value=target_index))
+                ]
+                
+                if chapter_id:
+                    filter_conditions.append(
+                        qmodels.FieldCondition(key="chapter_id", match=qmodels.MatchValue(value=chapter_id))
+                    )
+                
+                # 查询相邻chunk
+                results = self.qdrant.scroll(
+                    collection_name=self.collection_name,
+                    scroll_filter=qmodels.Filter(must=filter_conditions),
+                    limit=1,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                
+                if results and results[0]:
+                    for point in results[0]:
+                        if point.payload:
+                            content = point.payload.get("content", "")
+                            if content:
+                                expanded_contexts.append(content)
+            
+            logger.debug(f"Expanded context window: found {len(expanded_contexts)} adjacent chunks")
+            return expanded_contexts
+            
+        except Exception as e:
+            logger.warning(f"Context expansion failed: {e}")
+            return []
+    
+    async def _simple_rerank(
+        self, 
+        query: str, 
+        results: List[tuple], 
+        top_k: int = 10
+    ) -> List[tuple]:
+        """简单重排序 - 使用LLM评分重新排序候选结果.
+        
+        Args:
+            query: 用户查询
+            results: 结果列表 [(point, content), ...]
+            top_k: 返回前K个结果
+            
+        Returns:
+            List[tuple]: 重排序后的结果
+        """
+        if not self.client or len(results) <= 3:
+            return results[:top_k]
+        
+        try:
+            # 为每个结果生成相关性评分
+            scored_results = []
+            
+            for point, content in results[:15]:  # 只对前15个候选进行重排序
+                # 构建简单的评分prompt
+                prompt = f"""请评估以下文本片段与用户问题的相关性，给出1-10的评分（10表示高度相关，1表示不相关）。
+
+用户问题：{query}
+
+文本片段：{content[:300]}
+
+评分（只需输出数字1-10）："""
+
+                loop = asyncio.get_running_loop()
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: self.client.chat.completions.create(
+                        model=CHAT_MODEL,
+                        messages=[
+                            {"role": "system", "content": "你是文本相关性评估专家。"},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=0.1,
+                        max_tokens=10,
+                    ),
+                )
+                
+                content_text = response.choices[0].message.content if response.choices else ""
+                try:
+                    # 提取数字评分
+                    score = float(''.join(c for c in content_text if c.isdigit() or c == '.'))
+                    score = min(max(score, 1.0), 10.0)  # 限制在1-10范围
+                except:
+                    score = 5.0  # 默认中等分数
+                
+                # 结合原始向量相似度和LLM评分
+                combined_score = (point.score * 0.6 + score / 10.0 * 0.4)
+                scored_results.append((point, content, combined_score))
+            
+            # 按组合分数排序
+            scored_results.sort(key=lambda x: x[2], reverse=True)
+            
+            logger.info(f"Reranking completed: reranked {len(scored_results)} results")
+            return [(point, content) for point, content, _ in scored_results[:top_k]]
+            
+        except Exception as e:
+            logger.warning(f"Reranking failed: {e}, falling back to original order")
+            return results[:top_k]
 
     async def search(self, request: SearchRequest) -> SearchResponse:
         if self.redis:
@@ -245,9 +434,18 @@ class RAGService:
         except Exception as e:
             logger.warning(f"Failed to check collections: {e}")
         
-        # 1. Embedding阶段 - 将问题转为向量
-        embedding_result = await self.embed_texts([request.query])
-        query_vector = embedding_result.vectors[0]
+        # 查询列表：原始查询 + 改写查询（如果启用）
+        queries_to_search = [request.query]
+        
+        # 1. 查询改写（如果启用）
+        if settings.ENABLE_QUERY_REWRITE:
+            rewritten_queries = await self._rewrite_query(request.query)
+            queries_to_search.extend(rewritten_queries)
+            logger.info(f"Using {len(queries_to_search)} queries for multi-query search")
+        
+        # 2. Embedding阶段 - 将所有查询转为向量
+        embedding_result = await self.embed_texts(queries_to_search)
+        query_vectors = embedding_result.vectors
         
         # 追踪embedding token
         if embedding_result.usage:
@@ -266,20 +464,37 @@ class RAGService:
                 ]
             )
 
-        # 2. 向量检索阶段 - 无token消耗
-        try:
-            results = self.qdrant.search(
-                collection_name=self.collection_name,
-                query_vector=query_vector,
-                limit=min(request.top_k, settings.MAX_TOP_K),
-                query_filter=filter_condition,
-                with_payload=True,
-                with_vectors=False,
-            )
-        except Exception as e:
-            # Handle collection not found error gracefully
+        # 3. 多查询向量检索 - 收集所有结果
+        all_results_map = {}  # 用于去重，key为chunk_id
+        
+        for idx, query_vector in enumerate(query_vectors):
+            try:
+                results = self.qdrant.search(
+                    collection_name=self.collection_name,
+                    query_vector=query_vector,
+                    limit=min(request.top_k, settings.MAX_TOP_K),
+                    query_filter=filter_condition,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                
+                # 合并结果，保留最高分数
+                for point in results:
+                    chunk_id = point.payload.get("chunk_id") if point.payload else None
+                    if chunk_id:
+                        if chunk_id not in all_results_map or point.score > all_results_map[chunk_id].score:
+                            all_results_map[chunk_id] = point
+                
+            except Exception as e:
+                logger.warning(f"Search failed for query {idx}: {e}")
+                continue
+        
+        # 转换为列表并按分数排序
+        merged_results = sorted(all_results_map.values(), key=lambda x: x.score, reverse=True)
+        
+        if not merged_results:
+            # Handle no results
             elapsed = time.perf_counter() - start
-            logger.warning(f"Search failed - collection may not exist: {e}")
             return SearchResponse(
                 query=request.query,
                 answer="知识库中没有找到相关内容。请确保已上传并处理了小说文本。",
@@ -287,12 +502,53 @@ class RAGService:
                 elapsed=elapsed,
             )
 
+        # 4. 相似度阈值过滤
+        min_score = settings.MIN_RELEVANCE_SCORE
+        filtered_results = [point for point in merged_results if point.score >= min_score]
+        
+        if not filtered_results:
+            logger.info(f"All results filtered out by relevance threshold {min_score}")
+            filtered_results = merged_results[:3]  # 至少保留前3个结果
+        
+        logger.info(f"Retrieved {len(merged_results)} results, {len(filtered_results)} after filtering (threshold={min_score})")
+        
+        # 5. 重排序（如果配置启用）
+        results_with_content = [(point, point.payload.get("content", "")) for point in filtered_results if point.payload]
+        
+        if settings.ENABLE_RERANKING and len(results_with_content) > 3:
+            logger.info("Applying reranking to improve result quality")
+            reranked = await self._simple_rerank(request.query, results_with_content, top_k=request.top_k)
+            final_results = [point for point, _ in reranked]
+        else:
+            final_results = filtered_results[:request.top_k]
+        
+        # 6. 构建上下文和引用
         references: List[SearchReference] = []
         context_parts: List[str] = []
-        for point in results:
+        seen_contents = set()  # 用于去重相同内容
+        
+        for point in final_results:
             payload = point.payload or {}
             content = payload.get("content", "")
+            
+            # 去重检查
+            content_hash = hash(content[:100])  # 使用前100字符做简单去重
+            if content_hash in seen_contents:
+                continue
+            seen_contents.add(content_hash)
+            
             context_parts.append(content)
+            
+            # 7. 上下文窗口扩展（如果配置启用）
+            if settings.CONTEXT_EXPAND_WINDOW > 0:
+                expanded = await self._expand_context_window(
+                    novel_id=payload.get("novel_id"),
+                    chapter_id=payload.get("chapter_id"),
+                    paragraph_index=payload.get("paragraph_index", 0),
+                    window_size=settings.CONTEXT_EXPAND_WINDOW
+                )
+                context_parts.extend(expanded)
+            
             references.append(
                 SearchReference(
                     novel_id=payload.get("novel_id"),
@@ -306,8 +562,13 @@ class RAGService:
                 )
             )
 
-        # 3. 答案生成阶段
-        answer, chat_usage = await self._generate_answer(request.query, context_parts)
+        # 7. 答案生成阶段（支持思维链）
+        use_cot = len(context_parts) > 5  # 如果上下文较多，使用思维链
+        answer, chat_usage = await self._generate_answer(
+            request.query, 
+            context_parts,
+            use_chain_of_thought=use_cot
+        )
         
         # 追踪chat token
         if chat_usage:
@@ -352,9 +613,17 @@ class RAGService:
         return response
 
     async def _generate_answer(
-        self, question: str, context_chunks: Iterable[str]
+        self, 
+        question: str, 
+        context_chunks: Iterable[str],
+        use_chain_of_thought: bool = False
     ) -> Tuple[str, Optional[TokenUsage]]:
         """生成答案并返回token使用情况.
+        
+        Args:
+            question: 用户问题
+            context_chunks: 上下文片段列表
+            use_chain_of_thought: 是否使用思维链推理
         
         Returns:
             Tuple[str, Optional[TokenUsage]]: (答案文本, token使用情况)
@@ -366,11 +635,51 @@ class RAGService:
             return "LLM 未配置，无法生成回答，请联系管理员。", None
 
         context = "\n\n".join(context_chunks)
-        prompt = (
-            "你是一个中文小说分析助手，请根据以下提供的原文片段回答问题。\n"
-            "如果原文不足以回答，请明确说明。\n\n原文片段：\n"
-            f"{context}\n\n问题：{question}\n回答："
-        )
+        
+        # 选择不同的prompt策略
+        if use_chain_of_thought:
+            # 思维链prompt - 引导模型逐步推理
+            prompt = f"""你是一个专业的中文小说分析助手。请按以下步骤仔细回答问题：
+
+【分析步骤】
+1. 在原文中定位相关信息
+2. 提取关键事实和细节
+3. 综合分析并组织答案
+4. 指出是否有不确定的部分
+
+【重要规则】
+- 答案必须完全基于提供的原文内容，不要编造信息
+- 如果原文信息不足，明确说明"原文中未明确提及"
+- 尽可能引用原文关键句子来支撑你的答案
+- 保持客观中立，不要添加个人解读
+
+【原文片段】
+{context}
+
+【用户问题】
+{question}
+
+【你的分析和回答】
+请按照上述步骤详细回答："""
+        else:
+            # 标准prompt - 更直接的回答方式
+            prompt = f"""你是一个专业的中文小说分析助手。请基于以下原文片段，准确、详细地回答用户问题。
+
+【重要规则】
+1. 答案必须完全基于提供的原文内容，不要编造信息
+2. 如果原文信息不足，明确说明"原文中未提及"或"信息不足"
+3. 尽可能引用原文关键句子来支撑你的答案
+4. 如果涉及多个角色或事件，分点说明
+5. 保持客观中立，不要添加个人解读
+
+【原文片段】
+{context}
+
+【用户问题】
+{question}
+
+【你的回答】
+请基于上述原文，详细回答问题："""
 
         loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
@@ -378,10 +687,14 @@ class RAGService:
             lambda: self.client.chat.completions.create(
                 model=CHAT_MODEL,
                 messages=[
-                    {"role": "system", "content": "你是专业的小说分析助手"},
+                    {
+                        "role": "system", 
+                        "content": "你是专业的中文小说分析助手。严格基于提供的原文回答问题，不编造内容。如果信息不足，明确说明。"
+                    },
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.7,
+                temperature=0.3,  # 降低temperature提高准确性
+                top_p=0.8,  # 添加top_p控制
             ),
         )
 
