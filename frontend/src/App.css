@@ -182,3 +182,195 @@ body {
   word-break: break-word;
 }
 
+/* Markdown 内容样式 */
+.markdown-content {
+  font-size: 16px;
+  line-height: 1.8;
+  color: #3D3D3D;
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  margin: 1.5em 0 0.8em 0;
+  font-weight: 600;
+  color: #2C2C2C;
+  line-height: 1.4;
+}
+
+.markdown-content h1 {
+  font-size: 1.8em;
+  border-bottom: 2px solid #E8E3D6;
+  padding-bottom: 0.3em;
+}
+
+.markdown-content h2 {
+  font-size: 1.5em;
+  border-bottom: 1px solid #E8E3D6;
+  padding-bottom: 0.3em;
+}
+
+.markdown-content h3 {
+  font-size: 1.3em;
+}
+
+.markdown-content h4 {
+  font-size: 1.15em;
+}
+
+.markdown-content h5 {
+  font-size: 1.05em;
+}
+
+.markdown-content h6 {
+  font-size: 1em;
+  color: #666;
+}
+
+.markdown-content p {
+  margin: 0.8em 0;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  margin: 0.8em 0;
+  padding-left: 2em;
+}
+
+.markdown-content li {
+  margin: 0.4em 0;
+}
+
+.markdown-content blockquote {
+  margin: 1em 0;
+  padding: 0.8em 1em;
+  border-left: 4px solid #8B6914;
+  background-color: #FFFEF9;
+  color: #666;
+  font-style: italic;
+}
+
+.markdown-content code {
+  padding: 2px 6px;
+  background-color: #F5F2E8;
+  border-radius: 3px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'Courier New', monospace;
+  font-size: 0.9em;
+  color: #8B6914;
+}
+
+.markdown-content pre {
+  margin: 1em 0;
+  padding: 1em;
+  background-color: #F5F2E8;
+  border-radius: 6px;
+  overflow-x: auto;
+  border: 1px solid #E8E3D6;
+}
+
+.markdown-content pre code {
+  padding: 0;
+  background-color: transparent;
+  font-size: 0.9em;
+  color: #3D3D3D;
+}
+
+.markdown-content a {
+  color: #8B6914;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.markdown-content a:hover {
+  color: #A67C1A;
+  border-bottom-color: #A67C1A;
+}
+
+.markdown-content hr {
+  margin: 1.5em 0;
+  border: none;
+  border-top: 2px solid #E8E3D6;
+}
+
+.markdown-content table {
+  margin: 1em 0;
+  border-collapse: collapse;
+  width: 100%;
+  border: 1px solid #E8E3D6;
+}
+
+.markdown-content table th,
+.markdown-content table td {
+  padding: 0.6em 1em;
+  border: 1px solid #E8E3D6;
+  text-align: left;
+}
+
+.markdown-content table th {
+  background-color: #FFF9E6;
+  font-weight: 600;
+  color: #2C2C2C;
+}
+
+.markdown-content table tr:nth-child(even) {
+  background-color: #FFFEF9;
+}
+
+.markdown-content table tr:hover {
+  background-color: #FFF4D6;
+}
+
+.markdown-content strong {
+  font-weight: 600;
+  color: #2C2C2C;
+}
+
+.markdown-content em {
+  font-style: italic;
+  color: #555;
+}
+
+.markdown-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 1em 0;
+}
+
+/* Markdown 移动端适配 */
+@media (max-width: 768px) {
+  .markdown-content {
+    font-size: 15px;
+  }
+
+  .markdown-content h1 {
+    font-size: 1.5em;
+  }
+
+  .markdown-content h2 {
+    font-size: 1.3em;
+  }
+
+  .markdown-content h3 {
+    font-size: 1.15em;
+  }
+
+  .markdown-content pre {
+    padding: 0.8em;
+    font-size: 0.85em;
+  }
+
+  .markdown-content table {
+    font-size: 0.9em;
+  }
+
+  .markdown-content table th,
+  .markdown-content table td {
+    padding: 0.4em 0.6em;
+  }
+}
+

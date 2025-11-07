@@ -55,6 +55,8 @@ import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import 'dayjs/locale/zh-cn';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 // 配置 dayjs
 dayjs.extend(relativeTime);
@@ -768,9 +770,11 @@ const SearchPage: React.FC = () => {
                 }
                 style={{ background: '#fafafa' }}
               >
-                <Paragraph style={{ fontSize: '16px', lineHeight: 1.8, margin: 0 }}>
-                  {currentSearchResult.answer}
-                </Paragraph>
+                <div className="markdown-content">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {currentSearchResult.answer}
+                  </ReactMarkdown>
+                </div>
               </Card>
 
               {/* 参考段落列表 */}
