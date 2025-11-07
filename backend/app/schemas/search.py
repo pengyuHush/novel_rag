@@ -33,12 +33,31 @@ class SearchReference(BaseModel):
         by_alias = True
 
 
+class SearchTokenStats(BaseModel):
+    """搜索Token统计"""
+
+    total_tokens: int = Field(0, description="总Token消耗", alias="totalTokens")
+    embedding_tokens: int = Field(0, description="Embedding Token消耗", alias="embeddingTokens")
+    chat_tokens: int = Field(0, description="Chat Token消耗", alias="chatTokens")
+    api_calls: int = Field(0, description="API调用次数", alias="apiCalls")
+    estimated_cost: float = Field(0.0, description="预估费用（元）", alias="estimatedCost")
+
+    class Config:
+        populate_by_name = True
+        by_alias = True
+
+
 class SearchResponse(BaseModel):
     query: str
     answer: str
     references: List[SearchReference] = []
     elapsed: float
+    token_stats: Optional[SearchTokenStats] = Field(None, description="Token统计", alias="tokenStats")
+
+    class Config:
+        populate_by_name = True
+        by_alias = True
 
 
-__all__ = ["SearchRequest", "SearchResponse", "SearchReference"]
+__all__ = ["SearchRequest", "SearchResponse", "SearchReference", "SearchTokenStats"]
 

@@ -101,7 +101,10 @@ class NovelRepository:
         progress: float,
         message: str | None = None,
     ) -> Novel:
-        novel.processing_progress = max(0.0, min(1.0, progress))
+        # 将 0-1 的进度值转换为 0-100 的百分比，并四舍五入到2位小数
+        # 例如：0.408135... → 40.81
+        progress_percent = round(max(0.0, min(1.0, progress)) * 100, 2)
+        novel.processing_progress = progress_percent
         novel.processing_message = message
         await self.session.flush()
         return novel

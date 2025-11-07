@@ -137,19 +137,46 @@ const GraphPage: React.FC = () => {
       setLoading(true);
 
       // 尝试从API加载
-      let characterGraph = await graphAPI.getGraph(id);
+      let characterGraph;
+      try {
+        characterGraph = await graphAPI.getGraph(id);
+      } catch (error) {
+        // 如果是404错误，说明图谱还未生成
+        if (error instanceof APIError && error.status === 404) {
+          console.log('图谱不存在，需要生成');
+          characterGraph = null;
+        } else {
+          // 其他错误直接抛出
+          throw error;
+        }
+      }
 
       if (!characterGraph) {
         // 如果没有图谱，生成新的
-        message.info('正在分析人物关系，请稍候...');
+        message.info('图谱还未生成，正在分析人物关系，请稍候...', 3);
 
         const result = await graphAPI.generateGraph(id);
-        // 注意：这里可能需要等待一段时间，然后重新获取
-        message.success('人物关系图谱生成任务已提交');
+        console.log('图谱生成任务已提交:', result);
+        
+        // 提示用户等待或刷新
+        Modal.info({
+          title: '人物关系图谱生成中',
+          content: (
+            <>
+              <p>正在后台生成人物关系图谱，这可能需要几分钟时间。</p>
+              <p>您可以：</p>
+              <ul>
+                <li>等待一会儿后刷新页面查看</li>
+                <li>返回小说列表，稍后再来</li>
+              </ul>
+            </>
+          ),
+          okText: '刷新页面',
+          onOk: () => window.location.reload()
+        });
 
-        // 重新获取生成的图谱
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        characterGraph = await graphAPI.getGraph(id);
+        // 保持loading状态，等待用户操作
+        return;
       }
 
       setGraph(characterGraph);
@@ -161,6 +188,7 @@ const GraphPage: React.FC = () => {
       } else {
         message.error('加载图谱失败');
       }
+      setGraph(null);
     } finally {
       setLoading(false);
     }

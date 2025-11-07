@@ -1,3 +1,12 @@
+// Token使用统计（匹配后端API）
+export interface TokenStats {
+  totalTokens: number;        // 总Token消耗
+  embeddingTokens: number;    // Embedding Token消耗
+  chatTokens: number;         // 聊天Token消耗
+  apiCalls: number;           // API调用次数
+  estimatedCost: number;      // 预估费用（元）
+}
+
 // 小说数据结构（匹配后端API）
 export interface Novel {
   id: string;
@@ -14,6 +23,12 @@ export interface Novel {
   importedAt: string;      // ISO 8601格式
   updatedAt: string;       // ISO 8601格式
   hasGraph: boolean;       // 是否已生成关系图谱
+  // Token统计（新增）
+  totalTokensUsed?: number;
+  embeddingTokensUsed?: number;
+  chatTokensUsed?: number;
+  apiCallsCount?: number;
+  estimatedCost?: number;
 }
 
 // 章节数据结构（匹配后端API）
@@ -44,21 +59,24 @@ export interface NovelProcessingStatus {
   status: 'pending' | 'processing' | 'completed' | 'failed';
   progress: number;         // 0-100
   message: string;         // 当前状态描述
-  stage: 'uploading' | 'detecting_chapters' | 'vectorizing' | 'completed';
-  processedWords: number;  // 已处理字数
-  totalWords: number;      // 总字数
-  estimatedTimeRemaining: number;
-  updatedAt: string;       // ISO 8601格式
+  stage?: 'uploading' | 'detecting_chapters' | 'vectorizing' | 'completed';
+  processedWords?: number;  // 已处理字数
+  totalWords?: number;      // 总字数
+  estimatedTimeRemaining?: number;
+  updatedAt?: string;       // ISO 8601格式
+  tokenStats?: TokenStats;  // Token使用统计（新增）
 }
 
 // 搜索结果数据结构（匹配后端API）
 export interface SearchResult {
   query: string;
   answer: string; // AI生成的回答
-  confidence: number; // 答案置信度 0-1
+  confidence?: number; // 答案置信度 0-1
   references: Reference[]; // 参考段落
-  relatedQuestions: string[]; // 相关推荐问题
-  searchTime: number; // 搜索耗时（毫秒）
+  relatedQuestions?: string[]; // 相关推荐问题
+  searchTime?: number; // 搜索耗时（毫秒）
+  elapsed?: number; // 搜索耗时（秒）
+  tokenStats?: TokenStats; // Token消耗统计（新增）
 }
 
 // 参考段落数据结构（匹配后端API）

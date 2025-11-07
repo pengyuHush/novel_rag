@@ -147,11 +147,24 @@ async def get_novel_status(
     if not novel:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
 
+    # 构建token统计信息
+    from app.schemas.novel import TokenStats
+    token_stats = None
+    if novel.total_tokens_used > 0:
+        token_stats = TokenStats(
+            total_tokens=novel.total_tokens_used,
+            embedding_tokens=novel.embedding_tokens_used,
+            chat_tokens=novel.chat_tokens_used,
+            api_calls=novel.api_calls_count,
+            estimated_cost=novel.estimated_cost,
+        )
+
     return NovelStatusResponse(
         novel_id=novel_id,
         status=novel.status,
         progress=novel.processing_progress,
         message=novel.processing_message,
+        token_stats=token_stats,
     )
 
 

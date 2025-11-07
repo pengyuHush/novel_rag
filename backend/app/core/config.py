@@ -50,10 +50,11 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE_MB: int = 50
     MIN_WORD_COUNT: int = 1000
     MIN_CHINESE_RATIO: float = 0.6
-    CHUNK_SIZE: int = 800  # 每个chunk的最大字符数
-    CHUNK_OVERLAP: int = 100  # chunk之间的重叠字符数
+    CHUNK_SIZE: int = 1500  # 每个chunk的最大字符数 (优化: 800→1500, 提升token利用率)
+    CHUNK_OVERLAP: int = 150  # chunk之间的重叠字符数 (优化: 保持10%重叠率)
     MAX_TOP_K: int = 8
-    EMBEDDING_BATCH_SIZE: int = 6  # 单次embedding请求的最大文本数量
+    EMBEDDING_BATCH_SIZE: int = 64  # 单次embedding请求的最大文本数量 (优化: 6→64, 智谱AI官方最大限制)
+    EMBEDDING_DIMENSION: int = 1024  # 向量维度 (支持256/512/1024/2048, 默认1024平衡精度和性能)
 
     # Background processing
     MAX_BACKGROUND_CONCURRENCY: int = 2

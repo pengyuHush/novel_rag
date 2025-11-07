@@ -32,6 +32,13 @@ class Novel(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     has_graph: Mapped[bool] = mapped_column(Boolean, default=False)
     processing_progress: Mapped[float] = mapped_column(Float, default=0.0)
     processing_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Token使用统计（智谱AI真实消耗）
+    total_tokens_used: Mapped[int] = mapped_column(Integer, default=0, comment="总Token消耗量")
+    embedding_tokens_used: Mapped[int] = mapped_column(Integer, default=0, comment="Embedding Token消耗")
+    chat_tokens_used: Mapped[int] = mapped_column(Integer, default=0, comment="聊天Token消耗（关系图谱生成）")
+    api_calls_count: Mapped[int] = mapped_column(Integer, default=0, comment="API调用总次数")
+    estimated_cost: Mapped[float] = mapped_column(Float, default=0.0, comment="预估费用（元）")
 
     chapters: Mapped[list["Chapter"]] = relationship(
         back_populates="novel", cascade="all, delete-orphan", lazy="selectin"

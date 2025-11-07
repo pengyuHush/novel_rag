@@ -39,6 +39,13 @@ class NovelSummary(NovelBase):
     processing_message: Optional[str] = Field(None, alias="processingMessage")
     imported_at: dt.datetime = Field(..., alias="importedAt")
     updated_at: dt.datetime = Field(..., alias="updatedAt")
+    
+    # Token使用统计（智谱AI真实消耗）
+    total_tokens_used: int = Field(0, alias="totalTokensUsed", description="总Token消耗")
+    embedding_tokens_used: int = Field(0, alias="embeddingTokensUsed", description="Embedding Token消耗")
+    chat_tokens_used: int = Field(0, alias="chatTokensUsed", description="聊天Token消耗")
+    api_calls_count: int = Field(0, alias="apiCallsCount", description="API调用次数")
+    estimated_cost: float = Field(0.0, alias="estimatedCost", description="预估费用（元）")
 
     class Config:
         populate_by_name = True
@@ -56,15 +63,31 @@ class NovelListResponse(BaseModel):
     pagination: Pagination
 
 
+class TokenStats(BaseModel):
+    """Token使用统计详情."""
+    
+    total_tokens: int = Field(0, alias="totalTokens", description="总Token消耗")
+    embedding_tokens: int = Field(0, alias="embeddingTokens", description="Embedding Token消耗")
+    chat_tokens: int = Field(0, alias="chatTokens", description="聊天Token消耗（关系图谱生成等）")
+    api_calls: int = Field(0, alias="apiCalls", description="API调用总次数")
+    estimated_cost: float = Field(0.0, alias="estimatedCost", description="预估费用（元）")
+    
+    class Config:
+        populate_by_name = True
+        by_alias = True
+
+
 class NovelStatusResponse(BaseModel):
     novel_id: str = Field(..., alias="novelId")
     status: str
-    progress: float = 0.0
+    progress: float = Field(0.0, ge=0.0, le=100.0, description="处理进度(0-100)")
     message: Optional[str] = None
+    token_stats: Optional[TokenStats] = Field(None, alias="tokenStats", description="Token使用统计")
 
     @validator("progress")
-    def clamp_progress(cls, value: float) -> float:  # noqa: N805
-        return max(0.0, min(1.0, value))
+    def round_progress(cls, value: float) -> float:  # noqa: N805
+        """将进度四舍五入到2位小数并钳制在0-100范围"""
+        return round(max(0.0, min(100.0, value)), 2)
 
     class Config:
         populate_by_name = True
@@ -90,5 +113,6 @@ __all__ = [
     "NovelListResponse",
     "NovelStatusResponse",
     "NovelProcessingResponse",
+    "TokenStats",
 ]
 

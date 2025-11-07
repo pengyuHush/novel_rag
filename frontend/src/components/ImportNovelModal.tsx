@@ -12,14 +12,24 @@ import {
   List,
   Tag,
   Space,
-  Checkbox
+  Checkbox,
+  Statistic,
+  Row,
+  Col,
 } from 'antd';
-import { InboxOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { 
+  InboxOutlined, 
+  CheckCircleOutlined,
+  ApiOutlined,
+  ThunderboltOutlined,
+  DollarOutlined,
+} from '@ant-design/icons';
 import type { UploadProps } from 'antd';
 import { v4 as uuidv4 } from 'uuid';
 import { novelAPI, apiUtils, APIError } from '../utils/api';
 import { detectEncoding, readFileContent, detectChapters, cleanText } from '../utils/textProcessing';
-import type { Novel, Chapter, NovelProcessingStatus } from '../types';
+import type { Novel, Chapter, NovelProcessingStatus, TokenStats } from '../types';
+import NovelProcessingResultModal from './NovelProcessingResultModal';
 
 const { Dragger } = Upload;
 const { Step } = Steps;
@@ -41,6 +51,14 @@ const ImportNovelModal: React.FC<ImportNovelModalProps> = ({ visible, onClose, o
   const [loading, setLoading] = useState(false);
   const [form] = Form.useForm();
 
+  // 新增状态
+  const [tokenStats, setTokenStats] = useState<TokenStats | null>(null);
+  const [processingMessage, setProcessingMessage] = useState('');
+  const [completedNovel, setCompletedNovel] = useState<Novel | null>(null);
+  const [showResultModal, setShowResultModal] = useState(false);
+  const [processingSuccess, setProcessingSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+
   // 重置状态
   const resetState = () => {
     setCurrentStep(0);
@@ -50,6 +68,12 @@ const ImportNovelModal: React.FC<ImportNovelModalProps> = ({ visible, onClose, o
     setChapters([]);
     setProgress(0);
     setLoading(false);
+    setTokenStats(null);
+    setProcessingMessage('');
+    setCompletedNovel(null);
+    setShowResultModal(false);
+    setProcessingSuccess(false);
+    setErrorMessage('');
     form.resetFields();
   };
 
@@ -149,24 +173,39 @@ const ImportNovelModal: React.FC<ImportNovelModalProps> = ({ visible, onClose, o
         novelId,
         (status: NovelProcessingStatus) => {
           setProgress(status.progress);
+          setProcessingMessage(status.message || '');
+          
+          // 更新token统计（实时）
+          if (status.tokenStats) {
+            setTokenStats(status.tokenStats);
+          }
 
           if (status.status === 'failed') {
-            throw new Error(`处理失败: ${status.message}`);
+            throw new Error(status.message || '处理失败');
           }
         }
       );
 
-      // 处理完成
-      message.success('小说导入成功！');
+      // 处理完成，获取完整的小说信息
+      const novel = await novelAPI.getNovel(novelId);
+      setCompletedNovel(novel);
+      setProcessingSuccess(true);
+      
+      // 显示结果弹窗
+      setShowResultModal(true);
+      
+      // 调用 onSuccess 刷新列表
       onSuccess();
+      
+      // 关闭导入弹窗
       handleClose();
     } catch (error) {
       console.error('导入失败:', error);
-      if (error instanceof APIError) {
-        message.error(`导入失败: ${error.message}`);
-      } else {
-        message.error(`导入失败: ${error.message}`);
-      }
+      const errMsg = error instanceof APIError ? error.message : String(error.message || error);
+      setErrorMessage(errMsg);
+      setProcessingSuccess(false);
+      setShowResultModal(true);
+      
       // 发生错误时回到第一步
       setCurrentStep(0);
     } finally {
@@ -181,6 +220,7 @@ const ImportNovelModal: React.FC<ImportNovelModalProps> = ({ visible, onClose, o
   };
 
   return (
+    <>
     <Modal
       title="导入小说"
       open={visible}
@@ -362,13 +402,13 @@ const ImportNovelModal: React.FC<ImportNovelModalProps> = ({ visible, onClose, o
             <CheckCircleOutlined style={{ fontSize: 48, color: '#52c41a' }} />
             <h4 style={{ marginTop: 16, marginBottom: 8 }}>正在处理您的小说</h4>
             <p style={{ color: '#666' }}>
-              正在进行章节识别、向量化等处理，请稍候...
+              {processingMessage || '正在进行章节识别、向量化等处理，请稍候...'}
             </p>
           </div>
 
           <div style={{ marginBottom: 24 }}>
             <Progress
-              percent={progress}
+              percent={Math.round(progress)}
               status={progress === 100 ? 'success' : 'active'}
               strokeColor={{
                 '0%': '#108ee9',
@@ -376,9 +416,53 @@ const ImportNovelModal: React.FC<ImportNovelModalProps> = ({ visible, onClose, o
               }}
             />
             <p style={{ marginTop: 8, color: '#666', fontSize: '14px' }}>
-              处理进度: {progress}%
+              处理进度: {Math.round(progress)}%
             </p>
           </div>
+
+          {/* Token消耗实时显示 */}
+          {tokenStats && (
+            <div style={{ marginBottom: 24 }}>
+              <h4 style={{ marginBottom: 16 }}>
+                <ThunderboltOutlined style={{ marginRight: 8, color: '#1890ff' }} />
+                Token消耗统计
+              </h4>
+              <Row gutter={16} style={{ maxWidth: 500, margin: '0 auto' }}>
+                <Col span={12}>
+                  <Statistic
+                    title="累计Token"
+                    value={tokenStats.totalTokens}
+                    prefix={<ApiOutlined />}
+                    valueStyle={{ color: '#1890ff', fontSize: 20 }}
+                  />
+                </Col>
+                <Col span={12}>
+                  <Statistic
+                    title="API调用"
+                    value={tokenStats.apiCalls}
+                    suffix="次"
+                    valueStyle={{ color: '#52c41a', fontSize: 20 }}
+                  />
+                </Col>
+                <Col span={12} style={{ marginTop: 16 }}>
+                  <Statistic
+                    title="预估费用"
+                    value={tokenStats.estimatedCost}
+                    precision={4}
+                    prefix="¥"
+                    valueStyle={{ color: '#faad14', fontSize: 18 }}
+                  />
+                </Col>
+                <Col span={12} style={{ marginTop: 16 }}>
+                  <Statistic
+                    title="Embedding Token"
+                    value={tokenStats.embeddingTokens}
+                    valueStyle={{ fontSize: 18 }}
+                  />
+                </Col>
+              </Row>
+            </div>
+          )}
 
           <div style={{ marginBottom: 24 }}>
             <List size="small" style={{ textAlign: 'left', maxWidth: 400, margin: '0 auto' }}>
@@ -409,6 +493,16 @@ const ImportNovelModal: React.FC<ImportNovelModalProps> = ({ visible, onClose, o
         </div>
       )}
     </Modal>
+
+      {/* 处理结果弹窗 */}
+      <NovelProcessingResultModal
+        visible={showResultModal}
+        novel={completedNovel}
+        success={processingSuccess}
+        errorMessage={errorMessage}
+        onClose={() => setShowResultModal(false)}
+      />
+    </>
   );
 };
 

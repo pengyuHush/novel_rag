@@ -39,7 +39,10 @@ import {
   BookFilled,
   CloudUploadOutlined,
   QuestionCircleOutlined,
-  AppstoreOutlined
+  AppstoreOutlined,
+  ThunderboltOutlined,
+  ApiOutlined,
+  ClockCircleOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '../store/useStore';
@@ -686,6 +689,67 @@ const SearchPage: React.FC = () => {
             </Card>
           ) : currentSearchResult ? (
             <Space direction="vertical" style={{ width: '100%' }} size="large">
+              {/* Token消耗统计卡片 - 新增 */}
+              {currentSearchResult.tokenStats && (
+                <Card
+                  title={
+                    <span>
+                      <ThunderboltOutlined style={{ color: '#1890ff', marginRight: 8 }} />
+                      Token消耗统计
+                    </span>
+                  }
+                  size="small"
+                  style={{ 
+                    background: 'linear-gradient(135deg, #E6F7FF 0%, #D6F0FF 100%)',
+                    border: '1px solid #91CAFF',
+                    borderRadius: 12
+                  }}
+                >
+                  <Row gutter={16}>
+                    <Col xs={12} sm={6}>
+                      <Statistic
+                        title="总Token"
+                        value={currentSearchResult.tokenStats.totalTokens}
+                        prefix={<ApiOutlined />}
+                        valueStyle={{ color: '#1890ff', fontSize: 18 }}
+                      />
+                    </Col>
+                    <Col xs={12} sm={6}>
+                      <Statistic
+                        title="Embedding"
+                        value={currentSearchResult.tokenStats.embeddingTokens}
+                        valueStyle={{ color: '#52c41a', fontSize: 18 }}
+                      />
+                    </Col>
+                    <Col xs={12} sm={6}>
+                      <Statistic
+                        title="Chat"
+                        value={currentSearchResult.tokenStats.chatTokens}
+                        valueStyle={{ color: '#faad14', fontSize: 18 }}
+                      />
+                    </Col>
+                    <Col xs={12} sm={6}>
+                      <Statistic
+                        title="预估费用"
+                        value={currentSearchResult.tokenStats.estimatedCost}
+                        precision={4}
+                        prefix="¥"
+                        valueStyle={{ color: '#f5222d', fontSize: 18 }}
+                      />
+                    </Col>
+                  </Row>
+                  <Divider style={{ margin: '12px 0' }} />
+                  <Space>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      <ApiOutlined /> API调用: {currentSearchResult.tokenStats.apiCalls}次
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      <ClockCircleOutlined /> 耗时: {currentSearchResult.elapsed?.toFixed(2)}秒
+                    </Text>
+                  </Space>
+                </Card>
+              )}
+
               {/* 回答区域 */}
               <Card
                 title="AI 回答"

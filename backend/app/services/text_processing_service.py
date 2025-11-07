@@ -41,26 +41,51 @@ class TextProcessingService:
         if not filename.lower().endswith(".txt"):
             raise InvalidFileError("只支持 TXT 格式文件", "INVALID_FILE_FORMAT")
 
-        # Encoding detection
+        # Encoding detection with fallback
         detected = chardet.detect(file_content)
-        encoding = detected["encoding"] or "utf-8"
+        detected_encoding = detected["encoding"] or "utf-8"
         confidence = detected["confidence"] or 0.0
+        
+        logger.debug(f"Detected encoding: {detected_encoding} (confidence: {confidence:.2f})")
 
-        if confidence < 0.7:
-            for enc in ["utf-8", "gbk", "gb2312"]:
-                try:
-                    file_content.decode(enc)
-                    encoding = enc
-                    break
-                except UnicodeDecodeError:
-                    continue
-            else:
-                raise InvalidFileError("无法识别文件编码", "INVALID_ENCODING")
-
-        try:
-            text = file_content.decode(encoding)
-        except UnicodeDecodeError as exc:
-            raise InvalidFileError(f"编码解码失败: {exc}", "INVALID_ENCODING") from exc
+        # Build encoding try list based on detection
+        # GB2312/GBK/GB18030 are related, try them in order
+        if detected_encoding and "gb" in detected_encoding.lower():
+            # 中文编码回退链: GB2312 < GBK < GB18030
+            encoding_attempts = ["gb18030", "gbk", "gb2312", "utf-8", "utf-16"]
+        elif detected_encoding and "utf" in detected_encoding.lower():
+            encoding_attempts = ["utf-8", "utf-16", "gb18030", "gbk"]
+        else:
+            # General fallback order
+            encoding_attempts = ["utf-8", "gb18030", "gbk", "gb2312", "utf-16"]
+        
+        # Always prioritize detected encoding if confidence is high
+        if confidence >= 0.7 and detected_encoding:
+            encoding_attempts.insert(0, detected_encoding)
+        
+        # Try encodings in order
+        text = None
+        successful_encoding = None
+        decode_errors = []
+        
+        for enc in encoding_attempts:
+            try:
+                text = file_content.decode(enc)
+                successful_encoding = enc
+                logger.info(f"Successfully decoded with {enc}")
+                break
+            except (UnicodeDecodeError, LookupError) as e:
+                decode_errors.append(f"{enc}: {str(e)[:50]}")
+                continue
+        
+        if text is None:
+            error_details = "; ".join(decode_errors[:3])  # Show first 3 errors
+            raise InvalidFileError(
+                f"无法识别文件编码。尝试了多种编码但都失败: {error_details}",
+                "INVALID_ENCODING"
+            )
+        
+        encoding = successful_encoding
 
         # Content validation
         text = clean_text(text)
@@ -172,6 +197,10 @@ class TextProcessingService:
         chunk_size = settings.CHUNK_SIZE  # 按字符数
         overlap = settings.CHUNK_OVERLAP  # 重叠字符数
 
+        # 初始化token统计
+        total_tokens_used = 0
+        total_api_calls = 0
+
         chunks: List[ChunkPayload] = []
         chunk_texts: List[str] = []
 
@@ -224,10 +253,23 @@ class TextProcessingService:
             try:
                 # 记录每个batch的文本长度，方便调试
                 max_len = max(len(t) for t in batch_texts)
-                logger.debug(f"Batch {batch_idx//batch_size + 1}: {len(batch_texts)} texts, max_len={max_len}")
+                batch_num = batch_idx//batch_size + 1
+                logger.debug(f"Batch {batch_num}: {len(batch_texts)} texts, max_len={max_len}")
                 
-                embeddings = await self.rag.embed_texts(batch_texts)
-                await self.rag.upsert_chunks(batch_chunks, embeddings)
+                # 调用embedding API并获取token使用统计
+                embedding_result = await self.rag.embed_texts(batch_texts)
+                await self.rag.upsert_chunks(batch_chunks, embedding_result.vectors)
+                
+                # 累计token消耗
+                total_api_calls += 1
+                total_tokens_used += embedding_result.usage.total_tokens
+                
+                logger.info(
+                    f"Batch {batch_num} completed: "
+                    f"tokens={embedding_result.usage.total_tokens}, "
+                    f"累计tokens={total_tokens_used}, "
+                    f"API调用={total_api_calls}"
+                )
             except Exception as e:
                 logger.error(f"Failed to embed batch {batch_idx//batch_size + 1}: {e}")
                 raise
@@ -235,9 +277,29 @@ class TextProcessingService:
             if progress_callback:
                 progress = 0.4 + 0.6 * min(batch_idx + batch_size, total_chunks) / total_chunks
                 completed = min(batch_idx + batch_size, total_chunks)
-                await progress_callback(progress, f"向量化进度 {completed}/{total_chunks}")
+                # 在进度消息中包含token统计
+                await progress_callback(
+                    progress, 
+                    f"向量化进度 {completed}/{total_chunks} (已用{total_tokens_used}tokens)"
+                )
 
-        logger.info(f"Vectorized {len(chunks)} chunks for novel {novel.id}")
+        # 计算费用（智谱AI embedding-3: 0.5元/百万tokens）
+        EMBEDDING_PRICE_PER_MILLION = 0.5
+        estimated_cost = (total_tokens_used / 1_000_000) * EMBEDDING_PRICE_PER_MILLION
+        
+        # 更新novel的token统计
+        novel.embedding_tokens_used = total_tokens_used
+        novel.total_tokens_used = total_tokens_used  # 目前只有embedding，后续可能加上chat
+        novel.api_calls_count = total_api_calls
+        novel.estimated_cost = round(estimated_cost, 4)
+        await self.session.flush()
+        
+        logger.info(
+            f"Vectorized {len(chunks)} chunks for novel {novel.id}: "
+            f"total_tokens={total_tokens_used}, "
+            f"api_calls={total_api_calls}, "
+            f"estimated_cost=¥{estimated_cost:.4f}"
+        )
 
     def _find_chapter_for_position(self, position: int, chapters: List[Chapter]) -> Chapter | None:
         for chapter in chapters:

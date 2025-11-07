@@ -1,6 +1,6 @@
 # 小说 RAG 分析系统 - 后端
 
-基于 FastAPI + LangChain + 智谱 GLM-4 的中文小说智能分析系统后端。
+基于 FastAPI + LangChain + 智谱 AI 的中文小说智能分析系统后端服务。
 
 ## 技术栈
 
@@ -17,10 +17,8 @@
 ### 1. 环境准备
 
 ```bash
-# 确保已安装 Python 3.10+
+# 确保已安装 Python 3.10+ 和 Poetry
 python --version
-
-# 确保已安装 Poetry
 poetry --version
 
 # 启动 Docker 服务 (Redis + Qdrant)
@@ -31,7 +29,6 @@ docker-compose up -d
 ### 2. 安装依赖
 
 ```bash
-cd backend
 poetry install
 ```
 
@@ -56,52 +53,12 @@ poetry run python scripts/verify_env.py
 ```bash
 # 开发模式
 poetry run uvicorn app.main:app --reload --port 8000
-
-# 或使用简化命令
-poetry run python -m app.main
 ```
 
 访问:
 - API 文档: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
 - 健康检查: http://localhost:8000/api/v1/system/health
-
-## 系统架构
-┌─────────────────────────────────────────────────────────────┐
-│                         Frontend                             │
-│                    (React + TypeScript)                      │
-└────────────────────────┬────────────────────────────────────┘
-                         │ HTTP/HTTPS + JSON
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    FastAPI Backend                           │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │
-│  │  API Routes  │  │  Middleware  │  │   Exception  │     │
-│  └──────────────┘  └──────────────┘  └──────────────┘     │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │              Services (Business Logic)                │  │
-│  │  - NovelService                                       │  │
-│  │  - TextProcessingService (核心)                      │  │
-│  │  - RAGService (核心)                                 │  │
-│  │  - GraphService                                       │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │           Repositories (Data Access)                  │  │
-│  └──────────────────────────────────────────────────────┘  │
-└──────┬───────────────┬───────────────┬────────────────────┘
-       │               │               │
-   ┌───▼────┐   ┌─────▼─────┐   ┌────▼─────┐
-   │ SQLite │   │   Redis    │   │  Qdrant  │
-   │  (DB)  │   │  (Cache)   │   │ (Vector) │
-   └────────┘   └────────────┘   └────┬─────┘
-                                       │
-                                  ┌────▼────────┐
-                                  │ 智谱 GLM API │
-                                  │ (LLM+Embed) │
-                                  └─────────────┘
-
 
 ## 项目结构
 
@@ -126,43 +83,21 @@ backend/
 │   │   ├── base.py           # SQLAlchemy Base
 │   │   └── session.py        # 数据库会话
 │   ├── models/          # SQLAlchemy 模型
-│   │   ├── novel.py
-│   │   ├── chapter.py
-│   │   ├── character_graph.py
-│   │   └── search_cache.py
 │   ├── repositories/    # 数据访问层
-│   │   ├── novel_repository.py
-│   │   ├── chapter_repository.py
-│   │   └── ...
 │   ├── schemas/         # Pydantic 模型
-│   │   ├── novel.py
-│   │   ├── search.py
-│   │   ├── graph.py
-│   │   └── system.py
 │   ├── services/        # 业务逻辑
-│   │   ├── novel_service.py
 │   │   ├── text_processing_service.py  # 文本处理
 │   │   ├── rag_service.py              # RAG 搜索
 │   │   ├── graph_service.py            # 关系图谱
-│   │   └── system_service.py
+│   │   └── ...
 │   ├── utils/           # 工具函数
-│   │   ├── file_storage.py
-│   │   ├── text_processing.py
-│   │   └── hashing.py
 │   └── main.py          # 应用入口
 ├── scripts/             # 管理脚本
 │   ├── verify_env.py        # 环境验证
-│   ├── init_db.py           # 数据库初始化
-│   ├── start.sh             # 启动脚本
-│   ├── run_tests.py         # 测试运行脚本
-│   └── run_tests.ps1        # PowerShell测试脚本
-├── storage/             # 文件存储 (自动创建)
+│   └── init_db.py           # 数据库初始化
 ├── docker-compose.yml   # Docker 服务
 ├── pyproject.toml       # Poetry 配置
-├── pytest.ini           # Pytest 配置
-├── README.md            # 主文档
-├── TESTING.md           # 测试文档
-└── TROUBLESHOOTING.md   # 故障排查
+└── README.md            # 本文档
 ```
 
 ## API 接口
@@ -188,29 +123,32 @@ backend/
 
 ### 人物关系图谱
 
-- `GET /api/v1/graph/novels/{id}` - 获取关系图谱
-- `POST /api/v1/graph/novels/{id}` - 生成关系图谱
+- `GET /api/v1/novels/{id}/graph` - 获取关系图谱
+- `POST /api/v1/novels/{id}/graph` - 生成关系图谱
+- `DELETE /api/v1/novels/{id}/graph` - 删除关系图谱
 
 ### 系统管理
 
 - `GET /api/v1/system/health` - 健康检查
 - `GET /api/v1/system/info` - 系统信息
 
+完整 API 文档请访问: http://localhost:8000/docs
+
 ## 核心功能
 
 ### 1. 文本处理
 
-- 自动编码检测 (UTF-8/GBK/GB2312)
-- 中文内容验证
-- 章节自动识别
-- 文本清洗和分段
+- 自动编码检测 (UTF-8/GBK/GB2312/GB18030)
+- 中文内容验证 (最低 60% 中文字符)
+- 章节自动识别 (支持多种标题格式)
+- 文本清洗和分段 (CHUNK_SIZE=1500, OVERLAP=150)
 
 ### 2. RAG 搜索
 
-- 智谱 Embedding-3 向量化
-- Qdrant 语义检索
+- 智谱 Embedding-3 向量化 (批量处理, BATCH_SIZE=64)
+- Qdrant 语义检索 (向量维度=1024)
 - GLM-4-Plus 答案生成
-- Redis 结果缓存
+- Redis 结果缓存 (TTL=600s)
 
 ### 3. 人物关系图谱
 
@@ -219,22 +157,33 @@ backend/
 - 共现关系提取
 - 图谱可视化数据
 
+### 4. Token 追踪
+
+- 实时记录所有 AI 调用的 Token 消耗
+- 区分 Embedding 和 Chat Token
+- 自动计算预估费用 (基于智谱 AI 官方价格)
+- 数据库字段: `total_tokens_used`, `embedding_tokens_used`, `chat_tokens_used`, `api_calls_count`, `estimated_cost`
+
 ## 测试
 
-完整的测试指南请查看 [TESTING.md](TESTING.md)
-
-### 快速开始测试
+### 快速测试
 
 ```bash
-# 快速单元测试
-python scripts/run_tests.py --type unit
+# 运行所有测试
+poetry run pytest
 
-# 完整测试(跳过外部服务)
-python scripts/run_tests.py --no-external --coverage
+# 运行单元测试
+poetry run pytest tests/unit
 
-# 查看测试覆盖率报告
-# 报告位置: backend/htmlcov/index.html
+# 查看覆盖率
+poetry run pytest --cov=app --cov-report=html
 ```
+
+### 测试类型
+
+- **单元测试** (`tests/unit/`) - 测试独立组件和函数
+- **集成测试** (`tests/integration/`) - 测试服务间交互
+- **端到端测试** (`tests/e2e/`) - 测试完整 API 流程
 
 ## 开发指南
 
@@ -251,46 +200,82 @@ poetry run ruff check app/
 poetry run mypy app/
 ```
 
-### 运行测试
+### 环境变量
 
-详细测试指南请查看 [TESTING.md](TESTING.md)
-
-```bash
-# 使用测试脚本(推荐)
-python scripts/run_tests.py --type unit
-
-# 或直接使用pytest
-poetry run pytest
-```
-
-### 数据库迁移
+主要配置项 (`.env`):
 
 ```bash
-# 生成迁移
-poetry run alembic revision --autogenerate -m "description"
+# 智谱 AI
+ZAI_API_KEY=your_api_key
 
-# 执行迁移
-poetry run alembic upgrade head
+# 数据库
+DATABASE_URL=sqlite+aiosqlite:///./novel_rag.db
+
+# Redis
+REDIS_URL=redis://localhost:6379/0
+
+# Qdrant
+QDRANT_HOST=localhost
+QDRANT_PORT=6333
+
+# CORS (逗号分隔,无空格)
+CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+
+# 文本处理
+CHUNK_SIZE=1500
+CHUNK_OVERLAP=150
+EMBEDDING_BATCH_SIZE=64
 ```
 
 ## 常见问题
 
-完整的故障排查指南请查看 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+### 环境问题
 
-### 常见问题速查
+**Q: Qdrant 连接失败？**  
+A: 确保 Docker 服务已启动: `docker-compose ps`，重启服务: `docker-compose restart qdrant`
 
-- **Qdrant连接失败**: 确保 Docker 服务已启动 `docker-compose ps`
-- **智谱API调用失败**: 检查 API Key 是否正确,账户是否已充值
-- **文件上传失败**: 检查文件格式(.txt)、大小(<50MB)、编码(UTF-8/GBK)
-- **Redis连接失败**: 重启服务 `docker-compose restart redis`
-- **环境验证失败**: 运行 `poetry run python scripts/verify_env.py` 检查详情
+**Q: 智谱 API 调用失败？**  
+A: 检查 API Key 是否正确，账户是否已充值，网络连接是否正常
+
+**Q: 文件上传失败？**  
+A: 检查文件格式(.txt)、大小(<50MB)、编码(UTF-8/GBK)，确保至少 1000 字且中文字符占比 >= 60%
+
+**Q: Redis 连接失败？**  
+A: 重启服务: `docker-compose restart redis`
+
+**Q: 环境验证失败？**  
+A: 运行 `poetry run python scripts/verify_env.py` 查看详细错误信息
+
+### 功能问题
+
+**Q: 编码解码失败？**  
+A: 系统会自动尝试多种编码 (UTF-8 → GBK → GB18030)，如仍失败请将文件转为 UTF-8
+
+**Q: Collection 不存在？**  
+A: 需要先上传并处理小说，系统会自动创建 Qdrant collection
+
+**Q: 搜索无结果？**  
+A: 确保小说已完成处理 (status=completed)，检查 Qdrant 是否有向量数据
+
+**Q: 处理速度慢？**  
+A: 大文件处理需要时间，300 万字约需 7 分钟。可调整 CHUNK_SIZE 和 EMBEDDING_BATCH_SIZE 优化性能
+
+### 数据库问题
+
+**Q: 数据库表结构过旧？**  
+A: 运行迁移脚本更新表结构 (如添加 Token 字段)
+
+**Q: SQLite database is locked？**  
+A: 停止所有 uvicorn 进程，删除 `novel_rag.db-journal` 文件，重新启动
 
 ## 性能优化
 
-- 向量化批量处理 (batch_size=20)
-- Redis 搜索结果缓存 (600s)
-- 异步文件处理
-- 数据库查询优化
+- **文本分块**: CHUNK_SIZE=1500, CHUNK_OVERLAP=150 (10% 重叠)
+- **向量化批处理**: EMBEDDING_BATCH_SIZE=64 (减少 API 调用)
+- **向量维度**: EMBEDDING_DIMENSION=1024 (平衡精度与成本)
+- **Redis 缓存**: 搜索结果缓存 (默认 TTL 600s)
+- **异步处理**: 文件处理与数据库操作均为异步
+- **数据库优化**: 索引优化，查询优化
 
 ## 部署
 
@@ -311,7 +296,13 @@ docker run -p 8000:8000 --env-file .env novel-rag-backend
 gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000
 ```
 
+## 相关文档
+
+- [项目主 README](../README.md) - 项目概览和快速开始
+- [需求文档](../小说RAG系统需求文档.md) - 完整功能需求
+- [API 规范](../backend_api_specification.yaml) - OpenAPI 接口文档
+- [前端文档](../frontend/README.md) - 前端开发指南
+
 ## 许可证
 
 MIT License
-
