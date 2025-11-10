@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Layout,
   Input,
@@ -20,7 +20,8 @@ import {
   Popconfirm,
   Divider,
   FloatButton,
-  Modal
+  Modal,
+  Collapse
 } from 'antd';
 import {
   SearchOutlined,
@@ -43,7 +44,10 @@ import {
   ThunderboltOutlined,
   ApiOutlined,
   ClockCircleOutlined,
-  HistoryOutlined
+  HistoryOutlined,
+  BulbOutlined,
+  DownOutlined,
+  UpOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '../store/useStore';
@@ -51,7 +55,7 @@ import { novelAPI, searchAPI, apiUtils, APIError } from '../utils/api';
 import { EXAMPLE_QUERIES } from '../utils/mockData';
 import ImportNovelModal from '../components/ImportNovelModal';
 import EditNovelModal from '../components/EditNovelModal';
-import type { SearchResult, Novel } from '../types';
+import type { SearchResult, Novel, Reference } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -103,6 +107,28 @@ const SearchPage: React.FC = () => {
   const [isMobile, setIsMobile] = useState(false);
   const [novelDrawerVisible, setNovelDrawerVisible] = useState(false);
   const [helpModalVisible, setHelpModalVisible] = useState(false);
+  
+  // 流式输出相关状态
+  const [thinkingContent, setThinkingContent] = useState('');
+  const [answerContent, setAnswerContent] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingPhase, setStreamingPhase] = useState<'thinking' | 'answer' | null>(null);
+  const [showThinking, setShowThinking] = useState(true);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [expandedRefs, setExpandedRefs] = useState<Set<number>>(new Set());
+  const [streamReferences, setStreamReferences] = useState<Reference[]>([]); // 独立的引用状态
+  
+  // 答案容器ref（用于滚动控制）
+  const answerContainerRef = useRef<HTMLDivElement>(null);
+  
+  // 思考过程容器ref（用于滚动控制）
+  const thinkingContainerRef = useRef<HTMLDivElement>(null);
+  
+  // 使用ref追踪是否已经切换到answer阶段（避免状态读取延迟）
+  const hasStartedAnswerRef = useRef(false);
+  
+  // 思考过程是否自动滚动
+  const [autoScrollThinking, setAutoScrollThinking] = useState(true);
 
   // 检测移动端
   useEffect(() => {
@@ -152,8 +178,73 @@ const SearchPage: React.FC = () => {
     }
   };
 
-  // 执行搜索
-  const handleSearch = React.useCallback(async () => {
+  // 检查容器是否在底部（用于智能滚动）
+  const isAtBottom = useCallback((container: HTMLElement | null) => {
+    if (!container) return true;
+    
+    const threshold = 50; // 50px容差
+    return (
+      container.scrollHeight - container.scrollTop - container.clientHeight < threshold
+    );
+  }, []);
+
+  // 监听答案区域用户滚动（智能滚动控制）
+  const handleUserScroll = useCallback(() => {
+    if (!isStreaming) return;
+    
+    // 检查是否滚动到底部
+    if (isAtBottom(answerContainerRef.current)) {
+      setAutoScroll(true);  // 恢复自动滚动
+    } else {
+      setAutoScroll(false); // 停止自动滚动
+    }
+  }, [isStreaming, isAtBottom]);
+
+  // 监听思考过程区域用户滚动
+  const handleThinkingScroll = useCallback(() => {
+    if (streamingPhase !== 'thinking') return;
+    
+    // 检查是否滚动到底部
+    if (isAtBottom(thinkingContainerRef.current)) {
+      setAutoScrollThinking(true);  // 恢复自动滚动
+    } else {
+      setAutoScrollThinking(false); // 停止自动滚动
+    }
+  }, [streamingPhase, isAtBottom]);
+
+  // 自动滚动答案区域到底部
+  useEffect(() => {
+    if (autoScroll && streamingPhase === 'answer' && answerContainerRef.current) {
+      answerContainerRef.current.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'end' 
+      });
+    }
+  }, [answerContent, autoScroll, streamingPhase]);
+
+  // 自动滚动思考过程到底部
+  useEffect(() => {
+    if (autoScrollThinking && streamingPhase === 'thinking' && thinkingContainerRef.current) {
+      thinkingContainerRef.current.scrollTo({
+        top: thinkingContainerRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  }, [thinkingContent, autoScrollThinking, streamingPhase]);
+
+  // 切换引用展开状态
+  const toggleRefExpansion = useCallback((index: number) => {
+    const newSet = new Set(expandedRefs);
+    if (newSet.has(index)) {
+      newSet.delete(index);
+    } else {
+      newSet.add(index);
+    }
+    setExpandedRefs(newSet);
+  }, [expandedRefs]);
+
+  // 执行搜索（流式版本）
+  const handleSearch = useCallback(async () => {
     if (!query.trim()) {
       message.warning('请输入问题或关键词');
       return;
@@ -165,42 +256,141 @@ const SearchPage: React.FC = () => {
     }
 
     try {
+      // 重置状态
+      setIsStreaming(true);
       setSearching(true);
-
-      // 调用API进行搜索（使用POST + JSON Body）
-      const result = await searchAPI.search({
-        query,
-        novelIds: selectedNovelIds,
-        searchMode,
-        topK: 5,
-        includeReferences: true,
-        saveHistory: true
-      });
-
-      setCurrentSearchResult(result);
-
-      // 添加到最近查询
-      addRecentQuery(query);
-
-      // 保存完整历史记录
-      const selectedNovelTitles = novels
-        .filter(n => selectedNovelIds.includes(n.id))
-        .map(n => n.title);
+      setAutoScroll(true);
+      setThinkingContent('');
+      setAnswerContent('');
+      setStreamingPhase('thinking');
+      setShowThinking(true);
+      setExpandedRefs(new Set());
+      setStreamReferences([]); // 清空引用
+      hasStartedAnswerRef.current = false; // 重置answer阶段标记
+      setAutoScrollThinking(true); // 重置思考过程滚动状态
       
-      addSearchHistory({
-        id: uuidv4(),
-        query: result.query,
-        answer: result.answer,
-        selectedNovelIds,
-        selectedNovelTitles,
-        searchMode,
-        references: result.references,
-        tokenStats: result.tokenStats,
-        timestamp: new Date().toISOString(),
-        elapsed: result.elapsed
-      });
+      // 清空当前结果
+      setCurrentSearchResult(null);
 
-      message.success(`搜索完成，找到${result.references.length}处相关内容`);
+      let localStreamReferences: Reference[] = [];
+      let streamTokenStats: any = null;
+      let streamElapsed: number = 0;
+
+      // 调用流式API
+      await searchAPI.searchStream(
+        {
+          query,
+          novelIds: selectedNovelIds,
+          searchMode,
+          topK: 5,
+          includeReferences: true
+        },
+        {
+          onReferences: (refs) => {
+            localStreamReferences = refs;
+            // 立即更新引用状态
+            setStreamReferences(refs);
+            // 同时更新currentSearchResult
+            setCurrentSearchResult(prev => prev ? { ...prev, references: refs } : {
+              query,
+              answer: '',
+              references: refs,
+              elapsed: 0
+            });
+          },
+          
+          onThinkingChunk: (chunk) => {
+            setThinkingContent(prev => prev + chunk);
+            setStreamingPhase('thinking');
+          },
+          
+          onAnswerChunk: (chunk) => {
+            // 首次收到answer chunk时，折叠思考内容
+            if (!hasStartedAnswerRef.current) {
+              hasStartedAnswerRef.current = true;
+              setShowThinking(false);
+              setStreamingPhase('answer');
+            }
+            setAnswerContent(prev => prev + chunk);
+          },
+          
+          onTokenStats: (stats) => {
+            streamTokenStats = stats;
+            streamElapsed = stats.elapsed || 0;
+            // 确保更新或创建currentSearchResult以包含token统计
+            setCurrentSearchResult(prev => {
+              const baseResult = prev || {
+                query,
+                answer: answerContent,
+                references: localStreamReferences,
+                elapsed: 0
+              };
+              return {
+                ...baseResult,
+                tokenStats: {
+                  totalTokens: stats.totalTokens,
+                  embeddingTokens: stats.embeddingTokens,
+                  chatTokens: stats.chatTokens,
+                  apiCalls: stats.apiCalls,
+                  estimatedCost: stats.estimatedCost
+                },
+                elapsed: stats.elapsed
+              };
+            });
+          },
+          
+          onDone: () => {
+            setIsStreaming(false);
+            setSearching(false);
+            setStreamingPhase(null);
+            
+            // 确保最终结果包含完整的answer和token统计
+            setCurrentSearchResult({
+              query,
+              answer: answerContent,
+              references: localStreamReferences,
+              elapsed: streamElapsed,
+              tokenStats: streamTokenStats ? {
+                totalTokens: streamTokenStats.totalTokens,
+                embeddingTokens: streamTokenStats.embeddingTokens,
+                chatTokens: streamTokenStats.chatTokens,
+                apiCalls: streamTokenStats.apiCalls,
+                estimatedCost: streamTokenStats.estimatedCost
+              } : undefined
+            });
+            
+            // 添加到最近查询
+            addRecentQuery(query);
+
+            // 保存完整历史记录
+            const selectedNovelTitles = novels
+              .filter(n => selectedNovelIds.includes(n.id))
+              .map(n => n.title);
+            
+            addSearchHistory({
+              id: uuidv4(),
+              query,
+              answer: answerContent,
+              selectedNovelIds,
+              selectedNovelTitles,
+              searchMode,
+              references: localStreamReferences,
+              tokenStats: streamTokenStats,
+              timestamp: new Date().toISOString(),
+              elapsed: streamElapsed
+            });
+
+            message.success(`搜索完成，找到${localStreamReferences.length}处相关内容`);
+          },
+          
+          onError: (error) => {
+            message.error(`搜索失败: ${error}`);
+            setIsStreaming(false);
+            setSearching(false);
+            setStreamingPhase(null);
+          }
+        }
+      );
     } catch (error) {
       console.error('搜索失败:', error);
       if (error instanceof APIError) {
@@ -208,10 +398,11 @@ const SearchPage: React.FC = () => {
       } else {
         message.error('搜索失败，请重试');
       }
-    } finally {
+      setIsStreaming(false);
       setSearching(false);
+      setStreamingPhase(null);
     }
-  }, [query, selectedNovelIds, searchMode, novels, setCurrentSearchResult, addRecentQuery, addSearchHistory]);
+  }, [query, selectedNovelIds, searchMode, novels, streamingPhase, answerContent, addRecentQuery, addSearchHistory, setCurrentSearchResult, setSearching]);
 
   // 从location state中获取预选的小说和查询
   useEffect(() => {
@@ -844,7 +1035,7 @@ const SearchPage: React.FC = () => {
           </Card>
 
           {/* 搜索结果或默认状态 */}
-          {loading || searching ? (
+          {loading || (searching && !isStreaming) ? (
             <Card>
               <div style={{ textAlign: 'center', padding: '60px 0' }}>
                 <Spin size="large" />
@@ -853,10 +1044,10 @@ const SearchPage: React.FC = () => {
                 </p>
               </div>
             </Card>
-          ) : currentSearchResult ? (
+          ) : (currentSearchResult || isStreaming) ? (
             <Space direction="vertical" style={{ width: '100%' }} size="large">
-              {/* Token消耗统计卡片 - 新增 */}
-              {currentSearchResult.tokenStats && (
+              {/* Token消耗统计卡片 - 显示在答案完成后 */}
+              {!isStreaming && currentSearchResult?.tokenStats && (
                 <Card
                   title={
                     <span>
@@ -916,94 +1107,164 @@ const SearchPage: React.FC = () => {
                 </Card>
               )}
 
-              {/* 回答区域 */}
+              {/* 思考过程卡片（流式输出时显示） */}
+              {thinkingContent && (
+                <Card
+                  size="small"
+                  style={{ 
+                    marginBottom: 16, 
+                    background: 'linear-gradient(135deg, #f6f8fa 0%, #e8f4f8 100%)',
+                    borderLeft: '4px solid #1890ff',
+                    borderRadius: 8
+                  }}
+                  title={
+                    <Space>
+                      <BulbOutlined style={{ color: '#1890ff' }} />
+                      <Text strong>AI思考过程</Text>
+                      {!isStreaming && thinkingContent && (
+                        <Button
+                          type="link"
+                          size="small"
+                          onClick={() => setShowThinking(!showThinking)}
+                          icon={showThinking ? <UpOutlined /> : <DownOutlined />}
+                        >
+                          {showThinking ? '折叠' : '展开'}
+                        </Button>
+                      )}
+                    </Space>
+                  }
+                >
+                  {showThinking && (
+                    <div 
+                      ref={thinkingContainerRef}
+                      onScroll={handleThinkingScroll}
+                      style={{ 
+                        whiteSpace: 'pre-wrap', 
+                        color: '#666', 
+                        lineHeight: 1.6,
+                        maxHeight: '300px',
+                        overflowY: 'auto',
+                        padding: '12px 16px'
+                      }}
+                    >
+                      {thinkingContent}
+                      {streamingPhase === 'thinking' && <span className="cursor-blink">▊</span>}
+                    </div>
+                  )}
+                </Card>
+              )}
+
+              {/* 回答区域（流式输出） */}
               <Card
                 title="AI 回答"
                 extra={
-                  <Space>
-                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                      基于 {currentSearchResult.references.length} 处原文生成
-                    </Text>
-                    <Button size="small" icon={<CopyOutlined />} onClick={() => handleCopy(currentSearchResult.answer)}>
-                      复制
-                    </Button>
-                    <Button size="small" icon={<ReloadOutlined />} onClick={handleSearch}>
-                      重新生成
-                    </Button>
-                  </Space>
+                  !isStreaming && answerContent && (
+                    <Space>
+                      <Text type="secondary" style={{ fontSize: '12px' }}>
+                        基于 {streamReferences.length > 0 ? streamReferences.length : (currentSearchResult?.references?.length || 0)} 处原文生成
+                      </Text>
+                      <Button size="small" icon={<CopyOutlined />} onClick={() => handleCopy(answerContent || currentSearchResult?.answer || '')}>
+                        复制
+                      </Button>
+                      <Button size="small" icon={<ReloadOutlined />} onClick={handleSearch} disabled={isStreaming}>
+                        重新生成
+                      </Button>
+                    </Space>
+                  )
                 }
                 style={{ background: '#fafafa' }}
+                bodyStyle={{ maxHeight: '600px', overflowY: 'auto' }}
+                onScroll={handleUserScroll}
               >
-                <div className="markdown-content">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {currentSearchResult.answer}
-                  </ReactMarkdown>
+                <div className="markdown-content" ref={answerContainerRef}>
+                  {answerContent || currentSearchResult?.answer ? (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {answerContent || currentSearchResult?.answer || ''}
+                    </ReactMarkdown>
+                  ) : (
+                    <Text type="secondary">正在生成答案...</Text>
+                  )}
+                  {streamingPhase === 'answer' && <span className="cursor-blink">▊</span>}
                 </div>
               </Card>
 
-              {/* 参考段落列表 */}
-              <div>
-                <Title level={4}>相关原文引用</Title>
-                <List
-                  dataSource={currentSearchResult.references}
-                  renderItem={(ref, index) => (
-                    <Card
-                      key={index}
-                      style={{ marginBottom: 16 }}
-                      className="hover-card"
-                    >
-                      {/* 卡片头部 */}
-                      <div style={{ marginBottom: 12 }}>
-                        <Space>
-                          <Tag color="blue">{ref.novelTitle}</Tag>
-                          <Text strong>{ref.chapterTitle}</Text>
-                          <Text type="secondary">第{ref.paragraphIndex}段</Text>
-                          <Tag color="green">相关度: {Math.round(ref.relevanceScore * 100)}%</Tag>
-                        </Space>
-                      </div>
+              {/* 参考段落列表 - 精简版 */}
+              {(streamReferences.length > 0 || (currentSearchResult?.references && currentSearchResult.references.length > 0)) && (
+                <div>
+                  <Title level={4}>
+                    相关原文引用 ({streamReferences.length > 0 ? streamReferences.length : currentSearchResult?.references?.length || 0})
+                  </Title>
+                  <List
+                    dataSource={streamReferences.length > 0 ? streamReferences : currentSearchResult?.references || []}
+                    renderItem={(ref, index) => (
+                      <List.Item
+                        key={index}
+                        style={{
+                          padding: '12px 16px',
+                          borderRadius: 8,
+                          border: '1px solid #E8E3D6',
+                          marginBottom: 8,
+                          cursor: 'pointer',
+                          background: expandedRefs.has(index) ? '#f6f8fa' : '#fff',
+                          transition: 'all 0.3s'
+                        }}
+                        className="reference-item"
+                        onClick={() => toggleRefExpansion(index)}
+                      >
+                        <div style={{ width: '100%' }}>
+                          {/* 标题栏 */}
+                          <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Space wrap>
+                              <Tag color="blue">{ref.novelTitle}</Tag>
+                              <Text strong>{ref.chapterTitle}</Text>
+                              <Text type="secondary">第{ref.paragraphIndex}段</Text>
+                              <Tag color="green">{Math.round(ref.relevanceScore * 100)}%</Tag>
+                            </Space>
+                            {expandedRefs.has(index) ? <UpOutlined /> : <DownOutlined />}
+                          </div>
 
-                      {/* 原文内容 */}
-                      <Paragraph style={{ fontSize: '14px', lineHeight: 1.8 }}>
-                        {highlightContent(ref.content, ref.highlightText)}
-                      </Paragraph>
-
-                      {/* 操作按钮 */}
-                      <Space>
-                        <Button
-                          size="small"
-                          icon={<ExpandAltOutlined />}
-                          onClick={() => toggleContext(index)}
-                        >
-                          {expandedContexts.has(index) ? '收起' : '展开'}上下文
-                        </Button>
-                        <Button
-                          size="small"
-                          icon={<ReadOutlined />}
-                          onClick={() => handleJumpToReader(ref.novelId, ref.chapterId, ref.paragraphIndex)}
-                        >
-                          跳转阅读
-                        </Button>
-                        <Button
-                          size="small"
-                          icon={<CopyOutlined />}
-                          onClick={() => handleCopy(ref.content)}
-                        >
-                          复制原文
-                        </Button>
-                      </Space>
-
-                      {/* 展开的上下文 */}
-                      {expandedContexts.has(index) && (
-                        <div style={{ marginTop: 16, padding: 12, background: '#f5f5f5', borderRadius: 4 }}>
-                          <Text type="secondary">
-                            [上文] 这里是展开的上下文内容，实际应用中会显示该段落前后的文字...
-                          </Text>
+                          {/* 内容 */}
+                          {expandedRefs.has(index) ? (
+                            // 展开状态：显示完整内容和操作按钮
+                            <div>
+                              <Paragraph style={{ fontSize: '14px', lineHeight: 1.8, marginBottom: 12 }}>
+                                {ref.content}
+                              </Paragraph>
+                              <Space>
+                                <Button
+                                  size="small"
+                                  icon={<ReadOutlined />}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleJumpToReader(ref.novelId, ref.chapterId, ref.paragraphIndex);
+                                  }}
+                                >
+                                  跳转阅读
+                                </Button>
+                                <Button
+                                  size="small"
+                                  icon={<CopyOutlined />}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCopy(ref.content);
+                                  }}
+                                >
+                                  复制
+                                </Button>
+                              </Space>
+                            </div>
+                          ) : (
+                            // 折叠状态：只显示摘要
+                            <Text type="secondary" ellipsis style={{ display: 'block' }}>
+                              {ref.content.substring(0, 80)}...
+                            </Text>
+                          )}
                         </div>
-                      )}
-                    </Card>
-                  )}
-                />
-              </div>
+                      </List.Item>
+                    )}
+                  />
+                </div>
+              )}
             </Space>
           ) : (
             <Card>

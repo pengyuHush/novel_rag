@@ -240,6 +240,16 @@ export const novelAPI = {
   // 该方法返回简单的章节元数据，不包含完整内容
 };
 
+// 搜索流式回调接口
+export interface SearchStreamCallbacks {
+  onReferences?: (refs: Reference[]) => void;
+  onThinkingChunk?: (chunk: string) => void;
+  onAnswerChunk?: (chunk: string) => void;
+  onTokenStats?: (stats: TokenStats & { elapsed?: number }) => void;
+  onDone?: () => void;
+  onError?: (error: string) => void;
+}
+
 // 搜索和问答API
 export const searchAPI = {
   // 执行搜索（使用POST方法 + JSON Body）
@@ -265,6 +275,168 @@ export const searchAPI = {
         saveHistory: params.saveHistory !== false,
       }),
     });
+  },
+
+  // 流式搜索（使用SSE）
+  async searchStream(
+    params: {
+      query: string;
+      novelIds?: string[];
+      searchMode?: 'keyword' | 'semantic';
+      topK?: number;
+      includeReferences?: boolean;
+    },
+    callbacks: SearchStreamCallbacks
+  ): Promise<void> {
+    if (USE_MOCK_API) {
+      // Mock模式：模拟流式输出
+      const result = await mockSearchAPI.search(params.query, params.novelIds || []);
+      
+      // 模拟references
+      if (callbacks.onReferences && result.references) {
+        callbacks.onReferences(result.references);
+      }
+      
+      // 模拟思考过程（分段输出）
+      if (callbacks.onThinkingChunk) {
+        const thinkingText = "正在分析问题... 检索相关内容... 整理答案...";
+        for (let i = 0; i < thinkingText.length; i += 5) {
+          callbacks.onThinkingChunk(thinkingText.slice(i, i + 5));
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      }
+      
+      // 模拟答案（分段输出）
+      if (callbacks.onAnswerChunk) {
+        for (let i = 0; i < result.answer.length; i += 5) {
+          callbacks.onAnswerChunk(result.answer.slice(i, i + 5));
+          await new Promise(resolve => setTimeout(resolve, 30));
+        }
+      }
+      
+      // 模拟token统计
+      if (callbacks.onTokenStats && result.tokenStats) {
+        callbacks.onTokenStats({ ...result.tokenStats, elapsed: result.elapsed });
+      }
+      
+      // 完成
+      if (callbacks.onDone) {
+        callbacks.onDone();
+      }
+      
+      return;
+    }
+
+    const url = `${API_BASE_URL}/search/stream`;
+    
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: params.query,
+          novelIds: params.novelIds || [],
+          searchMode: params.searchMode || 'semantic',
+          topK: params.topK || 5,
+          includeReferences: params.includeReferences !== false,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new APIError(
+          `HTTP ${response.status}: ${response.statusText}`,
+          response.status
+        );
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('ReadableStream not supported');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) {
+          break;
+        }
+
+        // 解码chunk
+        buffer += decoder.decode(value, { stream: true });
+        
+        // 处理SSE消息（以\n\n分隔）
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || ''; // 保留最后一个不完整的消息
+        
+        for (const line of lines) {
+          if (!line.trim() || !line.startsWith('data: ')) {
+            continue;
+          }
+
+          try {
+            const jsonStr = line.slice(6); // 移除 "data: " 前缀
+            const event = JSON.parse(jsonStr);
+
+            switch (event.type) {
+              case 'references':
+                if (callbacks.onReferences) {
+                  callbacks.onReferences(event.data);
+                }
+                break;
+
+              case 'thinking':
+                if (callbacks.onThinkingChunk) {
+                  callbacks.onThinkingChunk(event.content);
+                }
+                break;
+
+              case 'answer':
+                if (callbacks.onAnswerChunk) {
+                  callbacks.onAnswerChunk(event.content);
+                }
+                break;
+
+              case 'token_stats':
+                if (callbacks.onTokenStats) {
+                  callbacks.onTokenStats(event.data);
+                }
+                break;
+
+              case 'done':
+                if (callbacks.onDone) {
+                  callbacks.onDone();
+                }
+                break;
+
+              case 'error':
+                if (callbacks.onError) {
+                  callbacks.onError(event.message);
+                }
+                break;
+            }
+          } catch (e) {
+            console.error('Failed to parse SSE event:', line, e);
+          }
+        }
+      }
+    } catch (error) {
+      if (error instanceof APIError) {
+        if (callbacks.onError) {
+          callbacks.onError(error.message);
+        }
+        throw error;
+      }
+      const message = `Network error: ${(error as Error).message}`;
+      if (callbacks.onError) {
+        callbacks.onError(message);
+      }
+      throw new APIError(message, 0, 'NETWORK_ERROR');
+    }
   }
 };
 

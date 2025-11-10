@@ -374,3 +374,154 @@ body {
   }
 }
 
+/* ======== 流式输出相关样式 ======== */
+
+/* 光标闪烁动画 */
+.cursor-blink {
+  display: inline-block;
+  animation: blink 1s infinite;
+  font-weight: bold;
+  color: #1890ff;
+  margin-left: 2px;
+}
+
+@keyframes blink {
+  0%, 50% { 
+    opacity: 1; 
+  }
+  51%, 100% { 
+    opacity: 0; 
+  }
+}
+
+/* 思考过程区域样式 */
+.thinking-section {
+  background: linear-gradient(135deg, #f6f8fa 0%, #e8f4f8 100%);
+  border-left: 4px solid #1890ff;
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.thinking-section .thinking-text {
+  white-space: pre-wrap;
+  color: #666;
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+/* 引用列表样式优化 */
+.reference-item {
+  transition: all 0.3s ease;
+  border: 1px solid #E8E3D6;
+}
+
+.reference-item:hover {
+  box-shadow: 0 2px 8px rgba(139, 105, 20, 0.15);
+  transform: translateY(-2px);
+  border-color: #8B6914;
+}
+
+.reference-item.expanded {
+  background-color: #f6f8fa;
+}
+
+/* 答案容器滚动提示 */
+.answer-scroll-hint {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  background: rgba(24, 144, 255, 0.9);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.answer-scroll-hint:hover {
+  background: rgba(24, 144, 255, 1);
+  transform: scale(1.05);
+}
+
+/* 流式输出加载状态 */
+.streaming-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #1890ff;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.streaming-indicator .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #1890ff;
+  animation: pulse 1.4s infinite ease-in-out;
+}
+
+.streaming-indicator .dot:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.streaming-indicator .dot:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes pulse {
+  0%, 80%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 流式内容渐入效果 */
+.stream-content {
+  animation: streamIn 0.3s ease-out;
+}
+
+@keyframes streamIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 响应式优化 */
+@media (max-width: 768px) {
+  .cursor-blink {
+    font-size: 16px;
+  }
+
+  .thinking-section {
+    padding: 12px;
+  }
+
+  .thinking-section .thinking-text {
+    font-size: 13px;
+  }
+
+  .reference-item {
+    padding: 10px 12px;
+  }
+
+  .answer-scroll-hint {
+    bottom: 80px;
+    right: 16px;
+    font-size: 11px;
+    padding: 6px 12px;
+  }
+}
+

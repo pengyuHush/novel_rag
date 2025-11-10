@@ -926,6 +926,153 @@ class RAGService:
             )
         
         return answer, usage
+    
+    async def _generate_answer_stream(
+        self, 
+        question: str, 
+        context_chunks: Iterable[str],
+        use_chain_of_thought: bool = False
+    ):
+        """流式生成答案，分别返回思考过程和最终答案.
+        
+        Args:
+            question: 用户问题
+            context_chunks: 上下文片段列表
+            use_chain_of_thought: 是否使用思维链推理
+        
+        Yields:
+            dict: 事件字典，包含type和content/data字段
+                - type='thinking', content=思考过程片段
+                - type='answer', content=答案片段
+                - type='usage', data=token使用情况
+        """
+        if not context_chunks:
+            yield {
+                'type': 'answer',
+                'content': '未在知识库中找到相关内容，请尝试换一个问题或扩大检索范围。'
+            }
+            return
+
+        if not self.client:
+            yield {
+                'type': 'answer',
+                'content': 'LLM 未配置，无法生成回答，请联系管理员。'
+            }
+            return
+
+        context = "\n\n".join(context_chunks)
+        
+        # 选择不同的prompt策略
+        if use_chain_of_thought:
+            prompt = f"""你是一个专业的中文小说分析助手。请按以下步骤仔细回答问题：
+
+【分析步骤】
+1. 在原文中定位相关信息
+2. 提取关键事实和细节
+3. 综合分析并组织答案
+4. 指出是否有不确定的部分
+
+【重要规则】
+- 答案必须完全基于提供的原文内容，不要编造信息
+- 如果原文信息不足，明确说明"原文中未明确提及"
+- 尽可能引用原文关键句子来支撑你的答案
+- 保持客观中立，不要添加个人解读
+
+【原文片段】
+{context}
+
+【用户问题】
+{question}
+
+【你的分析和回答】
+请按照上述步骤详细回答："""
+        else:
+            prompt = f"""你是一个专业的中文小说分析助手。请基于以下原文片段，准确、详细地回答用户问题。
+
+【重要规则】
+1. 答案必须完全基于提供的原文内容，不要编造信息
+2. 如果原文信息不足，明确说明"原文中未提及"或"信息不足"
+3. 尽可能引用原文关键句子来支撑你的答案
+4. 如果涉及多个角色或事件，分点说明
+5. 保持客观中立，不要添加个人解读
+
+【原文片段】
+{context}
+
+【用户问题】
+{question}
+
+【你的回答】
+请基于上述原文，详细回答问题："""
+
+        # 创建流式请求
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: self.client.chat.completions.create(
+                model=CHAT_MODEL,
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "你是专业的中文小说分析助手。严格基于提供的原文回答问题，不编造内容。如果信息不足，明确说明。"
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                stream=True,  # 启用流式输出
+                thinking={
+                    "type": "enabled",  # 启用深度思考
+                },
+                temperature=0.3,
+                top_p=0.8,
+            ),
+        )
+        
+        # 逐个处理chunk
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+        
+        for chunk in response:
+            if not chunk.choices:
+                continue
+                
+            delta = chunk.choices[0].delta
+            
+            # 思考过程（reasoning_content）
+            if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                yield {
+                    'type': 'thinking',
+                    'content': delta.reasoning_content
+                }
+            
+            # 最终答案（content）
+            if delta.content:
+                yield {
+                    'type': 'answer',
+                    'content': delta.content
+                }
+            
+            # 收集usage信息（流式中间可能会有部分usage）
+            if hasattr(chunk, 'usage') and chunk.usage:
+                if hasattr(chunk.usage, 'prompt_tokens'):
+                    total_prompt_tokens = chunk.usage.prompt_tokens
+                if hasattr(chunk.usage, 'completion_tokens'):
+                    total_completion_tokens = chunk.usage.completion_tokens
+        
+        # 最后返回token统计
+        if total_prompt_tokens > 0 or total_completion_tokens > 0:
+            total_tokens = total_prompt_tokens + total_completion_tokens
+            yield {
+                'type': 'usage',
+                'data': {
+                    'prompt_tokens': total_prompt_tokens,
+                    'completion_tokens': total_completion_tokens,
+                    'total_tokens': total_tokens
+                }
+            }
+            logger.info(
+                f"Stream Chat API call completed: prompt_tokens={total_prompt_tokens}, "
+                f"completion_tokens={total_completion_tokens}, total_tokens={total_tokens}"
+            )
 
     def _apply_metadata_weighting(self, results: List, request: SearchRequest) -> List:
         """基于元数据对检索结果进行加权.
@@ -1022,6 +1169,264 @@ class RAGService:
         
         logger.info(f"Metadata weighting applied to {len(weighted_results)} results")
         return weighted_results
+    
+    async def search_stream(self, request: SearchRequest):
+        """流式搜索方法，返回异步生成器.
+        
+        Args:
+            request: 搜索请求
+            
+        Yields:
+            dict: 流式事件
+                - type='references', data=引用列表
+                - type='thinking', content=思考过程片段
+                - type='answer', content=答案片段  
+                - type='token_stats', data=token统计
+                - type='done': 完成标记
+        """
+        start = time.perf_counter()
+        
+        # 初始化token统计
+        total_tokens = 0
+        embedding_tokens = 0
+        chat_tokens = 0
+        api_calls = 0
+        
+        # Check if collection exists
+        try:
+            collections = self.qdrant.get_collections().collections
+            collection_names = {c.name for c in collections}
+            if self.collection_name not in collection_names:
+                yield {
+                    'type': 'answer',
+                    'content': '知识库为空，请先上传并处理小说文本。上传步骤：1) 创建小说记录 2) 上传TXT文件 3) 等待处理完成。'
+                }
+                yield {'type': 'done'}
+                return
+        except Exception as e:
+            logger.warning(f"Failed to check collections: {e}")
+        
+        # 查询列表：原始查询 + 改写查询/HyDE查询（如果启用）
+        queries_to_search = [request.query]
+        hyde_used = False
+        
+        # 1. HyDE模式（如果启用，优先使用）
+        if settings.ENABLE_HYDE:
+            logger.info("Using HyDE mode for enhanced retrieval")
+            hypothetical_answer = await self._generate_hypothetical_answer(request.query)
+            if hypothetical_answer != request.query:
+                queries_to_search = [hypothetical_answer]
+                hyde_used = True
+                logger.info(f"HyDE mode activated, using hypothetical answer for retrieval")
+            else:
+                logger.info("HyDE generation failed, falling back to normal mode")
+        
+        # 2. 查询改写（如果启用且未使用HyDE）
+        if not hyde_used and settings.ENABLE_QUERY_REWRITE:
+            rewritten_queries = await self._rewrite_query(request.query)
+            queries_to_search.extend(rewritten_queries)
+            logger.info(f"Using {len(queries_to_search)} queries for multi-query search")
+        
+        # 3. Embedding阶段
+        embedding_result = await self.embed_texts(queries_to_search)
+        query_vectors = embedding_result.vectors
+        
+        if embedding_result.usage:
+            embedding_tokens = embedding_result.usage.total_tokens
+            total_tokens += embedding_tokens
+            api_calls += 1
+
+        # 构建过滤条件
+        filter_conditions = []
+        
+        if request.novel_ids:
+            filter_conditions.append(
+                qmodels.FieldCondition(
+                    key="novel_id",
+                    match=qmodels.MatchAny(any=request.novel_ids),
+                )
+            )
+        
+        # 元数据过滤（如果启用）
+        if settings.ENABLE_METADATA_FILTERING:
+            if request.filter_characters:
+                filter_conditions.append(
+                    qmodels.FieldCondition(
+                        key="characters",
+                        match=qmodels.MatchAny(any=request.filter_characters),
+                    )
+                )
+            if request.filter_scene_type:
+                filter_conditions.append(
+                    qmodels.FieldCondition(
+                        key="scene_type",
+                        match=qmodels.MatchValue(value=request.filter_scene_type),
+                    )
+                )
+            if request.filter_emotional_tone:
+                filter_conditions.append(
+                    qmodels.FieldCondition(
+                        key="emotional_tone",
+                        match=qmodels.MatchValue(value=request.filter_emotional_tone),
+                    )
+                )
+        
+        filter_condition = qmodels.Filter(must=filter_conditions) if filter_conditions else None
+
+        # 4. 多查询向量检索
+        all_results_map = {}
+        
+        for idx, query_vector in enumerate(query_vectors):
+            try:
+                results = self.qdrant.search(
+                    collection_name=self.collection_name,
+                    query_vector=query_vector,
+                    limit=min(request.top_k, settings.MAX_TOP_K),
+                    query_filter=filter_condition,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                
+                for point in results:
+                    chunk_id = point.payload.get("chunk_id") if point.payload else None
+                    if chunk_id:
+                        if chunk_id not in all_results_map or point.score > all_results_map[chunk_id].score:
+                            all_results_map[chunk_id] = point
+                
+            except Exception as e:
+                logger.warning(f"Search failed for query {idx}: {e}")
+                continue
+        
+        merged_results = sorted(all_results_map.values(), key=lambda x: x.score, reverse=True)
+        
+        if not merged_results:
+            yield {
+                'type': 'answer',
+                'content': '知识库中没有找到相关内容。请确保已上传并处理了小说文本。'
+            }
+            yield {'type': 'done'}
+            return
+
+        # 5. 元数据加权（如果启用）
+        if settings.ENABLE_METADATA_WEIGHTING and merged_results:
+            logger.info("Applying metadata-based score weighting")
+            merged_results = self._apply_metadata_weighting(merged_results, request)
+        
+        # 6. 相似度阈值过滤
+        min_score = settings.MIN_RELEVANCE_SCORE
+        filtered_results = [point for point in merged_results if point.score >= min_score]
+        
+        if not filtered_results:
+            logger.info(f"All results filtered out by relevance threshold {min_score}")
+            filtered_results = merged_results[:3]
+        
+        logger.info(f"Retrieved {len(merged_results)} results, {len(filtered_results)} after filtering (threshold={min_score})")
+        
+        # 7. 重排序（如果配置启用）
+        results_with_content = [(point, point.payload.get("content", "")) for point in filtered_results if point.payload]
+        
+        if settings.ENABLE_RERANKING and len(results_with_content) > 3:
+            logger.info("Applying reranking to improve result quality")
+            reranked = await self._simple_rerank(request.query, results_with_content, top_k=request.top_k)
+            final_results = [point for point, _ in reranked]
+        else:
+            final_results = filtered_results[:request.top_k]
+        
+        # 8. 构建引用和上下文
+        references: List[SearchReference] = []
+        context_parts: List[str] = []
+        seen_contents = set()
+        
+        for point in final_results:
+            payload = point.payload or {}
+            content = payload.get("content", "")
+            
+            content_hash = hash(content[:100])
+            if content_hash in seen_contents:
+                continue
+            seen_contents.add(content_hash)
+            
+            context_parts.append(content)
+            
+            # 上下文窗口扩展
+            if settings.CONTEXT_EXPAND_WINDOW > 0:
+                expanded = await self._expand_context_window(
+                    novel_id=payload.get("novel_id"),
+                    chapter_id=payload.get("chapter_id"),
+                    paragraph_index=payload.get("paragraph_index", 0),
+                    window_size=settings.CONTEXT_EXPAND_WINDOW
+                )
+                context_parts.extend(expanded)
+            
+            references.append(
+                SearchReference(
+                    novel_id=payload.get("novel_id"),
+                    novel_title=payload.get("novel_title"),
+                    chapter_id=payload.get("chapter_id"),
+                    chapter_title=payload.get("chapter_title"),
+                    chapter_number=payload.get("chapter_number"),
+                    paragraph_index=payload.get("paragraph_index"),
+                    content=content[:500],
+                    relevance_score=point.score or 0.0,
+                    characters=payload.get("characters"),
+                    keywords=payload.get("keywords"),
+                    scene_type=payload.get("scene_type"),
+                    emotional_tone=payload.get("emotional_tone"),
+                )
+            )
+        
+        # 9. 先发送引用数据
+        if request.include_references:
+            yield {
+                'type': 'references',
+                'data': [ref.model_dump(by_alias=True) for ref in references]
+            }
+
+        # 10. 流式生成答案
+        use_cot = len(context_parts) > 5
+        prompt_tokens = 0
+        completion_tokens = 0
+        
+        async for event in self._generate_answer_stream(request.query, context_parts, use_chain_of_thought=use_cot):
+            if event['type'] == 'usage':
+                # 收集token使用统计
+                usage_data = event['data']
+                prompt_tokens = usage_data.get('prompt_tokens', 0)
+                completion_tokens = usage_data.get('completion_tokens', 0)
+                chat_tokens = prompt_tokens + completion_tokens
+                total_tokens += chat_tokens
+                api_calls += 1
+            else:
+                # 转发thinking和answer事件
+                yield event
+        
+        # 11. 计算预估费用
+        embedding_cost = embedding_tokens * 0.5 / 1_000_000
+        chat_cost = 0.0
+        if prompt_tokens > 0:
+            chat_cost = (
+                prompt_tokens * 5 / 1_000_000 +
+                completion_tokens * 10 / 1_000_000
+            )
+        estimated_cost = embedding_cost + chat_cost
+        
+        elapsed = time.perf_counter() - start
+        
+        # 12. 发送token统计
+        yield {
+            'type': 'token_stats',
+            'data': {
+                'totalTokens': total_tokens,
+                'embeddingTokens': embedding_tokens,
+                'chatTokens': chat_tokens,
+                'apiCalls': api_calls,
+                'estimatedCost': estimated_cost,
+                'elapsed': elapsed
+            }
+        }
+        
+        # 13. 发送完成标记
+        yield {'type': 'done'}
     
     def _cache_key(self, request: SearchRequest) -> str:
         payload = {

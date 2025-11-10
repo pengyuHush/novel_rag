@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -70,5 +70,66 @@ class SearchResponse(BaseModel):
         by_alias = True
 
 
-__all__ = ["SearchRequest", "SearchResponse", "SearchReference", "SearchTokenStats"]
+class StreamEvent(BaseModel):
+    """流式事件基类（用于文档说明）"""
+    
+    type: Literal["references", "thinking", "answer", "token_stats", "done", "error"] = Field(
+        ..., description="事件类型"
+    )
+    
+
+class ReferencesEvent(StreamEvent):
+    """引用数据事件"""
+    
+    type: Literal["references"] = "references"
+    data: List[dict] = Field(..., description="引用列表")
+
+
+class ThinkingEvent(StreamEvent):
+    """思考过程事件"""
+    
+    type: Literal["thinking"] = "thinking"
+    content: str = Field(..., description="思考过程片段")
+
+
+class AnswerEvent(StreamEvent):
+    """答案片段事件"""
+    
+    type: Literal["answer"] = "answer"
+    content: str = Field(..., description="答案片段")
+
+
+class TokenStatsEvent(StreamEvent):
+    """Token统计事件"""
+    
+    type: Literal["token_stats"] = "token_stats"
+    data: dict = Field(..., description="Token统计数据")
+
+
+class DoneEvent(StreamEvent):
+    """完成事件"""
+    
+    type: Literal["done"] = "done"
+
+
+class ErrorEvent(StreamEvent):
+    """错误事件"""
+    
+    type: Literal["error"] = "error"
+    message: str = Field(..., description="错误信息")
+
+
+__all__ = [
+    "SearchRequest", 
+    "SearchResponse", 
+    "SearchReference", 
+    "SearchTokenStats",
+    "StreamEvent",
+    "ReferencesEvent",
+    "ThinkingEvent",
+    "AnswerEvent",
+    "TokenStatsEvent",
+    "DoneEvent",
+    "ErrorEvent"
+]
 
