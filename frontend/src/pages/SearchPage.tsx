@@ -282,7 +282,7 @@ const SearchPage: React.FC = () => {
           query,
           novelIds: selectedNovelIds,
           searchMode,
-          topK: 5,
+          topK: 10,
           includeReferences: true
         },
         {

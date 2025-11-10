@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 class SearchRequest(BaseModel):
     query: str = Field(..., description="用户问题", min_length=1)
     novel_ids: Optional[List[str]] = Field(None, description="限定的小说ID列表", alias="novelIds")
-    top_k: int = Field(5, ge=1, le=10, alias="topK")
+    top_k: int = Field(5, ge=1, le=50, alias="topK")
     include_references: bool = Field(True, alias="includeReferences")
     
     # 🔥 元数据过滤参数

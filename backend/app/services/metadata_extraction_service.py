@@ -12,6 +12,7 @@ from loguru import logger
 from zai import ZhipuAiClient
 
 from app.core.config import settings
+from app.utils.llm_logger import LLMCallLogger
 
 
 @dataclass
@@ -148,26 +149,46 @@ class MetadataExtractionService:
   "emotional_tone": "{'/'.join(self.EMOTIONAL_TONES)}之一"
 }}"""
 
+        # 准备请求参数
+        messages = [
+            {
+                "role": "system",
+                "content": "直接输出JSON格式的结果，不要任何解释、推理过程或额外文字。只输出有效的JSON对象。"
+            },
+            {"role": "user", "content": prompt}
+        ]
+        request_params = {
+            "model": self.extraction_model,
+            "messages": messages,
+            "temperature": 0.1,
+            # 移除 max_tokens 限制，确保 JSON 输出不被截断
+            "text_length": len(text)
+        }
+        
+        import time
+        start_time = time.perf_counter()
         loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
             lambda: self.client.chat.completions.create(
                 model=self.extraction_model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "直接输出JSON格式的结果，不要任何解释、推理过程或额外文字。只输出有效的JSON对象。"
-                    },
-                    {"role": "user", "content": prompt}
-                ],
-                thinking={
-                    "type": "disable",  # 启用深度思考模式
-                },
+                messages=messages,
                 temperature=0.1,  # 低温度保证稳定输出
-                max_tokens=800,  # 增加token限制，确保能输出完整JSON（glm-4.5需要更多空间）
+                # 移除 max_tokens 和 thinking 限制
             ),
         )
+        duration = time.perf_counter() - start_time
+        
         logger.debug(f"Response from server: {response}")  # 降低为debug级别，避免日志过多
+        
+        # 记录API调用日志
+        LLMCallLogger.log_api_call(
+            api_type="chat",
+            model=self.extraction_model,
+            request_params=request_params,
+            response=response,
+            duration=duration
+        )
         
         # 从响应中提取消息内容
         message = response.choices[0].message if response.choices else None

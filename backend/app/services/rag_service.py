@@ -17,6 +17,7 @@ from app.core.config import settings
 from app.core.qdrant import get_qdrant_client
 from app.schemas.search import SearchReference, SearchRequest, SearchResponse
 from app.utils.hashing import sha256_hash
+from app.utils.llm_logger import LLMCallLogger, StreamContentAccumulator
 
 try:
     from qdrant_client import QdrantClient
@@ -172,6 +173,16 @@ class RAGService:
             loop = asyncio.get_running_loop()
             # 使用配置的向量维度（支持256/512/1024/2048）
             dimension = settings.EMBEDDING_DIMENSION
+            
+            # 记录请求参数
+            request_params = {
+                "model": EMBEDDING_MODEL,
+                "input": texts,
+                "dimensions": dimension,
+                "input_count": len(texts)
+            }
+            
+            start_time = time.perf_counter()
             response = await loop.run_in_executor(
                 None,
                 lambda: self.client.embeddings.create(
@@ -180,6 +191,7 @@ class RAGService:
                     dimensions=dimension  # 新增: 自定义向量维度
                 ),
             )
+            duration = time.perf_counter() - start_time
             
             # 提取向量
             vectors = [item.embedding for item in response.data]
@@ -199,6 +211,15 @@ class RAGService:
                 )
             else:
                 logger.warning("API response does not contain usage information")
+            
+            # 记录API调用日志
+            LLMCallLogger.log_api_call(
+                api_type="embeddings",
+                model=EMBEDDING_MODEL,
+                request_params=request_params,
+                response=response,
+                duration=duration
+            )
             
             return EmbeddingResult(vectors=vectors, usage=usage)
         except Exception as e:
@@ -278,21 +299,41 @@ class RAGService:
 
 改写版本："""
 
+            messages = [
+                {"role": "system", "content": "你是查询改写助手，擅长用不同方式表达同一个问题。"},
+                {"role": "user", "content": prompt}
+            ]
+            request_params = {
+                "model": CHAT_MODEL,
+                "messages": messages,
+                "temperature": 0.8,
+                # 移除 max_tokens 限制
+                "task": "query_rewriting"
+            }
+
             loop = asyncio.get_running_loop()
+            start_time = time.perf_counter()
             response = await loop.run_in_executor(
                 None,
                 lambda: self.client.chat.completions.create(
                     model=CHAT_MODEL,
-                    messages=[
-                        {"role": "system", "content": "你是查询改写助手，擅长用不同方式表达同一个问题。"},
-                        {"role": "user", "content": prompt}
-                    ],
+                    messages=messages,
                     temperature=0.8,
-                    max_tokens=200,
+                    # 移除 max_tokens 限制
                 ),
             )
+            duration = time.perf_counter() - start_time
             
             content = self._extract_message_content(response)
+            
+            # 记录API调用日志
+            LLMCallLogger.log_api_call(
+                api_type="chat",
+                model=CHAT_MODEL,
+                request_params=request_params,
+                response=response,
+                duration=duration
+            )
             if not content:
                 return []
             
@@ -403,24 +444,41 @@ class RAGService:
             # 使用配置的HYDE_MODEL（默认glm-4-flash，更稳定）
             hyde_model = settings.HYDE_MODEL
             
+            messages = [
+                {
+                    "role": "system",
+                    "content": "你是小说分析助手。请将用户的简短问题扩展成一段包含上下文和可能答案形式的描述。"
+                },
+                {"role": "user", "content": prompt}
+            ]
+            request_params = {
+                "model": hyde_model,
+                "messages": messages,
+                "temperature": 0.8,
+                # 移除 max_tokens 限制，让模型自由输出完整内容
+                "task": "hyde"
+            }
+            
             loop = asyncio.get_running_loop()
+            start_time = time.perf_counter()
             response = await loop.run_in_executor(
                 None,
                 lambda: self.client.chat.completions.create(
                     model=hyde_model,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "你是小说分析助手。请将用户的简短问题扩展成一段包含上下文和可能答案形式的描述。"
-                        },
-                        {"role": "user", "content": prompt}
-                    ],
-                    thinking={
-                        "type": "disable",  # 启用深度思考模式
-                    },
+                    messages=messages,
                     temperature=0.8,  # 稍高温度增加生成多样性
-                    max_tokens=200,
+                    # 移除 max_tokens 和 thinking 限制
                 ),
+            )
+            duration = time.perf_counter() - start_time
+            
+            # 记录API调用日志
+            LLMCallLogger.log_api_call(
+                api_type="chat",
+                model=hyde_model,
+                request_params=request_params,
+                response=response,
+                duration=duration
             )
             
             # 详细的响应检查
@@ -442,22 +500,39 @@ class RAGService:
                 logger.warning("HyDE: First attempt generated empty content, trying fallback strategy")
                 
                 # 备选策略：使用更简单的任务 - 直接扩写问题
+                fallback_messages = [
+                    {
+                        "role": "user",
+                        "content": f"请用50-100字扩写这个问题，添加更多细节和上下文：\n\n{query}\n\n扩写："
+                    }
+                ]
+                fallback_params = {
+                    "model": hyde_model,
+                    "messages": fallback_messages,
+                    "temperature": 0.7,
+                    # 移除 max_tokens 限制
+                    "task": "hyde_fallback"
+                }
+                
+                fallback_start = time.perf_counter()
                 fallback_response = await loop.run_in_executor(
                     None,
                     lambda: self.client.chat.completions.create(
                         model=hyde_model,
-                        messages=[
-                            {
-                                "role": "user",
-                                "content": f"请用50-100字扩写这个问题，添加更多细节和上下文：\n\n{query}\n\n扩写："
-                            }
-                        ],
-                        thinking={
-                            "type": "disable",  # 启用深度思考模式
-                        },
+                        messages=fallback_messages,
                         temperature=0.7,
-                        max_tokens=150,
+                        # 移除 max_tokens 和 thinking 限制
                     ),
+                )
+                fallback_duration = time.perf_counter() - fallback_start
+                
+                # 记录API调用日志
+                LLMCallLogger.log_api_call(
+                    api_type="chat",
+                    model=hyde_model,
+                    request_params=fallback_params,
+                    response=fallback_response,
+                    duration=fallback_duration
                 )
                 
                 if fallback_response and fallback_response.choices:
@@ -505,39 +580,75 @@ class RAGService:
             # 为每个结果生成相关性评分
             scored_results = []
             
-            for point, content in results[:15]:  # 只对前15个候选进行重排序
-                # 构建简单的评分prompt
-                prompt = f"""请评估以下文本片段与用户问题的相关性，给出1-10的评分（10表示高度相关，1表示不相关）。
+            for idx, (point, content) in enumerate(results[:15]):  # 只对前15个候选进行重排序
+                # 构建简单的评分prompt - 更简洁的格式，引导模型直接输出数字
+                prompt = f"""给以下文本片段与问题的相关性打分（1-10分，10分最相关，直接输出数字即可）：
 
-用户问题：{query}
+问题：{query}
 
-文本片段：{content[:300]}
+文本：{content[:300]}
 
-评分（只需输出数字1-10）："""
+分数："""
+
+                messages = [
+                    {"role": "user", "content": prompt}
+                ]
+                request_params = {
+                    "model": CHAT_MODEL,
+                    "messages": messages,
+                    "temperature": 0.1,
+                    # 移除 max_tokens 限制，让模型自由输出
+                    "task": f"rerank_{idx+1}"
+                }
 
                 loop = asyncio.get_running_loop()
+                start_time = time.perf_counter()
                 response = await loop.run_in_executor(
                     None,
                     lambda: self.client.chat.completions.create(
                         model=CHAT_MODEL,
-                        messages=[
-                            {"role": "system", "content": "你是文本相关性评估专家。"},
-                            {"role": "user", "content": prompt}
-                        ],
-                        thinking={
-                            "type": "disable",  # 启用深度思考模式
-                        },
+                        messages=messages,
                         temperature=0.1,
-                        max_tokens=10,
+                        # 移除 max_tokens 限制，让模型自由输出
                     ),
                 )
+                duration = time.perf_counter() - start_time
+                
+                # 调试：打印响应对象结构
+                if response and response.choices:
+                    message = response.choices[0].message
+                    logger.debug(f"Rerank task {idx+1} - Response message attributes: {dir(message)}")
+                    logger.debug(f"Rerank task {idx+1} - message.content: '{message.content}'")
+                    logger.debug(f"Rerank task {idx+1} - hasattr reasoning_content: {hasattr(message, 'reasoning_content')}")
+                    if hasattr(message, 'reasoning_content'):
+                        logger.debug(f"Rerank task {idx+1} - message.reasoning_content: '{message.reasoning_content}'")
                 
                 content_text = self._extract_message_content(response)
+                
+                # 记录API调用日志
+                LLMCallLogger.log_api_call(
+                    api_type="chat",
+                    model=CHAT_MODEL,
+                    request_params=request_params,
+                    response=response,
+                    duration=duration
+                )
                 try:
                     # 提取数字评分
-                    score = float(''.join(c for c in content_text if c.isdigit() or c == '.'))
-                    score = min(max(score, 1.0), 10.0)  # 限制在1-10范围
-                except:
+                    if not content_text or content_text.strip() == "":
+                        logger.warning(f"Rerank task {idx+1}: Empty response from LLM, using default score 5.0")
+                        score = 5.0
+                    else:
+                        score_str = ''.join(c for c in content_text if c.isdigit() or c == '.')
+                        if not score_str:
+                            logger.warning(f"Rerank task {idx+1}: No numeric value in response '{content_text}', using default score 5.0")
+                            score = 5.0
+                        else:
+                            score = float(score_str)
+                            score = min(max(score, 1.0), 10.0)  # 限制在1-10范围
+                            logger.debug(f"Rerank task {idx+1}: Extracted score {score} from '{content_text.strip()}'")
+                except Exception as e:
+                    logger.warning(f"Rerank task {idx+1}: Failed to parse score from '{content_text}': {e}, using default score 5.0")
                     score = 5.0  # 默认中等分数
                 
                 # 结合原始向量相似度和LLM评分
@@ -689,6 +800,10 @@ class RAGService:
         
         # 转换为列表并按分数排序
         merged_results = sorted(all_results_map.values(), key=lambda x: x.score, reverse=True)
+
+        logger.info(f"Found {len(merged_results)} results for query {idx}")
+        for result in merged_results:
+            logger.info(f"{result}")
         
         if not merged_results:
             # Handle no results
@@ -846,20 +961,28 @@ class RAGService:
         
         # 选择不同的prompt策略
         if use_chain_of_thought:
-            # 思维链prompt - 引导模型逐步推理
+            # 思维链prompt - 引导模型逐步推理（增强版）
             prompt = f"""你是一个专业的中文小说分析助手。请按以下步骤仔细回答问题：
 
 【分析步骤】
-1. 在原文中定位相关信息
-2. 提取关键事实和细节
-3. 综合分析并组织答案
-4. 指出是否有不确定的部分
+1. 通读原文片段，识别关键信息和时间顺序
+2. 检测是否存在矛盾、反转或真相揭示
+3. 提取关键事实，区分"表面印象"和"实际真相"
+4. 综合分析并组织答案
+5. 指出是否有不确定或存疑的部分
 
-【重要规则】
+【核心规则】
 - 答案必须完全基于提供的原文内容，不要编造信息
-- 如果原文信息不足，明确说明"原文中未明确提及"
 - 尽可能引用原文关键句子来支撑你的答案
+- 如果原文信息不足，明确说明"原文中未明确提及"
 - 保持客观中立，不要添加个人解读
+
+【特别注意：叙事反转识别】
+小说常见叙事技巧：作者可能用大量篇幅营造某种印象，但在关键节点揭示真相。
+- 留意转折性词汇："其实"、"原来"、"真相是"、"实际上"、"不得已"、"苦衷"、"误会"、"隐瞒"
+- 如果同一对象的前后描述矛盾，优先采信**后期揭示的信息**（通常是真相）
+- 识别"认知反转"：前期被塑造为X，后期揭示实为Y
+- 答案中明确区分：前期印象 vs 实际真相
 
 【原文片段】
 {context}
@@ -868,17 +991,25 @@ class RAGService:
 {question}
 
 【你的分析和回答】
-请按照上述步骤详细回答："""
+请按照上述步骤详细回答，特别注意可能的情节反转："""
         else:
-            # 标准prompt - 更直接的回答方式
+            # 标准prompt - 更直接的回答方式（增强版）
             prompt = f"""你是一个专业的中文小说分析助手。请基于以下原文片段，准确、详细地回答用户问题。
 
-【重要规则】
+【核心规则】
 1. 答案必须完全基于提供的原文内容，不要编造信息
 2. 如果原文信息不足，明确说明"原文中未提及"或"信息不足"
 3. 尽可能引用原文关键句子来支撑你的答案
 4. 如果涉及多个角色或事件，分点说明
 5. 保持客观中立，不要添加个人解读
+
+【叙事反转警示】
+注意小说的常见叙事技巧：
+- 检查是否有"其实"、"原来"、"真相是"、"实际上"等转折词
+- 若同一对象的前后描述存在矛盾，以**后期信息**为准（通常揭示真相）
+- 若发现"认知反转"（如：前期塑造为坏人，后期揭示是好人），在答案中明确说明：
+  * 表面印象：XXX（基于前期描述）
+  * 实际真相：YYY（基于后期揭示）
 
 【原文片段】
 {context}
@@ -887,20 +1018,32 @@ class RAGService:
 {question}
 
 【你的回答】
-请基于上述原文，详细回答问题："""
+请基于上述原文详细回答，注意时序和可能的反转："""
 
+        # 准备请求参数
+        messages = [
+            {
+                "role": "system", 
+                "content": "你是专业的中文小说分析助手。严格基于提供的原文回答问题，不编造内容。如果信息不足，明确说明。"
+            },
+            {"role": "user", "content": prompt},
+        ]
+        request_params = {
+            "model": CHAT_MODEL,
+            "messages": messages,
+            "thinking": {"type": "enabled"},
+            "temperature": 0.3,
+            "top_p": 0.8,
+            "use_chain_of_thought": use_chain_of_thought
+        }
+        
         loop = asyncio.get_running_loop()
+        start_time = time.perf_counter()
         response = await loop.run_in_executor(
             None,
             lambda: self.client.chat.completions.create(
                 model=CHAT_MODEL,
-                messages=[
-                    {
-                        "role": "system", 
-                        "content": "你是专业的中文小说分析助手。严格基于提供的原文回答问题，不编造内容。如果信息不足，明确说明。"
-                    },
-                    {"role": "user", "content": prompt},
-                ],
+                messages=messages,
                 thinking={
                     "type": "enabled",  # 启用深度思考模式
                 },
@@ -908,6 +1051,7 @@ class RAGService:
                 top_p=0.8,  # 添加top_p控制
             ),
         )
+        duration = time.perf_counter() - start_time
 
         content = self._extract_message_content(response)
         answer = content or "未能生成有效回答，请稍后重试。"
@@ -924,6 +1068,15 @@ class RAGService:
                 f"Chat API call completed: prompt_tokens={usage.prompt_tokens}, "
                 f"completion_tokens={usage.completion_tokens}, total_tokens={usage.total_tokens}"
             )
+        
+        # 记录API调用日志
+        LLMCallLogger.log_api_call(
+            api_type="chat",
+            model=CHAT_MODEL,
+            request_params=request_params,
+            response=response,
+            duration=duration
+        )
         
         return answer, usage
     
@@ -964,19 +1117,28 @@ class RAGService:
         
         # 选择不同的prompt策略
         if use_chain_of_thought:
+            # 思维链prompt - 引导模型逐步推理（增强版）
             prompt = f"""你是一个专业的中文小说分析助手。请按以下步骤仔细回答问题：
 
 【分析步骤】
-1. 在原文中定位相关信息
-2. 提取关键事实和细节
-3. 综合分析并组织答案
-4. 指出是否有不确定的部分
+1. 通读原文片段，识别关键信息和时间顺序
+2. 检测是否存在矛盾、反转或真相揭示
+3. 提取关键事实，区分"表面印象"和"实际真相"
+4. 综合分析并组织答案
+5. 指出是否有不确定或存疑的部分
 
-【重要规则】
+【核心规则】
 - 答案必须完全基于提供的原文内容，不要编造信息
-- 如果原文信息不足，明确说明"原文中未明确提及"
 - 尽可能引用原文关键句子来支撑你的答案
+- 如果原文信息不足，明确说明"原文中未明确提及"
 - 保持客观中立，不要添加个人解读
+
+【特别注意：叙事反转识别】
+小说常见叙事技巧：作者可能用大量篇幅营造某种印象，但在关键节点揭示真相。
+- 留意转折性词汇："其实"、"原来"、"真相是"、"实际上"、"不得已"、"苦衷"、"误会"、"隐瞒"
+- 如果同一对象的前后描述矛盾，优先采信**后期揭示的信息**（通常是真相）
+- 识别"认知反转"：前期被塑造为X，后期揭示实为Y
+- 答案中明确区分：前期印象 vs 实际真相
 
 【原文片段】
 {context}
@@ -985,16 +1147,25 @@ class RAGService:
 {question}
 
 【你的分析和回答】
-请按照上述步骤详细回答："""
+请按照上述步骤详细回答，特别注意可能的情节反转："""
         else:
+            # 标准prompt - 更直接的回答方式（增强版）
             prompt = f"""你是一个专业的中文小说分析助手。请基于以下原文片段，准确、详细地回答用户问题。
 
-【重要规则】
+【核心规则】
 1. 答案必须完全基于提供的原文内容，不要编造信息
 2. 如果原文信息不足，明确说明"原文中未提及"或"信息不足"
 3. 尽可能引用原文关键句子来支撑你的答案
 4. 如果涉及多个角色或事件，分点说明
 5. 保持客观中立，不要添加个人解读
+
+【叙事反转警示】
+注意小说的常见叙事技巧：
+- 检查是否有"其实"、"原来"、"真相是"、"实际上"等转折词
+- 若同一对象的前后描述存在矛盾，以**后期信息**为准（通常揭示真相）
+- 若发现"认知反转"（如：前期塑造为坏人，后期揭示是好人），在答案中明确说明：
+  * 表面印象：XXX（基于前期描述）
+  * 实际真相：YYY（基于后期揭示）
 
 【原文片段】
 {context}
@@ -1003,21 +1174,37 @@ class RAGService:
 {question}
 
 【你的回答】
-请基于上述原文，详细回答问题："""
+请基于上述原文详细回答，注意时序和可能的反转："""
 
+        # 准备请求参数（用于日志）
+        messages = [
+            {
+                "role": "system", 
+                "content": "你是专业的中文小说分析助手。严格基于提供的原文回答问题，不编造内容。如果信息不足，明确说明。"
+            },
+            {"role": "user", "content": prompt},
+        ]
+        logger.info(f"Chat API call completed: messages={messages}")
+        request_params = {
+            "model": CHAT_MODEL,
+            "messages": messages,
+            "stream": True,
+            "thinking": {"type": "enabled"},
+            "temperature": 0.3,
+            "top_p": 0.8,
+            "use_chain_of_thought": use_chain_of_thought
+        }
+        
+        # 创建内容累积器
+        accumulator = StreamContentAccumulator()
+        
         # 创建流式请求
         loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,
             lambda: self.client.chat.completions.create(
                 model=CHAT_MODEL,
-                messages=[
-                    {
-                        "role": "system", 
-                        "content": "你是专业的中文小说分析助手。严格基于提供的原文回答问题，不编造内容。如果信息不足，明确说明。"
-                    },
-                    {"role": "user", "content": prompt},
-                ],
+                messages=messages,
                 stream=True,  # 启用流式输出
                 thinking={
                     "type": "enabled",  # 启用深度思考
@@ -1039,16 +1226,20 @@ class RAGService:
             
             # 思考过程（reasoning_content）
             if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                content = delta.reasoning_content
+                accumulator.add_thinking_chunk(content)
                 yield {
                     'type': 'thinking',
-                    'content': delta.reasoning_content
+                    'content': content
                 }
             
             # 最终答案（content）
             if delta.content:
+                content = delta.content
+                accumulator.add_answer_chunk(content)
                 yield {
                     'type': 'answer',
-                    'content': delta.content
+                    'content': content
                 }
             
             # 收集usage信息（流式中间可能会有部分usage）
@@ -1061,6 +1252,17 @@ class RAGService:
         # 最后返回token统计
         if total_prompt_tokens > 0 or total_completion_tokens > 0:
             total_tokens = total_prompt_tokens + total_completion_tokens
+            
+            # 设置usage信息到累积器
+            class UsageInfo:
+                def __init__(self, prompt, completion, total):
+                    self.prompt_tokens = prompt
+                    self.completion_tokens = completion
+                    self.total_tokens = total
+            
+            usage_info = UsageInfo(total_prompt_tokens, total_completion_tokens, total_tokens)
+            accumulator.set_usage(usage_info)
+            
             yield {
                 'type': 'usage',
                 'data': {
@@ -1073,6 +1275,13 @@ class RAGService:
                 f"Stream Chat API call completed: prompt_tokens={total_prompt_tokens}, "
                 f"completion_tokens={total_completion_tokens}, total_tokens={total_tokens}"
             )
+        
+        # 记录完整的流式API调用日志
+        accumulator.log_summary(
+            api_type="chat_stream",
+            model=CHAT_MODEL,
+            request_params=request_params
+        )
 
     def _apply_metadata_weighting(self, results: List, request: SearchRequest) -> List:
         """基于元数据对检索结果进行加权.
@@ -1298,6 +1507,10 @@ class RAGService:
                 continue
         
         merged_results = sorted(all_results_map.values(), key=lambda x: x.score, reverse=True)
+
+        logger.info(f"Found {len(merged_results)} results for query {request.query}")
+        for result in merged_results:
+            logger.info(f"{result}")
         
         if not merged_results:
             yield {

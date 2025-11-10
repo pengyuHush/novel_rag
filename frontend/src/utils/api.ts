@@ -270,7 +270,7 @@ export const searchAPI = {
         query: params.query,
         novelIds: params.novelIds || [],
         searchMode: params.searchMode || 'semantic',
-        topK: params.topK || 5,
+        topK: params.topK || 15,
         includeReferences: params.includeReferences !== false,
         saveHistory: params.saveHistory !== false,
       }),
@@ -339,7 +339,7 @@ export const searchAPI = {
           query: params.query,
           novelIds: params.novelIds || [],
           searchMode: params.searchMode || 'semantic',
-          topK: params.topK || 5,
+          topK: params.topK || 15,
           includeReferences: params.includeReferences !== false,
         }),
       });

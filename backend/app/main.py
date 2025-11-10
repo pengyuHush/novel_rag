@@ -5,9 +5,10 @@ from __future__ import annotations
 import signal
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import ORJSONResponse
+from fastapi.responses import ORJSONResponse, JSONResponse
 
 from app.api import api_router
 from app.core.config import settings
@@ -46,6 +47,34 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """处理请求验证错误，记录详细的错误信息以便排查问题"""
+    
+    # 记录详细的验证错误信息
+    logger.error(f"Validation error for {request.method} {request.url.path}")
+    logger.error(f"Request body: {await request.body()}")
+    logger.error(f"Validation errors: {exc.errors()}")
+    
+    # 构建友好的错误响应
+    errors = []
+    for error in exc.errors():
+        field = " -> ".join(str(loc) for loc in error['loc'])
+        errors.append({
+            "field": field,
+            "message": error['msg'],
+            "type": error['type']
+        })
+    
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "请求参数验证失败",
+            "errors": errors
+        }
+    )
 
 
 @app.get("/", tags=["system"], summary="Service root")

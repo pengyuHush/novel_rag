@@ -22,6 +22,9 @@ async def search_novels(
     service: RAGService = Depends(get_rag_service),
 ) -> SearchResponse:
     """Perform RAG-based semantic search on novel content."""
+    # 记录请求参数，便于排查问题
+    logger.info(f"Search request - Query: '{request.query}', TopK: {request.top_k}, "
+                f"NovelIds: {request.novel_ids}, IncludeReferences: {request.include_references}")
     try:
         return await service.search(request)
     except Exception as e:
@@ -38,6 +41,13 @@ async def search_novels_stream(
     service: RAGService = Depends(get_rag_service),
 ):
     """Perform RAG-based semantic search with streaming response."""
+    
+    # 记录请求参数，便于排查问题
+    logger.info(f"Stream search request - Query: '{request.query}', TopK: {request.top_k}, "
+                f"NovelIds: {request.novel_ids}, IncludeReferences: {request.include_references}")
+    if request.filter_characters or request.filter_scene_type or request.filter_emotional_tone:
+        logger.info(f"Stream search filters - Characters: {request.filter_characters}, "
+                    f"SceneType: {request.filter_scene_type}, EmotionalTone: {request.filter_emotional_tone}")
     
     async def event_generator():
         """Generate SSE events."""
