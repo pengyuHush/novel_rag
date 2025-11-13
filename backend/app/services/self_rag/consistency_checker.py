@@ -46,9 +46,9 @@ class ConsistencyChecker:
             if a.get('chapter_ref') is not None or a.get('type') == 'event'
         ]
         
-        # 按章节号排序
+        # 按章节号排序（处理None值）
         temporal_assertions.sort(
-            key=lambda x: x.get('chapter_ref', 999999)
+            key=lambda x: x.get('chapter_ref') if x.get('chapter_ref') is not None else 999999
         )
         
         # 检查时序逻辑
@@ -111,9 +111,9 @@ class ConsistencyChecker:
             if len(entity_asserts) < 2:
                 continue  # 至少需要2个断言才能检查一致性
             
-            # 按章节排序
+            # 按章节排序（处理None值）
             entity_asserts.sort(
-                key=lambda x: x.get('chapter_ref', 999999)
+                key=lambda x: x.get('chapter_ref') if x.get('chapter_ref') is not None else 999999
             )
             
             # 检查相邻断言的一致性

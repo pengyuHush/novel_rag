@@ -148,14 +148,31 @@ async def query_stream(websocket: WebSocket):
                 progress=0.3
             ).model_dump())
             
-            # 查询向量化
+            # Token统计初始化
+            from app.services.token_stats_service import get_token_stats_service
+            token_stats_service = get_token_stats_service()
+            
+            embedding_tokens = 0
+            prompt_tokens = 0
+            completion_tokens = 0
+            
+            # 查询向量化（统计Embedding tokens）
+            from app.utils.token_counter import get_token_counter
+            token_counter = get_token_counter()
+            embedding_tokens += token_counter.count_tokens(query)
+            
             query_embedding = rag_engine.query_embedding(query)
             
             # 语义检索
             vector_results = rag_engine.vector_search(novel_id, query_embedding)
             
-            # Rerank
-            reranked_chunks = rag_engine.rerank(query, vector_results)
+            # Rerank（带GraphRAG增强）
+            reranked_chunks = rag_engine.rerank(
+                query=query,
+                vector_results=vector_results,
+                novel_id=novel_id,
+                db=db
+            )
             
             if not reranked_chunks:
                 await websocket.send_json({
@@ -179,7 +196,21 @@ async def query_stream(websocket: WebSocket):
             
             # 流式生成答案
             full_answer = ""
-            for chunk in rag_engine.generate_answer(prompt, model, stream=True):
+            generation_usage = None
+            
+            for chunk_data in rag_engine.generate_answer_with_stats(prompt, model, stream=True):
+                # chunk_data可能包含content和usage
+                if isinstance(chunk_data, dict):
+                    chunk = chunk_data.get('content', '')
+                    usage = chunk_data.get('usage')
+                    
+                    if usage:
+                        # 保存最后的usage信息
+                        generation_usage = usage
+                else:
+                    # 向后兼容：纯文本chunk
+                    chunk = chunk_data if chunk_data else ''
+                
                 if chunk:
                     full_answer += chunk
                     await websocket.send_json({
@@ -189,19 +220,131 @@ async def query_stream(websocket: WebSocket):
                         'is_delta': True
                     })
             
-            # 阶段4: Self-RAG验证（TODO: 完整实现）
+            # 从generation_usage中提取Token统计
+            if generation_usage:
+                prompt_tokens = generation_usage.get('prompt_tokens', 0)
+                completion_tokens = generation_usage.get('completion_tokens', 0)
+            else:
+                # 如果没有从API获取到usage，使用估算
+                prompt_tokens = token_counter.count_tokens(prompt)
+                completion_tokens = token_counter.count_tokens(full_answer)
+            
+            # 阶段4: Self-RAG验证
             await websocket.send_json(StreamMessage(
                 stage=QueryStage.VALIDATING,
                 content="正在验证答案准确性...",
                 progress=0.8
             ).model_dump())
             
-            # TODO: 实现Self-RAG验证逻辑
-            # - 从答案中提取断言
-            # - 检索多源证据
-            # - 检测矛盾信息
-            # - 计算置信度
-            # 当前版本跳过此步骤，直接进入完成阶段
+            # Self-RAG验证流程
+            from app.services.self_rag import (
+                get_assertion_extractor,
+                get_evidence_collector,
+                get_evidence_scorer,
+                get_consistency_checker,
+                get_contradiction_detector,
+                get_answer_corrector
+            )
+            
+            contradictions_list = []
+            confidence_level = "high"
+            corrected_answer = full_answer
+            
+            try:
+                # 1. 提取断言
+                assertion_extractor = get_assertion_extractor()
+                assertions = assertion_extractor.extract_assertions(full_answer)
+                logger.info(f"✅ 提取断言: {len(assertions)} 个")
+                
+                if assertions:
+                    # 2. 收集证据
+                    evidence_collector = get_evidence_collector()
+                    evidence_map = {}
+                    
+                    for idx, assertion in enumerate(assertions):
+                        evidence_list = evidence_collector.collect_evidence_for_assertion(
+                            db, novel_id, assertion, top_k=3
+                        )
+                        evidence_map[idx] = evidence_list
+                    
+                    logger.info(f"✅ 收集证据完成")
+                    
+                    # 3. 评分证据
+                    evidence_scorer = get_evidence_scorer()
+                    for idx, assertion in enumerate(assertions):
+                        evidence_list = evidence_map.get(idx, [])
+                        # 对每条证据进行评分
+                        scored_evidence_list = []
+                        for evidence in evidence_list:
+                            scored = evidence_scorer.score_evidence(
+                                db=db,
+                                novel_id=novel_id,
+                                evidence=evidence,
+                                query_context={'assertion': assertion}
+                            )
+                            # 将评分信息添加到证据中
+                            evidence['score'] = scored
+                            scored_evidence_list.append(evidence)
+                        evidence_map[idx] = scored_evidence_list
+                    
+                    # 4. 一致性检查
+                    consistency_checker = get_consistency_checker()
+                    
+                    # 4.1 时序一致性检查
+                    temporal_issues = consistency_checker.check_temporal_consistency(
+                        assertions, evidence_map
+                    )
+                    
+                    # 4.2 角色一致性检查
+                    character_issues = consistency_checker.check_character_consistency(
+                        db, novel_id, assertions, evidence_map
+                    )
+                    
+                    # 合并一致性检查结果
+                    consistency_report = {
+                        'temporal_issues': temporal_issues,
+                        'character_issues': character_issues,
+                        'total_issues': len(temporal_issues) + len(character_issues)
+                    }
+                    
+                    logger.info(f"✅ 一致性检查完成: {consistency_report['total_issues']} 个问题")
+                    
+                    # 5. 检测矛盾
+                    contradiction_detector = get_contradiction_detector()
+                    contradictions = contradiction_detector.detect_contradictions(
+                        db, novel_id, assertions, evidence_map, consistency_report
+                    )
+                    
+                    # 转换为可序列化的字典列表
+                    contradictions_list = [
+                        {
+                            'type': c.type,
+                            'earlyDescription': c.early_description,
+                            'earlyChapter': c.early_chapter,
+                            'lateDescription': c.late_description,
+                            'lateChapter': c.late_chapter,
+                            'analysis': c.analysis,
+                            'confidence': c.confidence
+                        }
+                        for c in contradictions
+                    ]
+                    
+                    logger.info(f"✅ 检测到矛盾: {len(contradictions_list)} 个")
+                    
+                    # 6. 修正答案
+                    if contradictions:
+                        answer_corrector = get_answer_corrector()
+                        correction_result = answer_corrector.correct_answer(
+                            full_answer, contradictions, "high"
+                        )
+                        corrected_answer = correction_result.get('corrected_answer', full_answer)
+                        confidence_level = correction_result.get('final_confidence', 'high')
+                        
+                        logger.info(f"✅ 答案修正完成，置信度: {confidence_level}")
+                
+            except Exception as e:
+                logger.error(f"⚠️ Self-RAG验证失败: {e}")
+                # Self-RAG失败不影响主流程，继续返回原答案
             
             # 阶段5: 完成汇总
             await websocket.send_json(StreamMessage(
@@ -229,25 +372,78 @@ async def query_stream(websocket: WebSocket):
                     'score': chunk.get('score')
                 })
             
-            # 发送最终结果
+            # 计算总Token消耗
+            total_tokens = embedding_tokens + prompt_tokens + completion_tokens
+            
+            # 构建Token统计信息
+            token_stats = {
+                'totalTokens': total_tokens,
+                'byModel': {
+                    'embedding-3': {
+                        'inputTokens': embedding_tokens
+                    },
+                    model: {
+                        'promptTokens': prompt_tokens,
+                        'completionTokens': completion_tokens,
+                        'totalTokens': prompt_tokens + completion_tokens
+                    }
+                }
+            }
+            
+            logger.info(f"✅ Token统计: 总计 {total_tokens} tokens")
+            
+            # 发送最终结果（使用修正后的答案）
             await websocket.send_json({
                 'stage': 'finalizing',
-                'content': full_answer,
+                'content': corrected_answer,
                 'progress': 1.0,
                 'done': True,
-                'citations': citations
+                'citations': citations,
+                'contradictions': contradictions_list,  # 矛盾检测结果
+                'confidence': confidence_level,  # 置信度
+                'original_answer': full_answer if corrected_answer != full_answer else None,  # 如果有修正，提供原答案
+                'tokenStats': token_stats  # Token统计
             })
             
-            # 保存查询历史
+            # 保存查询历史（使用修正后的答案）
             query_record = Query(
                 novel_id=novel_id,
                 query_text=query,
-                answer_text=full_answer,
+                answer_text=corrected_answer,
                 model_used=model,
-                response_time=0.0  # WebSocket不统计总时间
+                response_time=0.0,  # WebSocket不统计总时间
+                confidence=confidence_level,  # 保存置信度
+                total_tokens=total_tokens  # 保存Token消耗
             )
             db.add(query_record)
             db.commit()
+            db.refresh(query_record)
+            
+            # 记录Token使用情况到统计表
+            try:
+                # Embedding-3使用记录
+                if embedding_tokens > 0:
+                    token_stats_service.record_token_usage(
+                        db=db,
+                        operation_type='query',
+                        operation_id=query_record.id,
+                        model_name='embedding-3',
+                        input_tokens=embedding_tokens,
+                        output_tokens=0
+                    )
+                
+                # GLM模型使用记录
+                if prompt_tokens > 0 or completion_tokens > 0:
+                    token_stats_service.record_token_usage(
+                        db=db,
+                        operation_type='query',
+                        operation_id=query_record.id,
+                        model_name=model,
+                        input_tokens=prompt_tokens,
+                        output_tokens=completion_tokens
+                    )
+            except Exception as e:
+                logger.warning(f"⚠️ Token统计记录失败（不影响主流程）: {e}")
             
             logger.info(f"✅ 流式查询完成")
             

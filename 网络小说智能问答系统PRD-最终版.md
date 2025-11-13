@@ -98,7 +98,7 @@
 - 用户拥有智谱AI开放平台账号和API Key
 
 **依赖**：
-- 开源库：LangChain、ChromaDB、HanLP、NetworkX、Plotly、Streamlit
+- 开源库：LangChain、ChromaDB、HanLP、NetworkX、Plotly、React、Next.js
 - **智谱AI服务**：
   - GLM-4系列模型（glm-4-plus / glm-4 / glm-4-flash）
   - Embedding-3向量模型
@@ -526,16 +526,24 @@ Edge: "角色A" -[盟友]-> "角色B"
 
 **支持模型列表（智谱AI系列）**：
 
-| 模型类型 | 模型名称 | 优势 | 适用场景 | 成本 |
-|---------|---------|------|----------|------|
-| **旗舰模型** | GLM-4.6 | 最新最强，128K上下文 | 超复杂推理、长文本分析 | 参考官网定价 |
-| **高级模型** | GLM-4.5 | 强推理能力 | 复杂诡计识别、深度分析 | 参考官网定价 |
-| **高端模型** | GLM-4-Plus | 高准确率，深度推理 | 演变分析、矛盾检测 | 参考官网定价 |
-| **标准模型** | GLM-4 | 均衡性能，性价比高 | 常规问答、关系查询 | 参考官网定价 |
-| **快速模型** | GLM-4-Flash | 超快响应，低成本 | 简单事实查询、开发测试 | 参考官网定价 |
-| **向量模型** | Embedding-3 | 1024维向量 | 文本向量化 | ¥1/百万tokens |
+| 模型类型 | 模型名称 | 特点 | 适用场景 | 价格（元/千tokens） |
+|---------|---------|------|----------|---------------------|
+| **免费模型** | GLM-4.5-Flash | 免费，日常查询 | 简单事实查询、开发测试 | 免费 |
+| **免费模型** | GLM-4-Flash | 免费，128K上下文 | 长文本查询 | 免费 |
+| **高性价比** | GLM-4.5-Air | 推荐，性价比最高 | 常规问答、关系查询 | 输入/输出: ¥0.001 |
+| **高性价比** | GLM-4.5-AirX | 增强版，高性价比 | 复杂查询、推理 | 输入/输出: ¥0.001 |
+| **极速模型** | GLM-4.5-X | 极速响应 | 需要快速响应的场景 | 输入/输出: ¥0.01 |
+| **高性能** | GLM-4.5 | 高性能 | 复杂诡计识别、深度分析 | 输入/输出: ¥0.05 |
+| **高性能** | GLM-4-Plus | 顶级性能，128K上下文 | 演变分析、矛盾检测 | 输入/输出: ¥0.05 |
+| **旗舰模型** | GLM-4.6 | 最新旗舰 | 超复杂推理、关键查询 | 输入/输出: ¥0.1 |
+| **超长上下文** | GLM-4-Long | 100万tokens上下文 | 极长文本分析 | 输入/输出: ¥0.001 |
+| **向量模型** | Embedding-3 | 1024维向量 | 文本向量化 | 输入: ¥0.001 |
 
-**说明**：GLM-4.6和GLM-4.5为智谱AI最新旗舰模型，具体价格请参考[智谱AI定价页面](https://open.bigmodel.cn/pricing)
+**说明**：
+- 系统支持9个智谱AI大语言模型，涵盖免费、高性价比、高性能等多个级别
+- 推荐日常使用**GLM-4.5-Air**（性价比最高）或免费模型**GLM-4.5-Flash**
+- GLM-4-Long支持百万tokens上下文，适合极长文本场景
+- 价格为2025年11月数据，最新价格请参考[智谱AI定价页面](https://open.bigmodel.cn/pricing)
 
 #### 2.5.2 手动切换机制
 
@@ -759,7 +767,7 @@ client = ZhipuAI(api_key="your_api_key_here")
 **平台支持**：
 - **操作系统**：Windows 10/11（主要）、Linux（次要）
 - **Python版本**：3.10+
-- **浏览器**：Chrome 90+、Edge 90+（Streamlit Web UI）
+- **浏览器**：Chrome 90+、Edge 90+（React + Next.js Web UI）
 
 **文件格式**：
 
@@ -1425,11 +1433,15 @@ Response: {
         value={selectedModel}
         onChange={setSelectedModel}
         options={[
-          { value: 'glm-4-6', label: 'GLM-4.6（旗舰）' },
-          { value: 'glm-4-5', label: 'GLM-4.5（高级）' },
-          { value: 'glm-4-plus', label: 'GLM-4-Plus（高端）' },
-          { value: 'glm-4', label: 'GLM-4（标准，推荐）' },
-          { value: 'glm-4-flash', label: 'GLM-4-Flash（快速）' }
+          { value: 'GLM-4.5-Flash', label: 'GLM-4.5-Flash（免费）' },
+          { value: 'GLM-4-Flash-250414', label: 'GLM-4-Flash（免费，128K）' },
+          { value: 'GLM-4.5-Air', label: 'GLM-4.5-Air（推荐）' },
+          { value: 'GLM-4.5-AirX', label: 'GLM-4.5-AirX（增强）' },
+          { value: 'GLM-4.5-X', label: 'GLM-4.5-X（极速）' },
+          { value: 'GLM-4.5', label: 'GLM-4.5（高性能）' },
+          { value: 'GLM-4-Plus', label: 'GLM-4-Plus（顶级）' },
+          { value: 'GLM-4.6', label: 'GLM-4.6（旗舰）' },
+          { value: 'GLM-4-Long', label: 'GLM-4-Long（百万上下文）' }
         ]}
       />
     </ConfigBar>
@@ -1836,9 +1848,9 @@ Response: {
       </FormItem>
       <FormItem label="默认模型">
         <Radio.Group value={defaultModel}>
-          <Radio value="glm-4-6">GLM-4.6（旗舰）</Radio>
-          <Radio value="glm-4">GLM-4（标准，推荐）</Radio>
-          <Radio value="glm-4-flash">GLM-4-Flash（快速）</Radio>
+          <Radio value="GLM-4.5-Air">GLM-4.5-Air（推荐）</Radio>
+          <Radio value="GLM-4.5-Flash">GLM-4.5-Flash（免费）</Radio>
+          <Radio value="GLM-4.6">GLM-4.6（旗舰）</Radio>
         </Radio.Group>
       </FormItem>
     </Section>
@@ -1989,7 +2001,7 @@ WS /api/query/stream
 {
   "novelId": int,
   "query": str,
-  "model": str  // "glm-4-6" | "glm-4-5" | "glm-4-plus" | "glm-4" | "glm-4-flash"
+  "model": str  // "GLM-4.5-Flash" | "GLM-4-Flash-250414" | "GLM-4.5-Air" | "GLM-4.5-AirX" | "GLM-4.5-X" | "GLM-4.5" | "GLM-4-Plus" | "GLM-4.6" | "GLM-4-Long"
 }
 
 # 服务端发送（多个消息，按顺序）
@@ -2157,7 +2169,7 @@ Response: {
 **WebSocket消息时序示例**：
 
 ```
-客户端 → 服务端: {"novelId": 1, "query": "萧炎和药老是什么时候相遇的？", "model": "glm-4"}
+客户端 → 服务端: {"novelId": 1, "query": "萧炎和药老是什么时候相遇的？", "model": "GLM-4.5-Air"}
 
 服务端 → 客户端: {"type": "stage_start", "stage": "understand"}
 [1-2秒后]

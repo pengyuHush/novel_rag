@@ -14,6 +14,7 @@ import {
   PartitionOutlined,
   SettingOutlined,
   BarChartOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import { useRouter, usePathname } from 'next/navigation';
 import type { MenuProps } from 'antd';
@@ -34,6 +35,11 @@ const Navigation: React.FC = () => {
       key: '/query',
       icon: <QuestionCircleOutlined />,
       label: '智能问答',
+    },
+    {
+      key: '/history',
+      icon: <HistoryOutlined />,
+      label: '查询历史',
     },
     {
       key: '/reader',

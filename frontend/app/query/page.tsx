@@ -37,6 +37,7 @@ export default function QueryPage() {
     progress,
     citations,
     contradictions,
+    queryId,
     isLoading,
     error,
     sendQuery,
@@ -69,6 +70,14 @@ export default function QueryPage() {
   const handleQuery = (query: string, model: ModelType) => {
     if (selectedNovelId) {
       sendQuery(selectedNovelId, query, model);
+    }
+  };
+
+  const handleFeedback = async (queryId: number, isPositive: boolean) => {
+    try {
+      await apiClient.submitFeedback(queryId, isPositive);
+    } catch (error) {
+      console.error('提交反馈失败:', error);
     }
   };
 
@@ -174,6 +183,8 @@ export default function QueryPage() {
                 content={answer}
                 loading={isLoading}
                 title="💡 AI 回答"
+                queryId={queryId || undefined}
+                onFeedback={handleFeedback}
               />
               
               {/* Self-RAG矛盾检测结果 */}

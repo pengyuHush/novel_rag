@@ -27,7 +27,16 @@ class RAGEngine:
         self.top_k_retrieval = 30  # 检索Top-30
         self.top_k_rerank = 10     # Rerank后Top-10
         
-        logger.info("✅ RAG引擎初始化完成")
+        # GraphRAG组件
+        from app.services.graph.graph_query import GraphQuery
+        from app.services.graph.graph_analyzer import GraphAnalyzer
+        from app.services.graph.graph_builder import GraphBuilder
+        
+        self.graph_query = GraphQuery()
+        self.graph_analyzer = GraphAnalyzer()
+        self.graph_builder = GraphBuilder()
+        
+        logger.info("✅ RAG引擎初始化完成（含GraphRAG支持）")
     
     def query_embedding(self, query: str) -> List[float]:
         """
@@ -112,10 +121,12 @@ class RAGEngine:
         vector_results: Dict,
         keyword_results: List[Dict] = None,
         top_k: int = None,
-        query_type: QueryType = None
+        query_type: QueryType = None,
+        novel_id: int = None,
+        db: Session = None
     ) -> List[Dict]:
         """
-        混合Rerank，支持查询类型特定策略
+        混合Rerank，支持查询类型特定策略 + GraphRAG增强
         
         Args:
             query: 查询文本
@@ -123,6 +134,8 @@ class RAGEngine:
             keyword_results: 关键词检索结果
             top_k: 返回Top-K结果
             query_type: 查询类型（自动检测或手动指定）
+            novel_id: 小说ID（用于GraphRAG）
+            db: 数据库会话（用于GraphRAG）
         
         Returns:
             List[Dict]: Rerank后的结果
@@ -135,6 +148,32 @@ class RAGEngine:
         
         logger.info(f"🔍 查询类型: {query_type.value}")
         
+        # GraphRAG: 加载知识图谱（如果提供了novel_id）
+        graph = None
+        chapter_importance_map = {}
+        
+        if novel_id is not None:
+            try:
+                graph = self.graph_builder.load_graph(novel_id)
+                
+                # 计算所有章节的重要性评分（缓存）
+                if graph:
+                    # 获取所有章节号
+                    chapters = set()
+                    for node in graph.nodes():
+                        first_chapter = graph.nodes[node].get('first_chapter')
+                        if first_chapter:
+                            chapters.add(first_chapter)
+                    
+                    # 计算每个章节的重要性
+                    for chapter in chapters:
+                        importance = self.graph_analyzer.compute_chapter_importance(graph, chapter)
+                        chapter_importance_map[chapter] = importance
+                    
+                    logger.info(f"✅ GraphRAG: 加载图谱成功，计算了{len(chapter_importance_map)}个章节的重要性")
+            except Exception as e:
+                logger.warning(f"⚠️ GraphRAG加载失败（继续使用纯向量检索）: {e}")
+        
         # 提取向量检索结果
         documents = vector_results.get('documents', [[]])[0]
         metadatas = vector_results.get('metadatas', [[]])[0]
@@ -145,18 +184,30 @@ class RAGEngine:
         for i, (doc, metadata, distance) in enumerate(zip(documents, metadatas, distances)):
             base_score = 1 - distance  # 转换为相似度分数
             
+            # GraphRAG: 获取章节重要性（时序权重）
+            chapter_num = metadata.get('chapter_num')
+            chapter_importance = 0.5  # 默认中等重要性
+            
+            if chapter_num and chapter_num in chapter_importance_map:
+                chapter_importance = chapter_importance_map[chapter_num]
+            
             # 应用查询类型特定的权重
             if query_type == QueryType.DIALOGUE:
                 # 对话类查询：提升包含引号的内容权重
                 quote_boost = self._calculate_quote_boost(doc)
                 final_score = base_score * quote_boost
             elif query_type == QueryType.ANALYSIS:
-                # 分析类查询：提升重要章节权重
-                importance_boost = metadata.get('importance', 0.5) + 0.5
+                # 分析类查询：提升重要章节权重（使用图谱章节重要性）
+                importance_boost = chapter_importance + 0.5
                 final_score = base_score * importance_boost
             else:
-                # 事实类查询：标准分数
-                final_score = base_score
+                # 事实类查询：混合权重
+                # 语义相似度60% + 章节重要性15% (GraphRAG增强) + 实体匹配25%
+                semantic_weight = base_score * 0.60
+                temporal_weight = chapter_importance * 0.15
+                entity_weight = 0.25 if metadata.get('entities') else 0.0
+                
+                final_score = semantic_weight + temporal_weight + entity_weight
             
             candidates.append({
                 'content': doc,
@@ -352,6 +403,45 @@ class RAGEngine:
                 ):
                     if chunk.get("content"):
                         yield chunk["content"]
+            else:
+                # 非流式生成
+                response = self.zhipu_client.chat_completion(
+                    messages=messages,
+                    model=model
+                )
+                return response
+        except Exception as e:
+            logger.error(f"❌ 生成答案失败: {e}")
+            raise
+    
+    def generate_answer_with_stats(
+        self,
+        prompt: str,
+        model: str = "glm-4",
+        stream: bool = False
+    ):
+        """
+        生成答案（带Token统计）
+        
+        Args:
+            prompt: 完整的Prompt
+            model: 使用的模型
+            stream: 是否流式输出
+        
+        Returns:
+            Dict | Generator[Dict]: 包含content和usage的字典或生成器
+        """
+        try:
+            messages = [{"role": "user", "content": prompt}]
+            
+            if stream:
+                # 流式生成（返回完整的chunk数据，包含usage）
+                for chunk_data in self.zhipu_client.chat_completion_stream(
+                    messages=messages,
+                    model=model
+                ):
+                    # 返回完整的chunk_data，包含content和usage
+                    yield chunk_data
             else:
                 # 非流式生成
                 response = self.zhipu_client.chat_completion(

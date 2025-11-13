@@ -12,6 +12,7 @@ interface UseQueryStreamResult {
   progress: number;
   citations: Citation[];
   contradictions: Contradiction[];
+  queryId: number | null;
   isConnected: boolean;
   isLoading: boolean;
   error: string | null;
@@ -25,6 +26,7 @@ export const useQueryStream = (): UseQueryStreamResult => {
   const [progress, setProgress] = useState(0);
   const [citations, setCitations] = useState<Citation[]>([]);
   const [contradictions, setContradictions] = useState<Contradiction[]>([]);
+  const [queryId, setQueryId] = useState<number | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +50,7 @@ export const useQueryStream = (): UseQueryStreamResult => {
       setProgress(0);
       setCitations([]);
       setContradictions([]);
+      setQueryId(null);
       setError(null);
       setIsLoading(true);
 
@@ -88,6 +91,11 @@ export const useQueryStream = (): UseQueryStreamResult => {
               setContradictions(message.contradictions);
             }
 
+            // 提取查询ID（用于反馈）
+            if (message.query_id) {
+              setQueryId(message.query_id);
+            }
+
             // 完成
             if (message.done) {
               setIsLoading(false);
@@ -122,6 +130,7 @@ export const useQueryStream = (): UseQueryStreamResult => {
     progress,
     citations,
     contradictions,
+    queryId,
     isConnected,
     isLoading,
     error,

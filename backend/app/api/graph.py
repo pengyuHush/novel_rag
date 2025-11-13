@@ -31,6 +31,18 @@ class TimelineResponse(BaseModel):
     metadata: dict
 
 
+class StatisticsResponse(BaseModel):
+    """统计数据响应"""
+    total_chapters: int
+    total_characters: int
+    total_chars: int
+    character_count: int
+    relation_count: int
+    average_chapter_length: float
+    top_characters: list
+    chapter_density: list
+
+
 @router.get("/relations/{novel_id}", response_model=RelationGraphResponse)
 async def get_relation_graph(
     novel_id: int,
@@ -258,5 +270,130 @@ async def get_timeline(
         raise HTTPException(
             status_code=500,
             detail=f"获取时间线失败: {str(e)}"
+        )
+
+
+@router.get("/statistics/{novel_id}", response_model=StatisticsResponse)
+async def get_statistics(novel_id: int):
+    """
+    获取小说统计数据
+    
+    Args:
+        novel_id: 小说ID
+    
+    Returns:
+        StatisticsResponse: 统计数据
+    """
+    try:
+        from sqlalchemy.orm import Session
+        from app.db.init_db import get_db_session, get_database_url
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from app.models.database import Novel, Chapter
+        
+        # 创建数据库会话
+        engine = create_engine(get_database_url())
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        
+        try:
+            # 获取小说基本信息
+            novel = db.query(Novel).filter(Novel.id == novel_id).first()
+            if not novel:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"小说 {novel_id} 不存在"
+                )
+            
+            # 获取章节信息
+            chapters = db.query(Chapter).filter(Chapter.novel_id == novel_id).all()
+            
+            # 加载知识图谱
+            graph_path = Path(f"./backend/data/graphs/novel_{novel_id}_graph.pkl")
+            graph = None
+            if graph_path.exists():
+                with open(graph_path, 'rb') as f:
+                    graph = pickle.load(f)
+            
+            # 计算统计数据
+            total_chapters = novel.total_chapters or len(chapters)
+            total_chars = novel.total_chars or 0
+            
+            # 从图谱统计角色和关系
+            character_count = 0
+            relation_count = 0
+            character_importance = {}
+            
+            if graph:
+                # 统计角色（类型为character的节点）
+                for node_id, data in graph.nodes(data=True):
+                    if data.get('type') == 'character':
+                        character_count += 1
+                        character_importance[node_id] = data.get('importance', 0.5)
+                
+                # 统计关系
+                relation_count = graph.number_of_edges()
+            
+            # 平均章节长度
+            average_chapter_length = total_chars / total_chapters if total_chapters > 0 else 0
+            
+            # Top角色（按重要性排序）
+            top_characters = []
+            if character_importance:
+                sorted_characters = sorted(
+                    character_importance.items(),
+                    key=lambda x: x[1],
+                    reverse=True
+                )[:10]
+                
+                for name, importance in sorted_characters:
+                    top_characters.append({
+                        'name': name,
+                        'importance': importance
+                    })
+            
+            # 章节密度（实体出现密度）
+            chapter_density = []
+            if graph and chapters:
+                for chapter in chapters[:50]:  # 限制前50章
+                    # 统计该章节的实体数量
+                    entity_count = 0
+                    for node_id, data in graph.nodes(data=True):
+                        first_chapter = data.get('first_chapter', 0)
+                        last_chapter = data.get('last_chapter')
+                        
+                        if first_chapter <= chapter.chapter_num:
+                            if last_chapter is None or chapter.chapter_num <= last_chapter:
+                                entity_count += 1
+                    
+                    chapter_density.append({
+                        'chapter': chapter.chapter_num,
+                        'entity_count': entity_count,
+                        'char_count': chapter.char_count or 0
+                    })
+            
+            logger.info(f"✅ 成功获取小说 {novel_id} 的统计数据")
+            
+            return StatisticsResponse(
+                total_chapters=total_chapters,
+                total_characters=character_count,
+                total_chars=total_chars,
+                character_count=character_count,
+                relation_count=relation_count,
+                average_chapter_length=average_chapter_length,
+                top_characters=top_characters,
+                chapter_density=chapter_density
+            )
+            
+        finally:
+            db.close()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ 获取统计数据失败: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"获取统计数据失败: {str(e)}"
         )
 

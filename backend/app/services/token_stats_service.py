@@ -50,15 +50,20 @@ class TokenStatsService:
         total_tokens = input_tokens + output_tokens
         cost = self.token_counter.calculate_cost(input_tokens, output_tokens, model_name)
         
+        # 根据模型类型确定字段映射
+        # embedding模型：input_tokens
+        # LLM模型：prompt_tokens（输入）+ completion_tokens（输出）
+        is_embedding_model = 'embedding' in model_name.lower()
+        
         token_stat = TokenStat(
             operation_type=operation_type,
             operation_id=operation_id,
             model_name=model_name,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
+            input_tokens=input_tokens if is_embedding_model else None,
+            prompt_tokens=input_tokens if not is_embedding_model else None,
+            completion_tokens=output_tokens if not is_embedding_model else None,
             total_tokens=total_tokens,
-            cost=cost,
-            timestamp=datetime.now()
+            estimated_cost=cost
         )
         
         db.add(token_stat)

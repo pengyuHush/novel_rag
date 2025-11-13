@@ -6,22 +6,27 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Card, Button, Space, Tooltip, message } from 'antd';
-import { CopyOutlined, CheckOutlined, DownOutlined, UpOutlined } from '@ant-design/icons';
+import { CopyOutlined, CheckOutlined, DownOutlined, UpOutlined, LikeOutlined, DislikeOutlined, LikeFilled, DislikeFilled } from '@ant-design/icons';
 
 interface StreamingTextBoxProps {
   content: string;
   loading?: boolean;
   title?: string;
+  queryId?: number;  // 查询ID，用于提交反馈
+  onFeedback?: (queryId: number, isPositive: boolean) => void;  // 反馈回调
 }
 
 const StreamingTextBox: React.FC<StreamingTextBoxProps> = ({
   content,
   loading,
   title = '回答',
+  queryId,
+  onFeedback,
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
+  const [feedback, setFeedback] = useState<'positive' | 'negative' | null>(null);
 
   useEffect(() => {
     if (autoScroll && contentRef.current) {
@@ -55,12 +60,53 @@ const StreamingTextBox: React.FC<StreamingTextBoxProps> = ({
     }
   };
 
+  const handleFeedback = (isPositive: boolean) => {
+    if (!queryId || !onFeedback) return;
+    
+    const newFeedback = isPositive ? 'positive' : 'negative';
+    
+    // 如果点击相同的反馈，则取消
+    if (feedback === newFeedback) {
+      setFeedback(null);
+      message.info('已取消反馈');
+      return;
+    }
+    
+    setFeedback(newFeedback);
+    onFeedback(queryId, isPositive);
+    message.success(isPositive ? '感谢您的肯定 👍' : '感谢您的反馈 👎');
+  };
+
   return (
     <Card
       title={title}
       className="streaming-text-box"
       extra={
         <Space>
+          {/* 反馈按钮 */}
+          {queryId && !loading && content && (
+            <>
+              <Tooltip title="好评">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={feedback === 'positive' ? <LikeFilled /> : <LikeOutlined />}
+                  onClick={() => handleFeedback(true)}
+                  style={{ color: feedback === 'positive' ? '#52c41a' : undefined }}
+                />
+              </Tooltip>
+              <Tooltip title="差评">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={feedback === 'negative' ? <DislikeFilled /> : <DislikeOutlined />}
+                  onClick={() => handleFeedback(false)}
+                  style={{ color: feedback === 'negative' ? '#ff4d4f' : undefined }}
+                />
+              </Tooltip>
+            </>
+          )}
+          
           <Tooltip title={autoScroll ? '自动滚动已开启' : '自动滚动已关闭'}>
             <Button
               type="text"
