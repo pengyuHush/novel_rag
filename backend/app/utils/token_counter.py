@@ -95,17 +95,35 @@ class TokenCounter:
         Returns:
             float: 估算成本（元）
         """
-        # 智谱AI定价（2024年）
+        # 智谱AI定价（元/百万Token）- 基于官方文档
+        # 参考: https://open.bigmodel.cn/pricing
         pricing = {
-            "glm-4-flash": {"input": 0.1, "output": 0.1},
-            "glm-4": {"input": 5.0, "output": 5.0},
-            "glm-4-plus": {"input": 50.0, "output": 50.0},
-            "glm-4-5": {"input": 10.0, "output": 10.0},
-            "glm-4-6": {"input": 15.0, "output": 15.0},
-            "embedding-3": {"input": 0.5, "output": 0}
+            # 免费模型
+            "GLM-4.5-Flash": {"input": 0.0, "output": 0.0},
+            "GLM-4-Flash-250414": {"input": 0.0, "output": 0.0},
+            # 高性价比模型
+            "GLM-4.5-Air": {"input": 1.0, "output": 1.0},
+            "GLM-4.5-AirX": {"input": 1.0, "output": 1.0},
+            "GLM-4-Air-250414": {"input": 1.0, "output": 1.0},
+            # 极速模型
+            "GLM-4.5-X": {"input": 5.0, "output": 5.0},
+            "GLM-4-AirX": {"input": 1.0, "output": 1.0},
+            "GLM-4-FlashX-250414": {"input": 0.1, "output": 0.1},
+            # 高性能模型
+            "GLM-4.5": {"input": 5.0, "output": 5.0},
+            "GLM-4-Plus": {"input": 50.0, "output": 50.0},
+            "GLM-4.6": {"input": 10.0, "output": 10.0},
+            # 超长上下文
+            "GLM-4-Long": {"input": 100.0, "output": 100.0},
+            # 视觉模型
+            "GLM-4.5V": {"input": 10.0, "output": 10.0},
+            "GLM-4V": {"input": 10.0, "output": 10.0},
+            # 向量模型
+            "Embedding-3": {"input": 0.5, "output": 0.0},
         }
         
-        model_pricing = pricing.get(model, pricing["glm-4"])
+        # 获取模型定价，默认使用GLM-4.5-Air
+        model_pricing = pricing.get(model, pricing.get("GLM-4.5-Air", {"input": 1.0, "output": 1.0}))
         
         input_cost = (prompt_tokens / 1_000_000) * model_pricing["input"]
         output_cost = (completion_tokens / 1_000_000) * model_pricing["output"]

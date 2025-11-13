@@ -159,6 +159,14 @@ register_exception_handlers(app)
 # 注册路由
 app.include_router(health.router)
 
+# 导入并注册novels路由
+from app.api import novels
+app.include_router(novels.router)
+
+# 导入并注册query路由
+from app.api import query
+app.include_router(query.router)
+
 # 根端点
 @app.get("/", tags=["基本信息"])
 async def root():

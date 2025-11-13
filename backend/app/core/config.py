@@ -11,17 +11,29 @@ from pathlib import Path
 class Settings(BaseSettings):
     """应用配置"""
     
-    # 智谱AI配置
+    # 智谱AI配置 - 基于官方文档 https://docs.bigmodel.cn/cn/guide/start/model-overview
     zhipu_api_key: str = Field(..., env="ZHIPU_API_KEY")
-    zhipu_default_model: str = Field(default="glm-4", env="ZHIPU_DEFAULT_MODEL")
+    zhipu_default_model: str = Field(default="GLM-4.5-Air", env="ZHIPU_DEFAULT_MODEL")
     
-    # 支持的智谱AI模型列表
+    # 支持的智谱AI模型列表（按官方文档分类）
     supported_models: List[str] = [
-        "glm-4-flash",
-        "glm-4",
-        "glm-4-plus",
-        "glm-4-5",
-        "glm-4-6"
+        # 免费模型
+        "GLM-4.5-Flash",
+        "GLM-4-Flash-250414",
+        # 高性价比
+        "GLM-4.5-Air",
+        "GLM-4.5-AirX",
+        "GLM-4-Air-250414",
+        # 极速模型
+        "GLM-4.5-X",
+        "GLM-4-AirX",
+        "GLM-4-FlashX-250414",
+        # 高性能模型
+        "GLM-4.5",
+        "GLM-4-Plus",
+        "GLM-4.6",
+        # 超长上下文
+        "GLM-4-Long",
     ]
     
     # 应用配置
@@ -52,7 +64,9 @@ class Settings(BaseSettings):
     
     # CORS配置
     allowed_origins: List[str] = Field(
-        default=["http://localhost:3000", "http://127.0.0.1:3000"],
+        default=["http://localhost:3000", "http://127.0.0.1:3000",
+                 "http://localhost:3001", "http://127.0.0.1:3001"
+                 ],
         env="ALLOWED_ORIGINS"
     )
     

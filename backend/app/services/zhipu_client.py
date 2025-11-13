@@ -252,52 +252,112 @@ class ZhipuAIClient:
         Returns:
             Dict: 模型信息
         """
-        # 智谱AI模型信息（2024年数据）
+        # 智谱AI模型信息 - 基于官方文档
+        # 参考: https://docs.bigmodel.cn/cn/guide/start/model-overview
         model_info = {
-            "glm-4-flash": {
+            # 免费模型
+            "GLM-4.5-Flash": {
+                "name": "GLM-4.5-Flash",
+                "description": "免费模型 - 最新基座模型的普惠版本",
+                "max_tokens": 128000,
+                "max_output": 96000,
+                "price_per_million_tokens": {"input": 0.0, "output": 0.0}
+            },
+            "GLM-4-Flash-250414": {
                 "name": "GLM-4-Flash",
-                "description": "最快速、最经济的模型",
+                "description": "免费模型 - 超长上下文处理能力、多语言支持",
                 "max_tokens": 128000,
-                "price_per_million_tokens": {
-                    "input": 0.1,
-                    "output": 0.1
-                }
+                "max_output": 16000,
+                "price_per_million_tokens": {"input": 0.0, "output": 0.0}
             },
-            "glm-4": {
-                "name": "GLM-4",
-                "description": "平衡性能和成本",
+            # 高性价比模型
+            "GLM-4.5-Air": {
+                "name": "GLM-4.5-Air",
+                "description": "高性价比 - 在推理、编码和智能体任务上表现强劲",
                 "max_tokens": 128000,
-                "price_per_million_tokens": {
-                    "input": 5.0,
-                    "output": 5.0
-                }
+                "max_output": 96000,
+                "price_per_million_tokens": {"input": 1.0, "output": 1.0}
             },
-            "glm-4-plus": {
-                "name": "GLM-4-Plus",
-                "description": "最强推理能力",
+            "GLM-4.5-AirX": {
+                "name": "GLM-4.5-AirX",
+                "description": "高性价比-极速版 - 推理速度快，且价格适中",
                 "max_tokens": 128000,
-                "price_per_million_tokens": {
-                    "input": 50.0,
-                    "output": 50.0
-                }
+                "max_output": 96000,
+                "price_per_million_tokens": {"input": 1.0, "output": 1.0}
             },
-            "glm-4-5": {
+            "GLM-4-Air-250414": {
+                "name": "GLM-4-Air",
+                "description": "高性价比 - 快速执行复杂任务、擅长工具调用",
+                "max_tokens": 128000,
+                "max_output": 16000,
+                "price_per_million_tokens": {"input": 1.0, "output": 1.0}
+            },
+            # 极速模型
+            "GLM-4.5-X": {
+                "name": "GLM-4.5-X",
+                "description": "超强性能-极速版 - 推理速度更快",
+                "max_tokens": 128000,
+                "max_output": 96000,
+                "price_per_million_tokens": {"input": 5.0, "output": 5.0}
+            },
+            "GLM-4-AirX": {
+                "name": "GLM-4-AirX",
+                "description": "极速推理 - 超快的推理速度",
+                "max_tokens": 8000,
+                "max_output": 4000,
+                "price_per_million_tokens": {"input": 1.0, "output": 1.0}
+            },
+            "GLM-4-FlashX-250414": {
+                "name": "GLM-4-FlashX",
+                "description": "高速低价 - Flash增强版本、超快推理速度",
+                "max_tokens": 128000,
+                "max_output": 16000,
+                "price_per_million_tokens": {"input": 0.1, "output": 0.1}
+            },
+            # 高性能模型
+            "GLM-4.5": {
                 "name": "GLM-4.5",
-                "description": "增强版本",
+                "description": "超强性能 - 强大的推理能力、代码生成能力",
                 "max_tokens": 128000,
-                "price_per_million_tokens": {
-                    "input": 10.0,
-                    "output": 10.0
-                }
+                "max_output": 96000,
+                "price_per_million_tokens": {"input": 5.0, "output": 5.0}
             },
-            "glm-4-6": {
-                "name": "GLM-4.6",
-                "description": "最新版本",
+            "GLM-4-Plus": {
+                "name": "GLM-4-Plus",
+                "description": "性能优秀 - 语言理解、逻辑推理、指令遵循效果领先",
                 "max_tokens": 128000,
-                "price_per_million_tokens": {
-                    "input": 15.0,
-                    "output": 15.0
-                }
+                "max_output": 4000,
+                "price_per_million_tokens": {"input": 50.0, "output": 50.0}
+            },
+            "GLM-4.6": {
+                "name": "GLM-4.6",
+                "description": "高智能旗舰 - 智谱最强性能、高级编码能力",
+                "max_tokens": 200000,
+                "max_output": 128000,
+                "price_per_million_tokens": {"input": 10.0, "output": 10.0}
+            },
+            # 超长上下文
+            "GLM-4-Long": {
+                "name": "GLM-4-Long",
+                "description": "超长输入 - 支持高达1M的上下文长度",
+                "max_tokens": 1000000,
+                "max_output": 4000,
+                "price_per_million_tokens": {"input": 100.0, "output": 100.0}
+            },
+            # 视觉模型
+            "GLM-4.5V": {
+                "name": "GLM-4.5V",
+                "description": "旗舰视觉推理模型 - 视频、图片、图表解析",
+                "max_tokens": 128000,
+                "max_output": 96000,
+                "price_per_million_tokens": {"input": 10.0, "output": 10.0}
+            },
+            "GLM-4V": {
+                "name": "GLM-4V",
+                "description": "视觉理解模型 - 图文混合理解",
+                "max_tokens": 128000,
+                "max_output": 4000,
+                "price_per_million_tokens": {"input": 10.0, "output": 10.0}
             },
             "embedding-3": {
                 "name": "Embedding-3",

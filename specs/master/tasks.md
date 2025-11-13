@@ -146,19 +146,19 @@
 
 ### 文件上传与解析
 
-- [ ] T033 [US1] 实现文件上传API (backend/app/api/novels.py: POST /novels/upload)
-- [ ] T034 [US1] 实现TXT文件解析 (backend/app/services/parser/txt_parser.py)
-- [ ] T035 [US1] 实现EPUB文件解析 (backend/app/services/parser/epub_parser.py)
-- [ ] T036 [US1] 实现编码检测 (backend/app/utils/encoding_detector.py: 使用chardet)
-- [ ] T037 [US1] 实现章节识别算法 (backend/app/services/parser/chapter_detector.py: 正则匹配)
+- [X] T033 [US1] 实现文件上传API (backend/app/api/novels.py: POST /novels/upload)
+- [X] T034 [US1] 实现TXT文件解析 (backend/app/services/parser/txt_parser.py)
+- [X] T035 [US1] 实现EPUB文件解析 (backend/app/services/parser/epub_parser.py)
+- [X] T036 [US1] 实现编码检测 (backend/app/utils/encoding_detector.py: 使用chardet)
+- [X] T037 [US1] 实现章节识别算法 (backend/app/services/parser/chapter_detector.py: 正则匹配)
 
 ### 文本分块与向量化
 
-- [ ] T038 [US1] 配置RecursiveCharacterTextSplitter (backend/app/services/text_splitter.py: chunk_size=550, overlap=125)
-- [ ] T039 [US1] 实现中文分块优化 (backend/app/services/text_splitter.py: 中文分隔符优先级)
-- [ ] T040 [US1] 实现批量向量化 (backend/app/services/embedding_service.py: 调用智谱Embedding-3)
-- [ ] T041 [US1] 实现向量存储到ChromaDB (backend/app/services/embedding_service.py: 保存向量和元数据)
-- [ ] T042 [US1] 实现断点续传机制 (backend/app/services/indexing_service.py: 进度保存和恢复)
+- [X] T038 [US1] 配置RecursiveCharacterTextSplitter (backend/app/services/text_splitter.py: chunk_size=550, overlap=125)
+- [X] T039 [US1] 实现中文分块优化 (backend/app/services/text_splitter.py: 中文分隔符优先级)
+- [X] T040 [US1] 实现批量向量化 (backend/app/services/embedding_service.py: 调用智谱Embedding-3)
+- [X] T041 [US1] 实现向量存储到ChromaDB (backend/app/services/embedding_service.py: 保存向量和元数据)
+- [X] T042 [US1] 实现断点续传机制 (backend/app/services/indexing_service.py: 进度保存和恢复)
 
 ### 索引进度追踪
 
@@ -169,47 +169,47 @@
 
 ### 小说管理UI
 
-- [ ] T047 [P] [US1] 创建小说列表页面 (frontend/src/app/novels/page.tsx)
-- [ ] T048 [P] [US1] 创建小说卡片组件 (frontend/src/components/NovelCard.tsx)
-- [ ] T049 [P] [US1] 创建上传Modal组件 (frontend/src/components/UploadModal.tsx)
-- [ ] T050 [US1] 实现文件拖拽上传 (frontend/src/components/UploadModal.tsx: Dragger组件)
-- [ ] T051 [US1] 实现上传进度展示 (frontend/src/components/UploadModal.tsx: Steps组件)
+- [X] T047 [P] [US1] 创建小说列表页面 (frontend/src/app/novels/page.tsx)
+- [X] T048 [P] [US1] 创建小说卡片组件 (frontend/src/components/NovelCard.tsx)
+- [X] T049 [P] [US1] 创建上传Modal组件 (frontend/src/components/UploadModal.tsx)
+- [X] T050 [US1] 实现文件拖拽上传 (frontend/src/components/UploadModal.tsx: Dragger组件)
+- [X] T051 [US1] 实现上传进度展示 (frontend/src/components/UploadModal.tsx: Steps组件)
 
 ### 小说管理API
 
-- [ ] T052 [P] [US1] 实现获取小说列表API (backend/app/api/novels.py: GET /novels)
-- [ ] T053 [P] [US1] 实现获取小说详情API (backend/app/api/novels.py: GET /novels/{id})
-- [ ] T054 [P] [US1] 实现删除小说API (backend/app/api/novels.py: DELETE /novels/{id})
-- [ ] T055 [US1] 实现获取索引进度API (backend/app/api/novels.py: GET /novels/{id}/progress)
+- [X] T052 [P] [US1] 实现获取小说列表API (backend/app/api/novels.py: GET /novels)
+- [X] T053 [P] [US1] 实现获取小说详情API (backend/app/api/novels.py: GET /novels/{id})
+- [X] T054 [P] [US1] 实现删除小说API (backend/app/api/novels.py: DELETE /novels/{id})
+- [X] T055 [US1] 实现获取索引进度API (backend/app/api/novels.py: GET /novels/{id}/progress)
 
 ### 基础RAG引擎
 
-- [ ] T056 [US1] 实现查询向量化 (backend/app/services/rag_engine.py: query_embedding方法)
-- [ ] T057 [US1] 实现语义检索 (backend/app/services/rag_engine.py: vector_search方法, Top-30)
-- [ ] T058 [US1] 实现关键词检索 (backend/app/services/rag_engine.py: keyword_search方法)
-- [ ] T059 [US1] 实现混合Rerank (backend/app/services/rag_engine.py: rerank方法, Top-10)
-- [ ] T060 [US1] 构建RAG Prompt (backend/app/services/rag_engine.py: build_prompt方法)
-- [ ] T061 [US1] 实现答案生成 (backend/app/services/rag_engine.py: generate_answer方法)
+- [X] T056 [US1] 实现查询向量化 (backend/app/services/rag_engine.py: query_embedding方法)
+- [X] T057 [US1] 实现语义检索 (backend/app/services/rag_engine.py: vector_search方法, Top-30)
+- [X] T058 [US1] 实现关键词检索 (backend/app/services/rag_engine.py: keyword_search方法)
+- [X] T059 [US1] 实现混合Rerank (backend/app/services/rag_engine.py: rerank方法, Top-10)
+- [X] T060 [US1] 构建RAG Prompt (backend/app/services/rag_engine.py: build_prompt方法)
+- [X] T061 [US1] 实现答案生成 (backend/app/services/rag_engine.py: generate_answer方法)
 
 ### 智能问答API
 
-- [ ] T062 [US1] 实现流式查询WebSocket (backend/app/api/query.py: WS /api/query/stream)
-- [ ] T063 [US1] 实现查询理解阶段 (backend/app/services/query_processor.py: understand_query方法)
-- [ ] T064 [US1] 实现检索阶段 (backend/app/services/query_processor.py: retrieve_context方法)
-- [ ] T065 [US1] 实现生成阶段 (backend/app/services/query_processor.py: generate_answer方法)
-- [ ] T066 [US1] 实现完成汇总阶段 (backend/app/services/query_processor.py: finalize_result方法)
-- [ ] T067 [US1] 实现非流式查询API (backend/app/api/query.py: POST /api/query)
+- [X] T062 [US1] 实现流式查询WebSocket (backend/app/api/query.py: WS /api/query/stream)
+- [X] T063 [US1] 实现查询理解阶段 (backend/app/services/query_processor.py: understand_query方法)
+- [X] T064 [US1] 实现检索阶段 (backend/app/services/query_processor.py: retrieve_context方法)
+- [X] T065 [US1] 实现生成阶段 (backend/app/services/query_processor.py: generate_answer方法)
+- [X] T066 [US1] 实现完成汇总阶段 (backend/app/services/query_processor.py: finalize_result方法)
+- [X] T067 [US1] 实现非流式查询API (backend/app/api/query.py: POST /api/query)
 
 ### 智能问答UI
 
-- [ ] T068 [US1] 创建问答页面 (frontend/src/app/query/page.tsx)
-- [ ] T069 [US1] 实现查询输入区 (frontend/src/components/QueryInput.tsx)
-- [ ] T070 [US1] 实现流式响应展示 (frontend/src/components/StreamingResponse.tsx)
-- [ ] T071 [US1] 实现阶段进度展示 (frontend/src/components/StageProgress.tsx)
-- [ ] T072 [US1] 实现流式文本框 (frontend/src/components/StreamingTextBox.tsx: 自动滚动)
-- [ ] T073 [US1] 实现答案展示组件 (frontend/src/components/AnswerDisplay.tsx)
-- [ ] T074 [US1] 实现引用展示组件 (frontend/src/components/CitationList.tsx)
-- [ ] T075 [US1] 实现WebSocket连接管理 (frontend/src/hooks/useQueryStream.ts)
+- [X] T068 [US1] 创建问答页面 (frontend/src/app/query/page.tsx)
+- [X] T069 [US1] 实现查询输入区 (frontend/src/components/QueryInput.tsx)
+- [X] T070 [US1] 实现流式响应展示 (frontend/src/components/StreamingResponse.tsx)
+- [X] T071 [US1] 实现阶段进度展示 (frontend/src/components/StageProgress.tsx)
+- [X] T072 [US1] 实现流式文本框 (frontend/src/components/StreamingTextBox.tsx: 自动滚动)
+- [X] T073 [US1] 实现答案展示组件 (frontend/src/components/AnswerDisplay.tsx)
+- [X] T074 [US1] 实现引用展示组件 (frontend/src/components/CitationList.tsx)
+- [X] T075 [US1] 实现WebSocket连接管理 (frontend/src/hooks/useQueryStream.ts)
 
 ### US1 验收标准
 

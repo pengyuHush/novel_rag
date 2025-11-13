@@ -8,8 +8,12 @@ from chromadb.utils import embedding_functions
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 import logging
+import os
 
 from app.core.config import settings
+
+# 禁用ChromaDB遥测
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +27,13 @@ class ChromaDBClient:
         chroma_path = Path(settings.chromadb_path)
         chroma_path.mkdir(parents=True, exist_ok=True)
         
-        # 创建持久化客户端
+        # 创建持久化客户端（禁用遥测避免错误日志）
         self.client = chromadb.PersistentClient(
             path=str(chroma_path),
             settings=Settings(
-                anonymized_telemetry=False,
-                allow_reset=True if settings.debug else False
+                anonymized_telemetry=False,  # 禁用遥测
+                allow_reset=True if settings.debug else False,
+                is_persistent=True
             )
         )
         

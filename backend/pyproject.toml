@@ -16,8 +16,10 @@ python-jose = {extras = ["cryptography"], version = "^3.3.0"}
 
 # AI & LLM
 zhipuai = "^2.0.1"
-langchain = "^0.1.0"
-langchain-community = "^0.0.10"
+langchain = "^0.3.0"
+langchain-community = "^0.3.0"
+langchain-text-splitters = "^0.3.0"
+tiktoken = "^0.5.2"
 
 # Vector Database
 chromadb = "^0.4.22"
@@ -39,6 +41,8 @@ alembic = "^1.13.1"
 # File Parsing
 ebooklib = "^0.18"
 chardet = "^5.2.0"
+beautifulsoup4 = "^4.12.0"
+lxml = "^5.1.0"
 
 # Visualization
 plotly = "^5.18.0"

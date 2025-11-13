@@ -199,7 +199,7 @@ poetry env info
 | 变量名 | 说明 | 默认值 |
 |--------|------|--------|
 | `ZHIPU_API_KEY` | 智谱AI API密钥 | 必填 |
-| `ZHIPU_DEFAULT_MODEL` | 默认模型 | glm-4 |
+| `ZHIPU_DEFAULT_MODEL` | 默认模型 | glm-4 (支持: glm-4-flash, glm-4, glm-4-plus, glm-4-5, glm-4-5-flash, glm-4-5-v, glm-4-5-air, glm-4-6) |
 | `DATABASE_URL` | 数据库URL | sqlite:///./data/sqlite/metadata.db |
 | `CHROMADB_PATH` | ChromaDB路径 | ./data/chromadb |
 | `UPLOAD_DIR` | 上传目录 | ./data/uploads |

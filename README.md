@@ -29,7 +29,7 @@
 - HanLP 2.1+ (中文NLP)
 
 ### AI服务
-- 智谱AI GLM-4系列 (生成模型)
+- 智谱AI GLM-4系列 (生成模型: glm-4-flash/4/4-plus/4-5/4-5-flash/4-5-v/4-5-air/4-6)
 - 智谱AI Embedding-3 (向量化模型)
 
 ## 🚀 快速开始
