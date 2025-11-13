@@ -19,7 +19,7 @@
 - [x] **Code Quality Excellence:** 
   - Python后端遵循PEP 8标准
   - TypeScript前端使用ESLint + Prettier
-  - 强制代码审查（本地开发可选）
+  - 强制代码审查（所有代码合并前必须审查）
   - 公共API必须包含完整的类型注解和文档字符串
   
 - [x] **Comprehensive Testing Standards:** 
@@ -29,7 +29,7 @@
   - 使用pytest（后端）和Jest（前端）
   
 - [x] **User Experience Consistency:** 
-  - 使用Ant Design或shadcn/ui组件库保证UI一致性
+  - 使用Ant Design 5.x组件库保证UI一致性
   - 响应式设计支持桌面/平板/移动端
   - 流式响应提供即时反馈
   - 清晰的进度指示和错误提示
@@ -38,7 +38,7 @@
   - 简单查询响应 < 30秒
   - 复杂查询响应 < 3分钟
   - 知识库加载 < 10秒
-  - 前端首屏加载 < 2秒（FCP）
+  - 前端首屏加载 < 1.5秒（FCP，符合宪章要求）
   - API响应时间目标（智谱API除外）: p95 < 500ms
 
 ## Goals & Success Metrics
@@ -124,7 +124,7 @@
 ### Technology Stack
 
 - **前端:** React 18 + Next.js 14 + TypeScript
-- **UI组件库:** Ant Design 或 shadcn/ui
+- **UI组件库:** Ant Design 5.x
 - **状态管理:** Zustand + TanStack Query
 - **后端:** FastAPI 0.104+ + Python 3.10+
 - **LLM框架:** LangChain（文本分块、RAG编排）
@@ -139,60 +139,68 @@
 
 ### Design System Compliance
 
-- [x] 使用统一的设计系统组件（Ant Design/shadcn/ui）
+- [x] 使用统一的设计系统组件（Ant Design 5.x）
 - [x] 遵循现有的交互模式（标准表单、按钮、导航）
 - [x] 满足WCAG 2.1 AA标准（颜色对比度、键盘导航、语义化HTML）
 
 ## Implementation Strategy
 
-### Phase 1: 基础架构（5-7周）
-**时间:** W1-W7  
-**交付物:**
-- FastAPI后端框架和基础路由
-- React + Next.js前端框架
-- 文件上传和解析模块（TXT/EPUB）
-- ChromaDB向量数据库集成
-- 智谱AI API集成（Embedding-3 + GLM-4）
-- 基础RAG流程实现
-- 简单事实查询功能
-- WebSocket流式响应
+**总体时间线:** 14-20周，分10个Phase增量交付
 
-**关键里程碑:** MVP版本发布，事实查询准确率 > 75%
+### Phase 1: Setup (项目初始化，2-3天)
+- 搭建项目基础结构，配置开发环境
+- 初始化前后端项目，配置智谱AI SDK
 
-### Phase 2: 知识图谱与阅读功能（5-7周）
-**时间:** W8-W14  
-**交付物:**
-- HanLP实体识别集成
-- NetworkX知识图谱构建
-- GraphRAG双路检索实现
-- Self-RAG自反思机制
-- 时序关系分析和矛盾检测
-- 在线阅读页面（前端）
-- 章节管理API（后端）
+### Phase 2: Foundational (基础设施，1周)
+- 数据库与存储（SQLite + ChromaDB + NetworkX）
+- API基础设施（CORS、异常处理、日志）
+- 智谱AI集成（Embedding-3 + GLM-4封装）
+- 前端基础组件（Layout、Navigation、状态管理）
 
-**关键里程碑:** 诡计检测功能上线，识别率 > 70%
+**关键里程碑:** 基础架构完成，可进行功能开发
 
-### Phase 3: 可视化与模型管理（3-4周）
-**时间:** W15-W18  
-**交付物:**
-- Plotly角色关系图可视化
-- 时间线可视化
-- 智谱AI多模型支持（GLM-4.6/4.5/4-Plus/4/Flash）
-- 模型切换UI
-- Token消耗统计和展示
-- 成本控制机制
+### Phase 3: User Story 1 - 小说管理与基础问答 (4-5周，MVP核心)
+- 文件上传与解析、文本分块与向量化
+- 索引进度追踪、小说管理UI
+- 基础RAG引擎、智能问答API
+- 智能问答UI（流式响应、5阶段展示）
 
-**关键里程碑:** 功能完整版，所有核心功能就绪
+**关键里程碑:** MVP版本发布，事实查询准确率 > 80%
 
-### Phase 4: 优化与测试（2-3周）
-**时间:** W19-W21  
-**交付物:**
-- 性能优化（检索速度、内存占用）
-- 异常处理完善（API失败重试、断点续传）
-- 用户测试和反馈收集
-- Bug修复和稳定性提升
-- 用户文档和开发文档
-- 测试报告
+### Phase 4: User Story 2 - 在线阅读 (1-2周)
+- 章节管理API、阅读器UI
+- 章节搜索、全屏阅读模式
+
+### Phase 5: User Story 3 - 知识图谱与GraphRAG (2-3周)
+- 实体提取（HanLP）、知识图谱构建（NetworkX）
+- 章节重要性评分、GraphRAG集成
+
+**关键里程碑:** GraphRAG功能上线，检索质量提升15%+
+
+### Phase 6: User Story 4 - 演变分析与Self-RAG (2-3周)
+- 智能查询路由、演变分析
+- Self-RAG增强（证据质量评分、一致性检查）
+- 矛盾检测与展示UI
+
+**关键里程碑:** 诡计检测功能上线，识别率 > 72%
+
+### Phase 7: User Story 5 - 可视化分析 (1-2周)
+- 关系图生成（Plotly力导向图）
+- 时间线生成与可视化UI
+
+### Phase 8: User Story 6 - 模型管理 (3-5天)
+- 模型配置（GLM-4.6/4.5/4-Plus/4/Flash）
+- 模型切换、配置管理UI
+
+### Phase 9: User Story 7 - Token统计 (3-5天)
+- Token追踪、Token统计API
+- Token统计UI（图表、累计数据）
+
+### Phase 10: Polish & Cross-Cutting Concerns (2-3周)
+- 性能优化、错误处理与日志
+- 用户体验提升、测试（单元+集成+E2E）
+- 文档、部署准备
+- **可访问性与性能监控**（宪章合规）
 
 **关键里程碑:** 正式版本发布，稳定可用
 
@@ -201,9 +209,13 @@
 符合宪章的测试标准：
 
 ### Unit Testing
-- **覆盖率目标:** ≥ 80%
+- **覆盖率目标:** ≥ 80%（强制，低于80%阻止PR合并）
 - **关键逻辑覆盖率:** 100%（RAG流程、GraphRAG、Self-RAG）
 - **工具:** pytest（后端）、Jest（前端）
+- **覆盖率强制机制:**
+  - CI流程中配置覆盖率检查（pytest-cov / jest --coverage）
+  - 覆盖率低于80%自动标记PR为不可合并
+  - 每周生成覆盖率趋势报告
 - **重点测试模块:**
   - 文本分块算法（RecursiveCharacterTextSplitter）
   - 向量检索和Rerank逻辑
@@ -243,7 +255,7 @@
 
 ### Target Metrics
 - **前端性能:**
-  - FCP（首次内容绘制）: < 2.0s
+  - FCP（首次内容绘制）: < 1.5s（宪章要求）
   - LCP（最大内容绘制）: < 2.5s
   - FID（首次输入延迟）: < 100ms
   - CLS（累积布局偏移）: < 0.1
@@ -281,11 +293,31 @@
   - Prompt优化，精简系统提示词
 
 ## Risks & Mitigations
+### 技术风险
 
 | 风险 | 影响 | 概率 | 缓解措施 |
 |------|------|------|----------|
-| [风险1] | [高/中/低] | [高/中/低] | [缓解策略] |
-| [风险2] | [高/中/低] | [高/中/低] | [缓解策略] |
+| 智谱API调用失败或限流 | 高 | 低 | ①实现指数退避重试机制 ②错误提示和降级方案 ③监控API状态 |
+| 准确率不达标(MVP<80%) | 高 | 中 | ①优化Prompt工程 ②增强Self-RAG深度 ③必要时切换GLM-4-Plus ④迭代优化检索策略 |
+| API成本超预期 | 中 | 中 | ①优先使用GLM-4-Flash ②实现查询结果缓存 ③设置成本上限告警 ④优化Prompt长度 |
+| ChromaDB性能瓶颈 | 中 | 低 | ①优化HNSW索引参数 ②考虑升级到Milvus/Weaviate ③实现分块索引 |
+| 诡计识别效果差(MVP<72%) | 高 | 中 | ①丰富知识图谱属性 ②优化Self-RAG机制 ③使用GLM-4-Plus增强推理 |
+
+### 数据风险
+
+| 风险 | 影响 | 概率 | 缓解措施 |
+|------|------|------|----------|
+| 文件编码识别错误 | 中 | 中 | ①使用chardet自动检测 ②提供手动指定编码选项 ③UTF-8优先策略 |
+| 章节识别失败 | 中 | 中 | ①多种正则规则兼容 ②提供手动标注接口 ③允许用户自定义章节标记 |
+| 索引数据损坏 | 中 | 低 | ①定期自动备份 ②校验机制检测损坏 ③提供重建索引功能 |
+
+### 合规风险
+
+| 风险 | 影响 | 概率 | 缓解措施 |
+|------|------|------|----------|
+| 宪章合规性不足 | 高 | 低 | ①定期合规审查 ②CI强制覆盖率检查 ③可访问性审计(T182-T184) |
+| 性能指标未达标(FCP>1.5s) | 中 | 中 | ①前端性能优化(代码分割、懒加载) ②Core Web Vitals监控(T185) ③定期性能测试 |
+```
 
 ## Dependencies
 
@@ -321,7 +353,7 @@
 - React 18 : UI框架
 - Next.js 14 : React框架
 - TypeScript : 类型检查
-- Ant Design 或 shadcn/ui : UI组件
+- Ant Design 5.x : UI组件库
 - Zustand : 状态管理
 - TanStack Query : 数据获取
 - Plotly.js : 图表渲染
