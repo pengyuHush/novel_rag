@@ -167,6 +167,14 @@ app.include_router(novels.router)
 from app.api import query
 app.include_router(query.router)
 
+# 导入并注册websocket路由
+from app.api import websocket
+app.include_router(websocket.router)
+
+# 导入并注册chapters路由 (User Story 2: 在线阅读)
+from app.api import chapters
+app.include_router(chapters.router)
+
 # 根端点
 @app.get("/", tags=["基本信息"])
 async def root():

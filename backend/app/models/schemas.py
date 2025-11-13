@@ -123,23 +123,22 @@ class NovelProgressResponse(BaseModel):
 # ========================================
 
 class ChapterListItem(BaseModel):
-    """章节列表项"""
+    """章节列表项 (User Story 2: 在线阅读)"""
     model_config = ConfigDict(from_attributes=True)
     
-    chapter_num: int
-    chapter_title: Optional[str] = None
-    char_count: int
-    importance_score: float = 0.5
+    num: int = Field(..., description="章节号")
+    title: Optional[str] = Field(None, description="章节标题")
+    char_count: int = Field(..., description="章节字数")
 
 
 class ChapterContent(BaseModel):
-    """章节内容"""
-    chapter_num: int
-    title: Optional[str] = None
-    content: str
-    prev_chapter: Optional[int] = None
-    next_chapter: Optional[int] = None
-    total_chapters: int
+    """章节内容 (User Story 2: 在线阅读)"""
+    chapter_num: int = Field(..., description="章节号")
+    title: Optional[str] = Field(None, description="章节标题")
+    content: str = Field(..., description="章节内容")
+    prev_chapter: Optional[int] = Field(None, description="上一章章节号")
+    next_chapter: Optional[int] = Field(None, description="下一章章节号")
+    total_chapters: int = Field(..., description="总章节数")
 
 
 # ========================================

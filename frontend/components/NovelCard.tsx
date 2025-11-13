@@ -47,7 +47,7 @@ const NovelCard: React.FC<NovelCardProps> = ({ novel, onDelete }) => {
       hoverable
       className="novel-card"
       actions={[
-        <Link key="view" href={`/novels/${novel.id}`}>
+        <Link key="view" href={`/reader?novelId=${novel.id}&chapter=1`}>
           <Button type="text" icon={<EyeOutlined />}>
             查看
           </Button>

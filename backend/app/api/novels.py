@@ -217,6 +217,7 @@ def start_indexing(novel_id: int, file_path: str, file_format: FileFormat):
         from app.db.init_db import get_database_url
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
+        from app.api.websocket import progress_callback
         
         # 创建独立的数据库会话
         engine = create_engine(get_database_url())
@@ -226,13 +227,14 @@ def start_indexing(novel_id: int, file_path: str, file_format: FileFormat):
         try:
             indexing_service = get_indexing_service()
             
-            # 执行索引
+            # 执行索引（带进度回调）
             loop.run_until_complete(
                 indexing_service.index_novel(
                     db=db,
                     novel_id=novel_id,
                     file_path=file_path,
-                    file_format=file_format
+                    file_format=file_format,
+                    progress_callback=progress_callback
                 )
             )
         finally:

@@ -218,13 +218,17 @@ npm config set registry https://registry.npmmirror.com
 npm install
 ```
 
-### 3. 配置环境变量
+### 3. 配置环境变量（可选）
 
-创建 `frontend/.env.local` 文件：
+**注意：** 环境变量配置是可选的，代码中已包含默认值 `http://localhost:8000`。
+
+如需自定义后端地址，可创建 `frontend/.env.local` 文件：
 
 ```bash
-# 后端API地址
+# 后端API地址（可选，默认: http://localhost:8000）
 NEXT_PUBLIC_API_URL=http://localhost:8000
+
+# WebSocket地址（可选，默认: ws://localhost:8000）
 NEXT_PUBLIC_WS_URL=ws://localhost:8000
 ```
 
