@@ -1,104 +1,145 @@
-# Implementation Plan: [FEATURE]
+# Plan: [FEATURE_NAME]
 
-**Branch**: `[###-feature-name]` | **Date**: [DATE] | **Spec**: [link]
-**Input**: Feature specification from `/specs/[###-feature-name]/spec.md`
+**Created:** [YYYY-MM-DD]  
+**Status:** [Draft/In Review/Approved/In Progress/Completed]  
+**Owner:** [OWNER_NAME]
 
-**Note**: This template is filled in by the `/speckit.plan` command. See `.specify/templates/commands/plan.md` for the execution workflow.
+## Overview
 
-## Summary
+[简要描述此功能或项目的目的和价值]
 
-[Extract from feature spec: primary requirement + technical approach from research]
+## Constitution Compliance Check
 
-## Technical Context
+本计划已根据项目宪章（v1.0.0）进行审查：
 
-<!--
-  ACTION REQUIRED: Replace the content in this section with the technical details
-  for the project. The structure here is presented in advisory capacity to guide
-  the iteration process.
--->
+- [ ] **Code Quality Excellence:** 编码标准、代码审查流程已定义
+- [ ] **Comprehensive Testing Standards:** 测试策略和覆盖率目标已明确
+- [ ] **User Experience Consistency:** UI/UX设计遵循设计系统和可访问性标准
+- [ ] **Performance Requirements:** 性能指标和优化策略已考虑
 
-**Language/Version**: [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION]  
-**Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]  
-**Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]  
-**Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]  
-**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
-**Project Type**: [single/web/mobile - determines source structure]  
-**Performance Goals**: [domain-specific, e.g., 1000 req/s, 10k lines/sec, 60 fps or NEEDS CLARIFICATION]  
-**Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]  
-**Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
+## Goals & Success Metrics
 
-## Constitution Check
+### Primary Goals
+1. [目标1]
+2. [目标2]
+3. [目标3]
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+### Success Metrics
+- **指标1:** [定义] - 目标值: [X]
+- **指标2:** [定义] - 目标值: [Y]
+- **性能基线:** [FCP/LCP/FID/CLS目标]
 
-[Gates determined based on constitution file]
+## Scope
 
-## Project Structure
+### In Scope
+- [包含的功能/组件1]
+- [包含的功能/组件2]
 
-### Documentation (this feature)
+### Out of Scope
+- [明确不包含的内容1]
+- [明确不包含的内容2]
 
-```text
-specs/[###-feature]/
-├── plan.md              # This file (/speckit.plan command output)
-├── research.md          # Phase 0 output (/speckit.plan command)
-├── data-model.md        # Phase 1 output (/speckit.plan command)
-├── quickstart.md        # Phase 1 output (/speckit.plan command)
-├── contracts/           # Phase 1 output (/speckit.plan command)
-└── tasks.md             # Phase 2 output (/speckit.tasks command - NOT created by /speckit.plan)
-```
+## Architecture & Design
 
-### Source Code (repository root)
-<!--
-  ACTION REQUIRED: Replace the placeholder tree below with the concrete layout
-  for this feature. Delete unused options and expand the chosen structure with
-  real paths (e.g., apps/admin, packages/something). The delivered plan must
-  not include Option labels.
--->
+### High-Level Architecture
+[架构图或描述]
 
-```text
-# [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
-src/
-├── models/
-├── services/
-├── cli/
-└── lib/
+### Key Components
+1. **[组件名]:** [描述和职责]
+2. **[组件名]:** [描述和职责]
 
-tests/
-├── contract/
-├── integration/
-└── unit/
+### Technology Stack
+- **前端:** [框架/库]
+- **后端:** [框架/库]
+- **数据库:** [类型]
+- **基础设施:** [云服务/容器等]
 
-# [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
-backend/
-├── src/
-│   ├── models/
-│   ├── services/
-│   └── api/
-└── tests/
+### Design System Compliance
+- [ ] 使用统一的设计系统组件
+- [ ] 遵循现有的交互模式
+- [ ] 满足WCAG 2.1 AA标准
 
-frontend/
-├── src/
-│   ├── components/
-│   ├── pages/
-│   └── services/
-└── tests/
+## Implementation Strategy
 
-# [REMOVE IF UNUSED] Option 3: Mobile + API (when "iOS/Android" detected)
-api/
-└── [same as backend above]
+### Phase 1: [阶段名]
+**时间:** [预计时长]  
+**交付物:**
+- [交付物1]
+- [交付物2]
 
-ios/ or android/
-└── [platform-specific structure: feature modules, UI flows, platform tests]
-```
+### Phase 2: [阶段名]
+**时间:** [预计时长]  
+**交付物:**
+- [交付物1]
+- [交付物2]
 
-**Structure Decision**: [Document the selected structure and reference the real
-directories captured above]
+## Testing Strategy
 
-## Complexity Tracking
+符合宪章的测试标准：
 
-> **Fill ONLY if Constitution Check has violations that must be justified**
+### Unit Testing
+- **覆盖率目标:** ≥ 80%
+- **关键逻辑覆盖率:** 100%
+- **工具:** [测试框架]
 
-| Violation | Why Needed | Simpler Alternative Rejected Because |
-|-----------|------------|-------------------------------------|
-| [e.g., 4th project] | [current need] | [why 3 projects insufficient] |
-| [e.g., Repository pattern] | [specific problem] | [why direct DB access insufficient] |
+### Integration Testing
+- [ ] API端点测试
+- [ ] 服务间交互测试
+- [ ] 数据库集成测试
+
+### End-to-End Testing
+- [ ] 关键用户流程
+- [ ] 跨浏览器测试
+- [ ] 移动端测试
+
+### Performance Testing
+- [ ] 加载测试（3x预期负载）
+- [ ] API响应时间验证（p50/p95/p99）
+- [ ] 前端性能指标（Core Web Vitals）
+
+## Performance Considerations
+
+### Target Metrics
+- **FCP:** < 1.5s
+- **LCP:** < 2.5s
+- **FID:** < 100ms
+- **CLS:** < 0.1
+- **API p95:** < 500ms
+
+### Optimization Plan
+- [优化策略1]
+- [优化策略2]
+
+## Risks & Mitigations
+
+| 风险 | 影响 | 概率 | 缓解措施 |
+|------|------|------|----------|
+| [风险1] | [高/中/低] | [高/中/低] | [缓解策略] |
+| [风险2] | [高/中/低] | [高/中/低] | [缓解策略] |
+
+## Dependencies
+
+### Internal
+- [依赖的内部组件/服务]
+
+### External
+- [第三方服务/库]
+
+## Timeline
+
+| 里程碑 | 日期 | 状态 |
+|--------|------|------|
+| [里程碑1] | [YYYY-MM-DD] | [计划中/进行中/完成] |
+| [里程碑2] | [YYYY-MM-DD] | [计划中/进行中/完成] |
+
+## Review & Approvals
+
+| 角色 | 姓名 | 批准日期 | 签名 |
+|------|------|----------|------|
+| 技术负责人 | | | |
+| 产品负责人 | | | |
+| 设计负责人 | | | |
+
+## Notes & Updates
+
+[记录重要的讨论、决策和变更]

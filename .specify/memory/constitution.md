@@ -1,50 +1,147 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+Sync Impact Report:
+- Version: INITIAL → v1.0.0
+- Initial constitution creation
+- Principles established: Code Quality, Testing Standards, User Experience Consistency, Performance Requirements
+- Templates: None existing yet (initial setup)
+- Follow-up: Create supporting templates (plan, spec, tasks, commands)
+-->
+
+# Project Constitution
+
+**Version:** v1.0.0  
+**Ratification Date:** 2025-11-12  
+**Last Amended:** 2025-11-12
+
+## Purpose
+
+本宪章为项目的所有开发、设计和交付活动确立核心原则和治理规则。所有贡献者、决策和工件必须遵守这些原则，以确保项目的长期成功、可维护性和用户满意度。
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### Principle 1: Code Quality Excellence
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+**名称：** 代码质量卓越
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+**规则：**
+- 所有代码必须遵循一致的编码标准和风格指南（ESLint/Prettier/Black等）
+- 代码审查是强制性的——任何代码合并前必须至少一位审查者批准
+- 复杂度必须受控——函数圈复杂度不得超过10，类不得超过500行
+- 技术债务必须明确标记（TODO/FIXME注释需包含票号和截止日期）
+- 所有公共API必须有完整的文档字符串/注释
+- 禁止未使用的导入、变量和死代码进入主分支
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+**理由：**
+高质量代码是可维护性、可扩展性和团队效率的基础。一致的标准降低认知负荷，使新成员更快上手，减少bug引入，确保代码库长期健康。
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### Principle 2: Comprehensive Testing Standards
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+**名称：** 全面测试标准
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+**规则：**
+- 测试覆盖率要求：
+  - 单元测试覆盖率 ≥ 80%
+  - 关键业务逻辑覆盖率 = 100%
+  - 集成测试必须覆盖所有API端点和服务交互
+- 测试金字塔必须平衡：70%单元测试 + 20%集成测试 + 10%端到端测试
+- 所有新功能必须在代码审查前包含测试
+- 修复bug必须先编写失败测试，然后修复
+- CI/CD流程中测试失败必须阻止合并
+- 性能回归测试必须包含在关键路径中
+- 测试必须独立、可重复、快速（单元测试<100ms，集成测试<5s）
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+**理由：**
+全面的测试是软件可靠性的保障。它使团队能够快速、安全地迭代，及早发现回归，并为重构提供安全网。测试也是活文档，展示代码的预期行为。
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### Principle 3: User Experience Consistency
+
+**名称：** 用户体验一致性
+
+**规则：**
+- 所有用户界面必须遵循统一的设计系统和组件库
+- 交互模式必须在整个应用中保持一致（导航、表单验证、错误处理等）
+- 可访问性（A11y）是强制性的：
+  - WCAG 2.1 AA级合规
+  - 键盘导航支持
+  - 屏幕阅读器兼容
+  - 颜色对比度 ≥ 4.5:1（正常文本）
+- 响应式设计必须支持移动端、平板和桌面端
+- 用户反馈机制必须即时且清晰（加载状态、成功/错误消息、进度指示）
+- 用户流程必须经过可用性测试验证
+- 所有文案必须清晰、简洁、友好，避免技术术语
+
+**理由：**
+一致的用户体验建立信任，降低学习曲线，提高用户满意度和留存率。可访问性确保产品为所有用户服务，不仅是道德责任，也是法律要求和市场扩展的必要条件。
+
+### Principle 4: Performance Requirements
+
+**名称：** 性能要求
+
+**规则：**
+- 页面加载性能：
+  - 首次内容绘制（FCP）< 1.5秒
+  - 最大内容绘制（LCP）< 2.5秒
+  - 首次输入延迟（FID）< 100毫秒
+  - 累积布局偏移（CLS）< 0.1
+- API响应时间：
+  - p50 < 200ms
+  - p95 < 500ms
+  - p99 < 1000ms
+- 数据库查询必须优化：
+  - 使用索引
+  - N+1查询必须被消除
+  - 慢查询（>100ms）必须记录和优化
+- 资源优化：
+  - 图片必须压缩和懒加载
+  - JavaScript包大小 < 250KB（初始加载）
+  - CSS关键路径优化
+  - 使用CDN和缓存策略
+- 可扩展性：
+  - 架构必须支持水平扩展
+  - 无状态服务设计
+  - 负载测试必须验证系统在预期负载3x时仍正常运行
+
+**理由：**
+性能直接影响用户体验、转化率和业务成功。研究显示，每100ms的延迟可导致1%的转化率下降。性能优化也降低基础设施成本，提高资源利用效率。
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+### Amendment Process
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+本宪章的修订必须遵循以下流程：
+
+1. **提案：** 任何团队成员可以提出修订建议，需提供详细理由和影响分析
+2. **讨论：** 提案在团队会议中讨论，至少保留3个工作日供异步反馈
+3. **投票：** 修订需要至少2/3核心团队成员批准
+4. **文档：** 批准的修订必须更新版本号、修订日期，并记录在同步影响报告中
+5. **传播：** 必须更新所有依赖的模板和文档，并通知全体团队
+
+### Versioning Policy
+
+- **MAJOR（X.0.0）：** 移除或根本重新定义现有原则（向后不兼容）
+- **MINOR（x.Y.0）：** 添加新原则或显著扩展现有指导
+- **PATCH（x.y.Z）：** 澄清、措辞改进、错误修复、非语义精化
+
+### Compliance Review
+
+- 每个Sprint进行轻量级合规检查（代码审查中验证原则遵守）
+- 每季度进行全面宪章审查，评估原则的有效性和相关性
+- 宪章违规必须记录在案，严重违规需要根因分析和纠正措施
+- 新成员入职时必须学习和确认理解本宪章
+
+### Exception Handling
+
+在极少数情况下，如果遵守某项原则会导致不合理的成本或阻碍关键业务目标：
+
+1. 例外申请必须书面记录，包括理由、影响范围和时限
+2. 需要技术负责人和产品负责人共同批准
+3. 例外必须有明确的到期日期或触发条件
+4. 所有例外必须在季度审查中重新评估
+
+## Living Document
+
+本宪章是一份活文档，应随项目发展、技术演进和团队学习而演进。我们鼓励持续反思和改进，但始终保持核心价值观的稳定性和一致性。
+
+---
+
+*本宪章确立了我们的承诺：构建高质量、高性能、用户友好的软件，并以可持续的方式进行。*
