@@ -4,13 +4,14 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { apiClient } from '@/lib/api';
-import { StreamMessage, Citation } from '@/types/query';
+import { StreamMessage, Citation, Contradiction } from '@/types/query';
 
 interface UseQueryStreamResult {
   answer: string;
   stage: string;
   progress: number;
   citations: Citation[];
+  contradictions: Contradiction[];
   isConnected: boolean;
   isLoading: boolean;
   error: string | null;
@@ -23,6 +24,7 @@ export const useQueryStream = (): UseQueryStreamResult => {
   const [stage, setStage] = useState('');
   const [progress, setProgress] = useState(0);
   const [citations, setCitations] = useState<Citation[]>([]);
+  const [contradictions, setContradictions] = useState<Contradiction[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +47,7 @@ export const useQueryStream = (): UseQueryStreamResult => {
       setStage('');
       setProgress(0);
       setCitations([]);
+      setContradictions([]);
       setError(null);
       setIsLoading(true);
 
@@ -80,6 +83,11 @@ export const useQueryStream = (): UseQueryStreamResult => {
               setCitations(message.citations);
             }
 
+            // 处理矛盾检测结果
+            if (message.contradictions) {
+              setContradictions(message.contradictions);
+            }
+
             // 完成
             if (message.done) {
               setIsLoading(false);
@@ -113,6 +121,7 @@ export const useQueryStream = (): UseQueryStreamResult => {
     stage,
     progress,
     citations,
+    contradictions,
     isConnected,
     isLoading,
     error,

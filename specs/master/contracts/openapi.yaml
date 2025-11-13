@@ -10,10 +10,10 @@ info:
     email: dev@novel-qa.com
 
 servers:
-  - url: http://localhost:8000
-    description: 本地开发环境
   - url: http://localhost:8000/api
-    description: 本地开发环境（带/api前缀）
+    description: 本地开发环境（推荐）
+  - url: http://localhost:8000
+    description: 本地开发环境（不带前缀，已废弃）
 
 tags:
   - name: novels
@@ -373,6 +373,46 @@ paths:
                     items:
                       $ref: '#/components/schemas/GraphEdge'
 
+  /graph/relations/{novelId}/node/{nodeId}:
+    get:
+      tags: [graph]
+      summary: 获取节点详细信息
+      parameters:
+        - name: novelId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 小说ID
+        - name: nodeId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 节点ID（实体名称）
+      responses:
+        '200':
+          description: 节点详细信息
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  type:
+                    type: string
+                  attributes:
+                    type: object
+                  neighbors:
+                    type: array
+                    items:
+                      type: object
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /graph/timeline/{novelId}:
     get:
       tags: [graph]
@@ -407,6 +447,74 @@ paths:
                 $ref: '#/components/schemas/Statistics'
 
   # ==================== 配置管理 ====================
+  /config/models:
+    get:
+      tags: [config]
+      summary: 获取支持的模型列表
+      description: 返回所有支持的智谱AI模型及其配置信息
+      responses:
+        '200':
+          description: 模型列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        category:
+                          type: string
+                        max_tokens:
+                          type: integer
+                        price_input:
+                          type: number
+                        price_output:
+                          type: number
+                        description:
+                          type: string
+                        is_default:
+                          type: boolean
+                  default_model:
+                    type: string
+
+  /config/current:
+    get:
+      tags: [config]
+      summary: 获取当前配置
+      description: 返回当前系统配置（脱敏处理）
+      responses:
+        '200':
+          description: 当前配置
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_key:
+                    type: string
+                    description: 脱敏的API Key
+                  default_model:
+                    type: string
+                  supported_models_count:
+                    type: integer
+                  max_tokens_per_query:
+                    type: integer
+                  max_context_chunks:
+                    type: integer
+                  chunk_size:
+                    type: integer
+                  chunk_overlap:
+                    type: integer
+                  top_k_retrieval:
+                    type: integer
+                  top_k_rerank:
+                    type: integer
+
   /config/test-connection:
     post:
       tags: [config]
@@ -433,6 +541,8 @@ paths:
                   success:
                     type: boolean
                   message:
+                    type: string
+                  model_tested:
                     type: string
 
   /config:
@@ -496,6 +606,91 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenStatsReport'
+
+  /stats/tokens/trend:
+    get:
+      tags: [stats]
+      summary: 获取Token使用趋势
+      description: 按时间段分组统计Token使用量，用于绘制趋势图
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [day, week, month]
+            default: day
+          description: 时间段类型
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 365
+          description: 返回数据点数量
+      responses:
+        '200':
+          description: 趋势数据
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  period:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date:
+                          type: string
+                        total_tokens:
+                          type: integer
+                        query_count:
+                          type: integer
+
+  /stats/tokens/summary:
+    get:
+      tags: [stats]
+      summary: 获取Token统计摘要
+      description: 快速获取关键统计数据，用于仪表盘展示
+      responses:
+        '200':
+          description: 统计摘要
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  all_time:
+                    type: object
+                    properties:
+                      total_tokens:
+                        type: integer
+                      total_cost:
+                        type: number
+                  last_24h:
+                    type: object
+                    properties:
+                      total_tokens:
+                        type: integer
+                      total_cost:
+                        type: number
+                  last_7d:
+                    type: object
+                    properties:
+                      total_tokens:
+                        type: integer
+                      total_cost:
+                        type: number
+                  last_30d:
+                    type: object
+                    properties:
+                      total_tokens:
+                        type: integer
+                      total_cost:
+                        type: number
 
   /stats/tokens/operation/{operationId}:
     get:
@@ -588,7 +783,8 @@ x-websockets:
               const: stage_start
             stage:
               type: string
-              enum: [understand, retrieve, generate, verify]
+              enum: [understanding, retrieving, generating, validating, finalizing]
+              description: 查询处理阶段
       - name: stage_complete
         payload:
           type: object
@@ -783,56 +979,89 @@ components:
           maxLength: 1000
         model:
           type: string
-          enum: [glm-4-flash, glm-4, glm-4-plus, glm-4-5, glm-4-6]
-          default: glm-4
+          enum: [GLM-4.5-Flash, GLM-4.5, GLM-4-Plus, GLM-4-Long, GLM-4.6]
+          default: GLM-4.5
+          description: 智谱AI模型名称（官方名称）
 
     Citation:
       type: object
       properties:
-        chapterNum:
+        chapter_num:
           type: integer
-        chapterTitle:
+          description: 章节号
+        chapter_title:
           type: string
           nullable: true
+          description: 章节标题
         text:
           type: string
+          description: 引用文本
+        score:
+          type: number
+          nullable: true
+          description: 相关性分数
 
     Contradiction:
       type: object
       properties:
         type:
           type: string
-        earlyDescription:
+          description: 矛盾类型
+        early_description:
           type: string
-        earlyChapter:
+          description: 早期描述
+        early_chapter:
           type: integer
-        lateDescription:
+          description: 早期章节
+        late_description:
           type: string
-        lateChapter:
+          description: 后期描述
+        late_chapter:
           type: integer
+          description: 后期章节
         analysis:
           type: string
+          description: 矛盾分析
         confidence:
           type: string
           enum: [high, medium, low]
+          description: 置信度
 
     TokenStats:
       type: object
       properties:
-        totalTokens:
+        total_tokens:
           type: integer
-        byModel:
+          description: 总Token数
+        embedding_tokens:
+          type: integer
+          default: 0
+          description: Embedding消耗的Token
+        prompt_tokens:
+          type: integer
+          default: 0
+          description: 提示词Token数
+        completion_tokens:
+          type: integer
+          default: 0
+          description: 生成内容Token数
+        self_rag_tokens:
+          type: integer
+          default: 0
+          description: Self-RAG验证额外消耗的Token
+        by_model:
           type: object
+          description: 按模型分类的Token统计
           additionalProperties:
             type: object
             properties:
-              inputTokens:
+              input_tokens:
                 type: integer
-              promptTokens:
+              prompt_tokens:
                 type: integer
-              completionTokens:
+              completion_tokens:
                 type: integer
-              totalTokens:
+              total_tokens:
                 type: integer
 
     QueryResponse:

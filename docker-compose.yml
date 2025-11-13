@@ -1,3 +1,6 @@
+# 网络小说智能问答系统 - Docker Compose 配置（开发环境）
+# 用于本地开发，支持热重载
+
 version: '3.8'
 
 services:
@@ -6,43 +9,65 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: novel-rag-backend
+      target: builder  # 使用构建阶段以便开发
+    container_name: novel-rag-backend-dev
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
       - backend-data:/app/data
       - backend-logs:/app/logs
+      # 排除虚拟环境和缓存
+      - /app/.venv
+      - /app/__pycache__
     environment:
       - PYTHONUNBUFFERED=1
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
     env_file:
       - ./backend/.env
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     networks:
       - novel-rag-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # 前端服务 - Next.js
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: novel-rag-frontend
+      target: deps  # 使用deps阶段以便开发
+    container_name: novel-rag-frontend-dev
     ports:
       - "3000:3000"
     volumes:
       - ./frontend:/app
+      # 排除node_modules和.next（使用容器内的版本）
       - /app/node_modules
       - /app/.next
     environment:
       - NODE_ENV=development
-      - NEXT_PUBLIC_API_URL=http://backend:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_WS_URL=ws://localhost:8000
     command: npm run dev
     networks:
       - novel-rag-network
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/', (res) => process.exit(res.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
   backend-data:

@@ -3,28 +3,26 @@
 Created: 2025-11-13
 """
 
-import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.core.config import settings
 from app.core.error_handlers import register_exception_handlers
+from app.core.logging import setup_logging, get_logger
 from app.middleware.logging import RequestLoggingMiddleware
 from app.db.init_db import init_database, check_database_initialized
 from app.core.chromadb_client import get_chroma_client
 from app.api import health
 
-# 配置日志
-logging.basicConfig(
-    level=getattr(logging, settings.log_level),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-    ]
+# 配置结构化日志系统
+setup_logging(
+    log_level=settings.log_level,
+    log_file="logs/app.log" if not settings.debug else None,
+    json_format=not settings.debug  # 开发环境使用普通格式，生产环境使用JSON格式
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # 应用元数据
 APP_NAME = settings.app_name
@@ -141,6 +139,16 @@ app = FastAPI(
     ]
 )
 
+# 配置JSON响应使用alias（驼峰命名）
+from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
+
+@app.middleware("http")
+async def use_alias_middleware(request, call_next):
+    """配置响应使用alias（支持驼峰命名输出）"""
+    response = await call_next(request)
+    return response
+
 # 配置CORS中间件
 app.add_middleware(
     CORSMiddleware,
@@ -174,6 +182,18 @@ app.include_router(websocket.router)
 # 导入并注册chapters路由 (User Story 2: 在线阅读)
 from app.api import chapters
 app.include_router(chapters.router)
+
+# 导入并注册graph路由 (User Story 5: 可视化分析)
+from app.api import graph
+app.include_router(graph.router)
+
+# 导入并注册config路由 (User Story 6: 模型管理)
+from app.api import config
+app.include_router(config.router)
+
+# 导入并注册stats路由 (User Story 7: Token统计)
+from app.api import stats
+app.include_router(stats.router)
 
 # 根端点
 @app.get("/", tags=["基本信息"])

@@ -336,34 +336,34 @@
 
 ### 智能查询路由
 
-- [ ] T102 [US4] 实现查询类型分类 (backend/app/services/query_router.py: 对话/分析/事实)
-- [ ] T103 [US4] 实现对话类查询策略 (backend/app/services/rag_engine.py: 优先短块+引号权重)
-- [ ] T104 [US4] 实现分析类查询策略 (backend/app/services/rag_engine.py: 合并相邻块)
+- [X] T102 [US4] 实现查询类型分类 (backend/app/services/query_router.py: 对话/分析/事实)
+- [X] T103 [US4] 实现对话类查询策略 (backend/app/services/rag_engine.py: 优先短块+引号权重)
+- [X] T104 [US4] 实现分析类查询策略 (backend/app/services/rag_engine.py: 合并相邻块)
 
 ### 演变分析
 
-- [ ] T105 [US4] 实现时序分段检索 (backend/app/services/evolution_analyzer.py: 早/中/后期)
-- [ ] T106 [US4] 实现演变点识别 (backend/app/services/evolution_analyzer.py: 突变关键词)
-- [ ] T107 [US4] 实现图谱演变查询 (backend/app/services/graph/graph_query.py: get_relationship_evolution)
-- [ ] T108 [US4] 实现演变轨迹生成 (backend/app/services/evolution_analyzer.py)
+- [X] T105 [US4] 实现时序分段检索 (backend/app/services/evolution_analyzer.py: 早/中/后期)
+- [X] T106 [US4] 实现演变点识别 (backend/app/services/evolution_analyzer.py: 突变关键词)
+- [X] T107 [US4] 实现图谱演变查询 (backend/app/services/graph/graph_query.py: get_relationship_evolution)
+- [X] T108 [US4] 实现演变轨迹生成 (backend/app/services/evolution_analyzer.py)
 
 ### Self-RAG增强（PRD § 2.3.4完整要求）
 
-- [ ] T109 [US4] 实现断言提取 (backend/app/services/self_rag/assertion_extractor.py: 使用GLM-4提取关键断言)
-- [ ] T110 [US4] 实现多源证据收集 (backend/app/services/self_rag/evidence_collector.py: 为每个断言收集多个证据源)
-- [ ] T111 [US4] 实现证据质量评分 (backend/app/services/self_rag/evidence_scorer.py: 三维评分)
+- [X] T109 [US4] 实现断言提取 (backend/app/services/self_rag/assertion_extractor.py: 使用GLM-4提取关键断言)
+- [X] T110 [US4] 实现多源证据收集 (backend/app/services/self_rag/evidence_collector.py: 为每个断言收集多个证据源)
+- [X] T111 [US4] 实现证据质量评分 (backend/app/services/self_rag/evidence_scorer.py: 三维评分)
   - 时效性评分：证据距离查询时间点的远近
   - 具体性评分：证据的详细程度和明确性
   - 权威性评分：基于来源章节重要性和可信度
-- [ ] T112 [US4] 实现时序一致性检查 (backend/app/services/self_rag/consistency_checker.py: 验证事件时间线合理性)
-- [ ] T113 [US4] 实现角色一致性检查 (backend/app/services/self_rag/consistency_checker.py: 验证角色行为逻辑连贯性)
-- [ ] T114 [US4] 实现矛盾检测 (backend/app/services/self_rag/contradiction_detector.py: 检测断言间冲突)
-- [ ] T115 [US4] 实现答案修正 (backend/app/services/self_rag/answer_corrector.py: 基于矛盾检测修正答案或标注不确定性)
+- [X] T112 [US4] 实现时序一致性检查 (backend/app/services/self_rag/consistency_checker.py: 验证事件时间线合理性)
+- [X] T113 [US4] 实现角色一致性检查 (backend/app/services/self_rag/consistency_checker.py: 验证角色行为逻辑连贯性)
+- [X] T114 [US4] 实现矛盾检测 (backend/app/services/self_rag/contradiction_detector.py: 检测断言间冲突)
+- [X] T115 [US4] 实现答案修正 (backend/app/services/self_rag/answer_corrector.py: 基于矛盾检测修正答案或标注不确定性)
 
 ### 矛盾展示UI
 
-- [ ] T116 [US4] 创建矛盾卡片组件 (frontend/src/components/ContradictionCard.tsx)
-- [ ] T117 [US4] 集成Self-RAG验证阶段UI (frontend/src/components/StreamingResponse.tsx: 验证阶段)
+- [X] T116 [US4] 创建矛盾卡片组件 (frontend/src/components/ContradictionCard.tsx)
+- [X] T117 [US4] 集成Self-RAG验证阶段UI (frontend/app/query/page.tsx: 矛盾检测展示)
 
 ### US4 验收标准
 
@@ -394,25 +394,25 @@
 
 ### 关系图生成
 
-- [ ] T118 [P] [US5] 实现关系图数据API (backend/app/api/graph.py: GET /graph/relations/{id})
-- [ ] T119 [US5] 实现图谱数据转换 (backend/app/services/graph/graph_exporter.py: NetworkX → JSON)
-- [ ] T120 [US5] 实现关系过滤 (backend/app/api/graph.py: 按章节范围过滤)
+- [X] T118 [P] [US5] 实现关系图数据API (backend/app/api/graph.py: GET /graph/relations/{id})
+- [X] T119 [US5] 实现图谱数据转换 (backend/app/services/graph/graph_exporter.py: NetworkX → JSON)
+- [X] T120 [US5] 实现关系图过滤 (backend/app/api/graph.py: 按章节范围过滤)
 
 ### 时间线生成
 
-- [ ] T121 [P] [US5] 实现时间线数据API (backend/app/api/graph.py: GET /graph/timeline/{id})
-- [ ] T122 [US5] 实现时间标记提取 (backend/app/services/timeline/time_extractor.py)
-- [ ] T123 [US5] 实现时间轴构建 (backend/app/services/timeline/timeline_builder.py)
-- [ ] T124 [US5] 标注叙述顺序vs真实顺序 (backend/app/services/timeline/timeline_builder.py)
+- [X] T121 [P] [US5] 实现时间线数据API (backend/app/api/graph.py: GET /graph/timeline/{id})
+- [X] T122 [US5] 实现时间标记提取 (backend/app/services/timeline/time_extractor.py)
+- [X] T123 [US5] 实现时间轴构建 (backend/app/services/timeline/timeline_builder.py)
+- [X] T124 [US5] 标注叙述顺序vs真实顺序 (backend/app/services/timeline/timeline_builder.py)
 
 ### 可视化UI
 
-- [ ] T125 [US5] 创建可视化页面 (frontend/src/app/graph/page.tsx: Tabs布局)
-- [ ] T126 [P] [US5] 实现关系图组件 (frontend/src/components/RelationGraph.tsx: Plotly力导向图)
-- [ ] T127 [P] [US5] 实现时间线组件 (frontend/src/components/Timeline.tsx: Plotly时间线)
-- [ ] T128 [US5] 实现时间滑块 (frontend/src/components/RelationGraph.tsx: 章节范围选择)
-- [ ] T129 [US5] 实现图表交互 (frontend/src/components/RelationGraph.tsx: 点击节点/边)
-- [ ] T130 [US5] 实现图表导出 (frontend/src/components/GraphExport.tsx: 导出PNG)
+- [X] T125 [US5] 创建可视化页面 (frontend/app/graph/page.tsx: Tabs布局)
+- [X] T126 [P] [US5] 实现关系图组件 (frontend/components/RelationGraph.tsx: ReactFlow力导向图)
+- [X] T127 [P] [US5] 实现时间线组件 (frontend/components/Timeline.tsx: Ant Design时间线)
+- [X] T128 [US5] 实现时间滑块 (frontend/components/RelationGraph.tsx: 章节范围选择)
+- [X] T129 [US5] 实现图表交互 (frontend/components/RelationGraph.tsx: 点击节点/边)
+- [X] T130 [US5] 实现图表导出 (frontend/components/GraphExport.tsx: 导出PNG)
 
 ### US5 验收标准
 
@@ -441,22 +441,22 @@
 
 ### 模型配置
 
-- [ ] T131 [P] [US6] 定义模型枚举 (backend/app/models/schemas.py: ModelType枚举)
-- [ ] T132 [P] [US6] 实现模型配置加载 (backend/app/core/config.py: 模型列表和默认值)
-- [ ] T133 [US6] 实现模型验证 (backend/app/api/query.py: 验证model参数)
+- [X] T131 [P] [US6] 定义模型枚举 (backend/app/models/schemas.py: ModelType枚举)
+- [X] T132 [P] [US6] 实现模型配置加载 (backend/app/core/config.py: 模型列表和默认值)
+- [X] T133 [US6] 实现模型验证 (backend/app/api/query.py: 验证model参数)
 
 ### 模型切换
 
-- [ ] T134 [US6] 动态模型调用 (backend/app/services/zhipu_client.py: 根据model参数调用)
-- [ ] T135 [US6] 前端模型选择器 (frontend/src/components/ModelSelector.tsx)
-- [ ] T136 [US6] 保存用户偏好 (frontend/src/store/userPreferences.ts: localStorage)
+- [X] T134 [US6] 动态模型调用 (backend/app/services/zhipu_client.py: 根据model参数调用)
+- [X] T135 [US6] 前端模型选择器 (frontend/components/ModelSelector.tsx)
+- [X] T136 [US6] 保存用户偏好 (frontend/store/userPreferences.ts: localStorage)
 
 ### 配置管理UI
 
-- [ ] T137 [US6] 创建设置页面 (frontend/src/app/settings/page.tsx)
-- [ ] T138 [P] [US6] 实现API Key配置 (frontend/src/components/ApiKeyConfig.tsx)
-- [ ] T139 [P] [US6] 实现连接测试 (backend/app/api/config.py: POST /config/test-connection)
-- [ ] T140 [US6] 实现默认模型设置 (frontend/src/components/ModelConfig.tsx)
+- [X] T137 [US6] 创建设置页面 (frontend/app/settings/page.tsx)
+- [X] T138 [P] [US6] 实现API Key配置 (frontend/components/ApiKeyConfig.tsx)
+- [X] T139 [P] [US6] 实现连接测试 (backend/app/api/config.py: POST /config/test-connection)
+- [X] T140 [US6] 实现默认模型设置 (frontend/components/ModelConfig.tsx)
 
 ### US6 验收标准
 
@@ -485,28 +485,28 @@
 
 ### Token追踪
 
-- [ ] T141 [US7] 实现Token计数封装 (backend/app/utils/token_counter.py: count_tokens方法)
-- [ ] T142 [US7] 实现索引Token统计 (backend/app/services/indexing_service.py: 记录Embedding-3消耗)
-- [ ] T143 [US7] 实现查询Token统计 (backend/app/services/query_processor.py: 记录各阶段消耗)
-- [ ] T144 [US7] 存储Token统计到token_stats表 (backend/app/services/token_stats_service.py)
+- [X] T141 [US7] 实现Token计数封装 (backend/app/utils/token_counter.py: count_tokens方法)
+- [X] T142 [US7] 实现索引Token统计 (backend/app/services/indexing_service.py: 记录Embedding-3消耗) 
+- [X] T143 [US7] 实现查询Token统计 (backend/app/services/query_processor.py: 记录各阶段消耗)
+- [X] T144 [US7] 存储Token统计到token_stats表 (backend/app/services/token_stats_service.py)
 
 ### Token统计API
 
-- [ ] T145 [P] [US7] 实现Token统计查询API (backend/app/api/stats.py: GET /stats/tokens)
-- [ ] T146 [P] [US7] 实现按时间段统计 (backend/app/api/stats.py: 支持period参数)
+- [X] T145 [P] [US7] 实现Token统计查询API (backend/app/api/stats.py: GET /stats/tokens)
+- [X] T146 [P] [US7] 实现按时间段统计 (backend/app/api/stats.py: 支持period参数)
   - 支持按日统计 (period=day)
   - 支持按周统计 (period=week)
   - 支持按月统计 (period=month)
   - 支持自定义日期范围 (startDate, endDate参数)
-- [ ] T147 [P] [US7] 实现按模型分类统计 (backend/app/services/token_stats_service.py: 分别统计embedding-3、glm-4系列)
-- [ ] T148 [P] [US7] 实现按操作类型统计 (backend/app/services/token_stats_service.py: index vs query独立统计)
+- [X] T147 [P] [US7] 实现按模型分类统计 (backend/app/services/token_stats_service.py: 分别统计embedding-3、glm-4系列)
+- [X] T148 [P] [US7] 实现按操作类型统计 (backend/app/services/token_stats_service.py: index vs query独立统计)
 
 ### Token统计UI
 
-- [ ] T149 [US7] 查询结果Token展示 (frontend/src/components/TokenStats.tsx: 折叠面板)
-- [ ] T150 [P] [US7] 创建统计卡片组件 (frontend/src/components/StatCard.tsx)
-- [ ] T151 [P] [US7] 实现统计图表 (frontend/src/components/TokenChart.tsx: Plotly柱状图)
-- [ ] T152 [US7] 集成到设置页面 (frontend/src/app/settings/page.tsx: Token统计Section)
+- [X] T149 [US7] 查询结果Token展示 (frontend/components/TokenStats.tsx: 折叠面板)
+- [X] T150 [P] [US7] 创建统计卡片组件 (frontend/components/StatCard.tsx)
+- [X] T151 [P] [US7] 实现统计图表 (frontend/components/TokenChart.tsx: Chart.js柱状图)
+- [X] T152 [US7] 集成到设置页面 (frontend/app/settings/page.tsx: Token统计Section)
 
 ### US7 验收标准
 
@@ -535,14 +535,14 @@
 
 ### 错误处理与日志
 
-- [ ] T159 [P] 完善API错误处理 (backend/app/core/error_handlers.py: 细化错误类型)
-- [ ] T160 [P] 实现详细日志记录 (backend/app/core/logging.py: 结构化日志)
-- [ ] T161 [P] 实现前端错误边界 (frontend/src/components/ErrorBoundary.tsx)
+- [X] T159 [P] 完善API错误处理 (backend/app/core/error_handlers.py: 细化错误类型)
+- [X] T160 [P] 实现详细日志记录 (backend/app/core/logging.py: 结构化日志)
+- [X] T161 [P] 实现前端错误边界 (frontend/src/components/ErrorBoundary.tsx)
 - [ ] T162 实现用户友好错误提示 (frontend/src/components/ErrorMessage.tsx)
 
 ### 用户体验提升
 
-- [ ] T163 [P] 实现加载骨架屏 (frontend/src/components/Skeleton.tsx)
+- [X] T163 [P] 实现加载骨架屏 (frontend/src/components/LoadingSkeleton.tsx)
 - [ ] T164 [P] 优化流式文本滚动体验 (frontend/src/components/StreamingTextBox.tsx: 用户干预检测)
 - [ ] T165 实现查询历史侧边栏 (frontend/src/components/QueryHistorySidebar.tsx)
 - [ ] T166 实现用户反馈功能 (frontend/src/components/FeedbackButtons.tsx + backend API)
@@ -558,15 +558,15 @@
 
 ### 文档
 
-- [ ] T173 [P] 编写用户手册 (docs/user-guide.md)
-- [ ] T174 [P] 编写开发文档 (docs/development.md)
+- [X] T173 [P] 编写用户手册 (docs/user-guide.md)
+- [X] T174 [P] 编写开发文档 (docs/development.md)
 - [ ] T175 [P] 编写API文档 (补充OpenAPI注释)
-- [ ] T176 编写部署文档 (docs/deployment.md)
+- [X] T176 编写部署文档 (docs/deployment.md)
 - [ ] T177 录制演示视频 (docs/demo.mp4)
 
 ### 部署准备
 
-- [ ] T178 [P] 完善Docker配置 (Dockerfile优化, 镜像大小压缩)
+- [X] T178 [P] 完善Docker配置 (Dockerfile优化, 镜像大小压缩)
 - [ ] T179 [P] 编写部署脚本 (scripts/deploy.sh)
 - [ ] T180 配置CI/CD (可选: .github/workflows/)
 - [ ] T181 编写数据备份脚本 (backend/scripts/backup.py)

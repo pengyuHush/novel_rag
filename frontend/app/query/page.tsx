@@ -13,10 +13,11 @@ import QueryInput from '@/components/QueryInput';
 import StageProgress from '@/components/StageProgress';
 import StreamingTextBox from '@/components/StreamingTextBox';
 import CitationList from '@/components/CitationList';
+import ContradictionCard from '@/components/ContradictionCard';
 import { useQueryStream } from '@/hooks/useQueryStream';
 import { apiClient } from '@/lib/api';
 import { NovelListItem, IndexStatus } from '@/types/novel';
-import { ModelType } from '@/types/query';
+import { ModelType, Contradiction } from '@/types/query';
 
 const { Option } = Select;
 
@@ -35,6 +36,7 @@ export default function QueryPage() {
     stage,
     progress,
     citations,
+    contradictions,
     isLoading,
     error,
     sendQuery,
@@ -165,18 +167,25 @@ export default function QueryPage() {
 
       {/* 回答和引用 */}
       {(answer || isLoading) && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
-            <StreamingTextBox
-              content={answer}
-              loading={isLoading}
-              title="💡 AI 回答"
-            />
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2">
+              <StreamingTextBox
+                content={answer}
+                loading={isLoading}
+                title="💡 AI 回答"
+              />
+              
+              {/* Self-RAG矛盾检测结果 */}
+              {contradictions && contradictions.length > 0 && !isLoading && (
+                <ContradictionCard contradictions={contradictions} />
+              )}
+            </div>
+            <div>
+              <CitationList citations={citations} />
+            </div>
           </div>
-          <div>
-            <CitationList citations={citations} />
-          </div>
-        </div>
+        </>
       )}
 
       {/* 使用提示 */}

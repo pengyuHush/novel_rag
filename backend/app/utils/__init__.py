@@ -1,6 +1,7 @@
-"""工具模块"""
-from .file_storage import FileStorage, get_file_storage
-from .token_counter import TokenCounter, get_token_counter
+"""
+工具函数模块
+"""
 
-__all__ = ["FileStorage", "get_file_storage", "TokenCounter", "get_token_counter"]
+from .token_counter import TokenCounter, count_tokens
 
+__all__ = ['TokenCounter', 'count_tokens']

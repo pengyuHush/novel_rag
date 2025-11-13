@@ -87,6 +87,46 @@ class ChromaDBError(CustomException):
         )
 
 
+class RateLimitError(CustomException):
+    """频率限制错误"""
+    def __init__(self, retry_after: int = 60):
+        super().__init__(
+            message=f"请求过于频繁，请在 {retry_after} 秒后重试",
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            error_code="RATE_LIMIT_EXCEEDED"
+        )
+
+
+class TokenLimitError(CustomException):
+    """Token限制错误"""
+    def __init__(self, current: int, limit: int):
+        super().__init__(
+            message=f"Token数量超出限制: 当前{current}, 限制{limit}",
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            error_code="TOKEN_LIMIT_EXCEEDED"
+        )
+
+
+class ModelNotFoundError(CustomException):
+    """模型未找到"""
+    def __init__(self, model_name: str):
+        super().__init__(
+            message=f"模型 '{model_name}' 不存在或不支持",
+            status_code=status.HTTP_404_NOT_FOUND,
+            error_code="MODEL_NOT_FOUND"
+        )
+
+
+class ConfigurationError(CustomException):
+    """配置错误"""
+    def __init__(self, message: str):
+        super().__init__(
+            message=f"配置错误: {message}",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            error_code="CONFIGURATION_ERROR"
+        )
+
+
 async def custom_exception_handler(request: Request, exc: CustomException):
     """自定义异常处理器"""
     logger.error(f"自定义异常: {exc.error_code} - {exc.message}")

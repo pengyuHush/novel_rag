@@ -1,11 +1,12 @@
 """
-Token计数工具
-用于估算文本的Token数量
+Token计数器
+
+使用tiktoken库精确计算Token数量
 """
 
-import tiktoken
 import logging
-from typing import List, Optional
+from typing import List, Dict, Optional
+import tiktoken
 
 logger = logging.getLogger(__name__)
 
@@ -13,25 +14,19 @@ logger = logging.getLogger(__name__)
 class TokenCounter:
     """Token计数器"""
     
-    def __init__(self, model: str = "gpt-4"):
-        """
-        初始化Token计数器
-        
-        Args:
-            model: 模型名称（用于选择tokenizer）
-        """
+    def __init__(self):
+        """初始化Token计数器"""
+        # 智谱AI使用的tokenizer（与OpenAI兼容）
         try:
-            # 智谱AI的GLM系列模型使用类似GPT-4的tokenizer
-            self.encoding = tiktoken.encoding_for_model(model)
-            logger.debug(f"✅ Token计数器初始化完成 (model: {model})")
-        except KeyError:
-            # 如果模型不支持，使用cl100k_base编码（GPT-4默认）
             self.encoding = tiktoken.get_encoding("cl100k_base")
-            logger.warning(f"⚠️ 模型 '{model}' 不支持，使用默认编码")
+            logger.info("✅ Token计数器初始化成功")
+        except Exception as e:
+            logger.warning(f"⚠️ tiktoken初始化失败，使用估算方法: {e}")
+            self.encoding = None
     
     def count_tokens(self, text: str) -> int:
         """
-        计算文本的Token数量
+        计算单个文本的Token数量
         
         Args:
             text: 文本内容
@@ -42,154 +37,143 @@ class TokenCounter:
         if not text:
             return 0
         
-        try:
-            tokens = self.encoding.encode(text)
-            return len(tokens)
-        except Exception as e:
-            logger.error(f"❌ Token计数失败: {e}")
-            # 回退到简单估算：平均每个中文字符约1.5 token
-            return int(len(text) * 1.5)
+        if self.encoding:
+            try:
+                return len(self.encoding.encode(text))
+            except Exception as e:
+                logger.warning(f"⚠️ Token计数失败，使用估算: {e}")
+        
+        # 备用估算方法：中文约0.5 token/字，英文约0.25 token/字符
+        chinese_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+        other_chars = len(text) - chinese_chars
+        return int(chinese_chars * 0.5 + other_chars * 0.25)
     
-    def count_messages_tokens(self, messages: List[dict]) -> int:
+    def count_messages_tokens(
+        self,
+        messages: List[Dict[str, str]],
+        model: str = "glm-4"
+    ) -> int:
         """
-        计算消息列表的Token数量（包含格式化开销）
+        计算消息列表的Token数量（Chat API格式）
         
         Args:
-            messages: 消息列表 [{"role": "user", "content": "..."}]
+            messages: 消息列表，格式为 [{"role": "user", "content": "..."}]
+            model: 模型名称
         
         Returns:
             int: Token数量
         """
-        num_tokens = 0
+        total_tokens = 0
+        
+        # 每条消息的固定开销（角色标记等）
+        tokens_per_message = 3
+        tokens_per_name = 1
         
         for message in messages:
-            # 每条消息的基础开销（role、content等）
-            num_tokens += 4  # 每条消息约4个token的格式化开销
+            total_tokens += tokens_per_message
             
             for key, value in message.items():
                 if isinstance(value, str):
-                    num_tokens += self.count_tokens(value)
-                # role字段约1个token
-                if key == "role":
-                    num_tokens += 1
+                    total_tokens += self.count_tokens(value)
+                    if key == "name":
+                        total_tokens += tokens_per_name
         
-        # 对话的整体开销
-        num_tokens += 2
+        # API调用的固定开销
+        total_tokens += 3
         
-        return num_tokens
+        return total_tokens
     
-    def estimate_cost(
-        self,
-        prompt_tokens: int,
-        completion_tokens: int,
-        model: str = "glm-4"
-    ) -> float:
+    def estimate_embedding_tokens(self, texts: List[str]) -> int:
         """
-        估算API调用成本（人民币）
+        估算向量化的Token消耗
         
         Args:
-            prompt_tokens: 输入token数
-            completion_tokens: 输出token数
+            texts: 文本列表
+        
+        Returns:
+            int: 总Token数量
+        """
+        return sum(self.count_tokens(text) for text in texts)
+    
+    def calculate_cost(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        model: str = "GLM-4.5-Air"
+    ) -> float:
+        """
+        计算Token成本（元）
+        
+        Args:
+            input_tokens: 输入Token数
+            output_tokens: 输出Token数
             model: 模型名称
         
         Returns:
-            float: 估算成本（元）
+            float: 成本（元）
         """
-        # 智谱AI定价（元/百万Token）- 基于官方文档
-        # 参考: https://open.bigmodel.cn/pricing
-        pricing = {
-            # 免费模型
-            "GLM-4.5-Flash": {"input": 0.0, "output": 0.0},
-            "GLM-4-Flash-250414": {"input": 0.0, "output": 0.0},
-            # 高性价比模型
-            "GLM-4.5-Air": {"input": 1.0, "output": 1.0},
-            "GLM-4.5-AirX": {"input": 1.0, "output": 1.0},
-            "GLM-4-Air-250414": {"input": 1.0, "output": 1.0},
-            # 极速模型
-            "GLM-4.5-X": {"input": 5.0, "output": 5.0},
-            "GLM-4-AirX": {"input": 1.0, "output": 1.0},
-            "GLM-4-FlashX-250414": {"input": 0.1, "output": 0.1},
-            # 高性能模型
-            "GLM-4.5": {"input": 5.0, "output": 5.0},
-            "GLM-4-Plus": {"input": 50.0, "output": 50.0},
-            "GLM-4.6": {"input": 10.0, "output": 10.0},
-            # 超长上下文
-            "GLM-4-Long": {"input": 100.0, "output": 100.0},
-            # 视觉模型
-            "GLM-4.5V": {"input": 10.0, "output": 10.0},
-            "GLM-4V": {"input": 10.0, "output": 10.0},
-            # 向量模型
-            "Embedding-3": {"input": 0.5, "output": 0.0},
-        }
+        from app.core.config import settings
         
-        # 获取模型定价，默认使用GLM-4.5-Air
-        model_pricing = pricing.get(model, pricing.get("GLM-4.5-Air", {"input": 1.0, "output": 1.0}))
+        # 获取模型价格
+        model_meta = settings.model_metadata.get(model, {})
+        price_input = model_meta.get('price_input', 0.001)  # 默认0.001元/1K tokens
+        price_output = model_meta.get('price_output', 0.001)
         
-        input_cost = (prompt_tokens / 1_000_000) * model_pricing["input"]
-        output_cost = (completion_tokens / 1_000_000) * model_pricing["output"]
+        # 计算成本（价格是每1000 tokens）
+        cost = (input_tokens * price_input + output_tokens * price_output) / 1000.0
         
-        return input_cost + output_cost
+        return cost
     
-    def split_text_by_tokens(
+    def get_token_stats_summary(
         self,
-        text: str,
-        max_tokens: int,
-        overlap: int = 0
-    ) -> List[str]:
+        input_tokens: int,
+        output_tokens: int,
+        model: str = "GLM-4.5-Air"
+    ) -> Dict:
         """
-        按Token数分割文本
+        获取Token统计摘要
         
         Args:
-            text: 文本内容
-            max_tokens: 每块最大token数
-            overlap: 重叠token数
+            input_tokens: 输入Token数
+            output_tokens: 输出Token数
+            model: 模型名称
         
         Returns:
-            List[str]: 分割后的文本块
+            Dict: 包含total_tokens、cost等信息的摘要
         """
-        if not text:
-            return []
+        total_tokens = input_tokens + output_tokens
+        cost = self.calculate_cost(input_tokens, output_tokens, model)
         
-        try:
-            # 编码文本
-            tokens = self.encoding.encode(text)
-            
-            # 分块
-            chunks = []
-            start = 0
-            
-            while start < len(tokens):
-                # 确定结束位置
-                end = min(start + max_tokens, len(tokens))
-                
-                # 解码当前块
-                chunk_tokens = tokens[start:end]
-                chunk_text = self.encoding.decode(chunk_tokens)
-                chunks.append(chunk_text)
-                
-                # 移动到下一块（考虑重叠）
-                start = end - overlap
-                if start >= len(tokens):
-                    break
-            
-            logger.debug(f"✅ 文本分块完成: {len(chunks)} 块")
-            return chunks
-            
-        except Exception as e:
-            logger.error(f"❌ 文本分块失败: {e}")
-            # 回退到简单分割
-            chunk_size = int(max_tokens / 1.5)  # 估算字符数
-            return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+        return {
+            'input_tokens': input_tokens,
+            'output_tokens': output_tokens,
+            'total_tokens': total_tokens,
+            'cost': round(cost, 6),
+            'model': model
+        }
 
 
-# 全局Token计数器实例
+# 全局实例
 _token_counter: Optional[TokenCounter] = None
 
 
-def get_token_counter(model: str = "gpt-4") -> TokenCounter:
+def get_token_counter() -> TokenCounter:
     """获取全局Token计数器实例（单例）"""
     global _token_counter
     if _token_counter is None:
-        _token_counter = TokenCounter(model=model)
+        _token_counter = TokenCounter()
     return _token_counter
 
+
+def count_tokens(text: str) -> int:
+    """
+    便捷方法：计算文本Token数量
+    
+    Args:
+        text: 文本内容
+    
+    Returns:
+        int: Token数量
+    """
+    counter = get_token_counter()
+    return counter.count_tokens(text)

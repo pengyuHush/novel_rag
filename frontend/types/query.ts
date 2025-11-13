@@ -55,11 +55,28 @@ export interface Citation {
   score?: number;
 }
 
+export interface Contradiction {
+  type: string;
+  earlyDescription: string;
+  earlyChapter: number;
+  lateDescription: string;
+  lateChapter: number;
+  analysis: string;
+  confidence: 'high' | 'medium' | 'low';
+}
+
 export interface TokenStats {
   total_tokens: number;
   embedding_tokens?: number;
   prompt_tokens?: number;
   completion_tokens?: number;
+  self_rag_tokens?: number;
+  by_model?: Record<string, {
+    input_tokens?: number;
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  }>;
 }
 
 export interface QueryRequest {
@@ -68,12 +85,25 @@ export interface QueryRequest {
   model?: ModelType;
 }
 
+export interface GraphInfo {
+  entities: string[];
+  relations: Array<{
+    source: string;
+    target: string;
+    type: string;
+  }>;
+}
+
 export interface QueryResponse {
   query_id: number;
   answer: string;
   citations: Citation[];
+  graph_info?: GraphInfo;
+  contradictions?: Contradiction[];
   token_stats: TokenStats;
   response_time: number;
+  retrieve_time?: number;
+  generate_time?: number;
   confidence: Confidence;
   model: string;
   timestamp: string;
@@ -87,6 +117,7 @@ export interface StreamMessage {
   is_delta?: boolean;
   done?: boolean;
   citations?: Citation[];
+  contradictions?: Contradiction[];
   error?: string;
 }
 

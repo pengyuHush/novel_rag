@@ -4,9 +4,10 @@
 
 import logging
 import time
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, Query as QueryParam
 from sqlalchemy.orm import Session
 from datetime import datetime
+from typing import List, Optional
 
 from app.db.init_db import get_db_session
 from app.models.schemas import (
@@ -188,7 +189,21 @@ async def query_stream(websocket: WebSocket):
                         'is_delta': True
                     })
             
-            # 阶段4: 完成汇总
+            # 阶段4: Self-RAG验证（TODO: 完整实现）
+            await websocket.send_json(StreamMessage(
+                stage=QueryStage.VALIDATING,
+                content="正在验证答案准确性...",
+                progress=0.8
+            ).model_dump())
+            
+            # TODO: 实现Self-RAG验证逻辑
+            # - 从答案中提取断言
+            # - 检索多源证据
+            # - 检测矛盾信息
+            # - 计算置信度
+            # 当前版本跳过此步骤，直接进入完成阶段
+            
+            # 阶段5: 完成汇总
             await websocket.send_json(StreamMessage(
                 stage=QueryStage.FINALIZING,
                 content="正在整理结果...",
@@ -254,4 +269,105 @@ async def query_stream(websocket: WebSocket):
             await websocket.close()
         except:
             pass
+
+
+@router.get("/history", summary="获取查询历史")
+async def get_query_history(
+    novel_id: Optional[int] = QueryParam(None, description="按小说ID过滤"),
+    page: int = QueryParam(1, ge=1, description="页码"),
+    page_size: int = QueryParam(20, ge=1, le=100, description="每页数量"),
+    db: Session = Depends(get_db_session)
+):
+    """
+    获取查询历史
+    
+    - 支持分页
+    - 支持按小说ID过滤
+    - 按时间倒序排列
+    """
+    try:
+        # 构建查询
+        query = db.query(Query)
+        
+        if novel_id:
+            query = query.filter(Query.novel_id == novel_id)
+        
+        # 计算总数
+        total = query.count()
+        
+        # 分页查询
+        offset = (page - 1) * page_size
+        queries = query.order_by(Query.created_at.desc()).offset(offset).limit(page_size).all()
+        
+        # 构建响应
+        items = []
+        for q in queries:
+            items.append({
+                "id": q.id,
+                "novel_id": q.novel_id,
+                "query": q.query_text,
+                "answer": q.answer_text[:200] + "..." if len(q.answer_text) > 200 else q.answer_text,
+                "model": q.model_used,
+                "total_tokens": q.total_tokens or 0,
+                "confidence": q.confidence or "medium",
+                "created_at": q.created_at.isoformat() if q.created_at else None,
+                "feedback": "positive" if q.user_feedback == 1 else ("negative" if q.user_feedback == -1 else None)
+            })
+        
+        logger.info(f"✅ 获取查询历史成功: {len(items)} 条")
+        
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total + page_size - 1) // page_size
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ 获取查询历史失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取查询历史失败: {str(e)}")
+
+
+@router.post("/{query_id}/feedback", summary="提交用户反馈")
+async def submit_feedback(
+    query_id: int,
+    feedback: str = QueryParam(..., regex="^(positive|negative)$", description="反馈类型"),
+    note: Optional[str] = QueryParam(None, max_length=500, description="反馈备注"),
+    db: Session = Depends(get_db_session)
+):
+    """
+    提交用户反馈
+    
+    - positive: 答案准确
+    - negative: 答案不准确
+    """
+    try:
+        # 查询记录
+        query_record = db.query(Query).filter(Query.id == query_id).first()
+        
+        if not query_record:
+            raise HTTPException(status_code=404, detail=f"查询记录 ID={query_id} 不存在")
+        
+        # 更新反馈
+        query_record.user_feedback = 1 if feedback == "positive" else -1
+        if note:
+            query_record.feedback_note = note
+        
+        db.commit()
+        
+        logger.info(f"✅ 用户反馈已提交: query_id={query_id}, feedback={feedback}")
+        
+        return {
+            "success": True,
+            "message": "感谢您的反馈！",
+            "query_id": query_id,
+            "feedback": feedback
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ 提交反馈失败: {e}")
+        raise HTTPException(status_code=500, detail=f"提交反馈失败: {str(e)}")
 

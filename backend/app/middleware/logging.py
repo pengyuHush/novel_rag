@@ -3,12 +3,13 @@
 """
 
 import time
-import logging
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from typing import Callable
 
-logger = logging.getLogger(__name__)
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -22,39 +23,76 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         # 提取请求信息
         method = request.method
         url = str(request.url)
+        path = request.url.path
         client_host = request.client.host if request.client else "unknown"
         
-        logger.info(f"➡️ {method} {url} from {client_host}")
+        # 使用结构化日志记录请求
+        logger.info(
+            f"Request started: {method} {path}",
+            method=method,
+            path=path,
+            url=url,
+            client_ip=client_host,
+            user_agent=request.headers.get("user-agent", "unknown")
+        )
         
         try:
             # 处理请求
             response = await call_next(request)
             
-            # 计算处理时间
-            process_time = time.time() - start_time
+            # 计算处理时间（毫秒）
+            duration_ms = (time.time() - start_time) * 1000
             
             # 记录响应
             status_code = response.status_code
-            log_message = f"⬅️ {method} {url} - {status_code} ({process_time:.3f}s)"
             
             # 根据状态码选择日志级别
             if status_code >= 500:
-                logger.error(log_message)
+                logger.error(
+                    f"Request completed: {method} {path} - {status_code}",
+                    method=method,
+                    path=path,
+                    status_code=status_code,
+                    duration_ms=round(duration_ms, 2),
+                    client_ip=client_host
+                )
             elif status_code >= 400:
-                logger.warning(log_message)
+                logger.warning(
+                    f"Request completed: {method} {path} - {status_code}",
+                    method=method,
+                    path=path,
+                    status_code=status_code,
+                    duration_ms=round(duration_ms, 2),
+                    client_ip=client_host
+                )
             else:
-                logger.info(log_message)
+                logger.info(
+                    f"Request completed: {method} {path} - {status_code}",
+                    method=method,
+                    path=path,
+                    status_code=status_code,
+                    duration_ms=round(duration_ms, 2),
+                    client_ip=client_host
+                )
             
             # 添加处理时间到响应头
-            response.headers["X-Process-Time"] = str(process_time)
+            response.headers["X-Process-Time"] = str(duration_ms)
             
             return response
             
         except Exception as e:
             # 计算处理时间
-            process_time = time.time() - start_time
+            duration_ms = (time.time() - start_time) * 1000
             
             # 记录异常
-            logger.error(f"❌ {method} {url} - Exception: {str(e)} ({process_time:.3f}s)")
+            logger.exception(
+                f"Request failed: {method} {path} - {type(e).__name__}",
+                method=method,
+                path=path,
+                duration_ms=round(duration_ms, 2),
+                client_ip=client_host,
+                error_type=type(e).__name__,
+                error_message=str(e)
+            )
             raise
 

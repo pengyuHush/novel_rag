@@ -154,31 +154,37 @@ class QueryRequest(BaseModel):
 
 class Citation(BaseModel):
     """原文引用"""
-    chapter_num: int
-    chapter_title: Optional[str] = None
-    text: str
-    score: Optional[float] = None
+    model_config = ConfigDict(populate_by_name=True)
+    
+    chapter_num: int = Field(..., alias="chapterNum", description="章节号")
+    chapter_title: Optional[str] = Field(None, alias="chapterTitle", description="章节标题")
+    text: str = Field(..., description="引用文本")
+    score: Optional[float] = Field(None, description="相关性分数")
 
 
 class Contradiction(BaseModel):
     """矛盾检测结果"""
-    type: str
-    early_description: str
-    early_chapter: int
-    late_description: str
-    late_chapter: int
-    analysis: str
-    confidence: Confidence
+    model_config = ConfigDict(populate_by_name=True)
+    
+    type: str = Field(..., description="矛盾类型")
+    early_description: str = Field(..., alias="earlyDescription", description="早期描述")
+    early_chapter: int = Field(..., alias="earlyChapter", description="早期章节")
+    late_description: str = Field(..., alias="lateDescription", description="后期描述")
+    late_chapter: int = Field(..., alias="lateChapter", description="后期章节")
+    analysis: str = Field(..., description="矛盾分析")
+    confidence: Confidence = Field(..., description="置信度")
 
 
 class TokenStats(BaseModel):
     """Token统计"""
-    total_tokens: int
-    embedding_tokens: int = 0
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    self_rag_tokens: int = 0
-    by_model: Dict[str, Dict[str, int]] = {}
+    model_config = ConfigDict(populate_by_name=True)
+    
+    total_tokens: int = Field(..., alias="totalTokens", description="总Token数")
+    embedding_tokens: int = Field(0, alias="embeddingTokens", description="Embedding消耗的Token")
+    prompt_tokens: int = Field(0, alias="promptTokens", description="提示词Token数")
+    completion_tokens: int = Field(0, alias="completionTokens", description="生成内容Token数")
+    self_rag_tokens: int = Field(0, alias="selfRagTokens", description="Self-RAG验证额外消耗的Token")
+    by_model: Dict[str, Dict[str, int]] = Field(default_factory=dict, alias="byModel", description="按模型分类的Token统计")
 
 
 class QueryResponse(BaseModel):

@@ -36,6 +36,82 @@ class Settings(BaseSettings):
         "GLM-4-Long",
     ]
     
+    # 模型元数据（用于前端展示和成本计算）
+    model_metadata: dict = {
+        "GLM-4.5-Flash": {
+            "name": "GLM-4.5-Flash",
+            "category": "免费",
+            "max_tokens": 8192,
+            "price_input": 0.0,  # 免费
+            "price_output": 0.0,
+            "description": "免费模型，适合日常查询"
+        },
+        "GLM-4-Flash-250414": {
+            "name": "GLM-4-Flash",
+            "category": "免费",
+            "max_tokens": 128000,
+            "price_input": 0.0,
+            "price_output": 0.0,
+            "description": "免费模型，支持超长上下文"
+        },
+        "GLM-4.5-Air": {
+            "name": "GLM-4.5-Air",
+            "category": "高性价比",
+            "max_tokens": 8192,
+            "price_input": 0.001,  # 元/千tokens
+            "price_output": 0.001,
+            "description": "推荐使用，性价比最高"
+        },
+        "GLM-4.5-AirX": {
+            "name": "GLM-4.5-AirX",
+            "category": "高性价比",
+            "max_tokens": 8192,
+            "price_input": 0.001,
+            "price_output": 0.001,
+            "description": "高性价比，增强版"
+        },
+        "GLM-4.5-X": {
+            "name": "GLM-4.5-X",
+            "category": "极速",
+            "max_tokens": 8192,
+            "price_input": 0.01,
+            "price_output": 0.01,
+            "description": "极速响应"
+        },
+        "GLM-4.5": {
+            "name": "GLM-4.5",
+            "category": "高性能",
+            "max_tokens": 8192,
+            "price_input": 0.05,
+            "price_output": 0.05,
+            "description": "高性能模型"
+        },
+        "GLM-4-Plus": {
+            "name": "GLM-4-Plus",
+            "category": "高性能",
+            "max_tokens": 128000,
+            "price_input": 0.05,
+            "price_output": 0.05,
+            "description": "顶级性能，超长上下文"
+        },
+        "GLM-4.6": {
+            "name": "GLM-4.6",
+            "category": "高性能",
+            "max_tokens": 8192,
+            "price_input": 0.1,
+            "price_output": 0.1,
+            "description": "最新旗舰模型"
+        },
+        "GLM-4-Long": {
+            "name": "GLM-4-Long",
+            "category": "超长上下文",
+            "max_tokens": 1000000,
+            "price_input": 0.001,
+            "price_output": 0.001,
+            "description": "百万tokens超长上下文"
+        },
+    }
+    
     # 应用配置
     app_name: str = Field(default="网络小说智能问答系统", env="APP_NAME")
     app_version: str = Field(default="0.1.0", env="APP_VERSION")
