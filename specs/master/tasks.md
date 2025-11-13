@@ -58,16 +58,16 @@
 
 ### 任务清单
 
-- [ ] T001 创建项目根目录结构 (backend/, frontend/, docker-compose.yml)
-- [ ] T002 [P] 初始化后端FastAPI项目 (backend/app/main.py, backend/requirements.txt)
-- [ ] T003 [P] 初始化前端Next.js项目 (frontend/src/app/page.tsx, frontend/package.json)
-- [ ] T004 配置Python虚拟环境 (backend/venv/, backend/.env.example)
-- [ ] T005 [P] 配置智谱AI SDK (backend/app/core/config.py, 添加zhipuai依赖)
-- [ ] T006 [P] 配置ESLint和Prettier (frontend/.eslintrc.json, frontend/.prettierrc)
-- [ ] T007 创建数据存储目录结构 (backend/data/chromadb/, backend/data/sqlite/, backend/data/graphs/, backend/data/uploads/)
-- [ ] T008 配置Git忽略规则 (.gitignore: venv/, .env, data/, node_modules/)
-- [ ] T009 [P] 编写README快速开始指南 (README.md, backend/README.md, frontend/README.md)
-- [ ] T010 [P] 配置Docker Compose (docker-compose.yml: backend和frontend服务定义)
+- [X] T001 创建项目根目录结构 (backend/, frontend/, docker-compose.yml)
+- [X] T002 [P] 初始化后端FastAPI项目 (backend/app/main.py, backend/requirements.txt)
+- [X] T003 [P] 初始化前端Next.js项目 (frontend/src/app/page.tsx, frontend/package.json)
+- [X] T004 配置Python虚拟环境 (backend/venv/, backend/.env.example)
+- [X] T005 [P] 配置智谱AI SDK (backend/app/core/config.py, 添加zhipuai依赖)
+- [X] T006 [P] 配置ESLint和Prettier (frontend/.eslintrc.json, frontend/.prettierrc)
+- [X] T007 创建数据存储目录结构 (backend/data/chromadb/, backend/data/sqlite/, backend/data/graphs/, backend/data/uploads/)
+- [X] T008 配置Git忽略规则 (.gitignore: venv/, .env, data/, node_modules/)
+- [X] T009 [P] 编写README快速开始指南 (README.md, backend/README.md, frontend/README.md)
+- [X] T010 [P] 配置Docker Compose (docker-compose.yml: backend和frontend服务定义)
 
 ### 验收标准
 
@@ -87,28 +87,28 @@
 
 ### 数据库与存储
 
-- [ ] T011 设计SQLite数据库Schema (backend/app/db/schema.sql: novels, chapters, entities, queries, token_stats表)
-- [ ] T012 实现SQLAlchemy模型 (backend/app/models/database.py)
-- [ ] T013 创建数据库初始化脚本 (backend/app/db/init_db.py)
-- [ ] T014 [P] 配置ChromaDB客户端 (backend/app/core/chromadb_client.py)
-- [ ] T015 [P] 实现文件存储工具类 (backend/app/utils/file_storage.py)
+- [X] T011 设计SQLite数据库Schema (backend/app/db/schema.sql: novels, chapters, entities, queries, token_stats表)
+- [X] T012 实现SQLAlchemy模型 (backend/app/models/database.py)
+- [X] T013 创建数据库初始化脚本 (backend/app/db/init_db.py)
+- [X] T014 [P] 配置ChromaDB客户端 (backend/app/core/chromadb_client.py)
+- [X] T015 [P] 实现文件存储工具类 (backend/app/utils/file_storage.py)
 
 ### API基础设施
 
-- [ ] T016 配置CORS中间件 (backend/app/main.py: add_middleware(CORSMiddleware))
-- [ ] T017 [P] 实现全局异常处理 (backend/app/core/error_handlers.py)
-- [ ] T018 [P] 配置OpenAPI文档 (backend/app/main.py: title, description, version)
-- [ ] T019 [P] 实现请求日志中间件 (backend/app/middleware/logging.py)
-- [ ] T020 创建健康检查端点 (backend/app/api/health.py: GET /health)
+- [X] T016 配置CORS中间件 (backend/app/main.py: add_middleware(CORSMiddleware))
+- [X] T017 [P] 实现全局异常处理 (backend/app/core/error_handlers.py)
+- [X] T018 [P] 配置OpenAPI文档 (backend/app/main.py: title, description, version)
+- [X] T019 [P] 实现请求日志中间件 (backend/app/middleware/logging.py)
+- [X] T020 创建健康检查端点 (backend/app/api/health.py: GET /health)
 
 ### 智谱AI集成
 
-- [ ] T021 封装智谱AI客户端 (backend/app/services/zhipu_client.py: ZhipuAIClient类)
-- [ ] T022 实现Embedding-3向量化 (backend/app/services/zhipu_client.py: embed_texts方法)
-- [ ] T023 实现GLM-4系列调用封装 (backend/app/services/zhipu_client.py: chat_completion方法)
-- [ ] T024 实现流式输出封装 (backend/app/services/zhipu_client.py: chat_completion_stream方法)
-- [ ] T025 实现API调用重试机制 (backend/app/services/zhipu_client.py: 指数退避重试)
-- [ ] T026 实现Token统计工具 (backend/app/utils/token_counter.py)
+- [X] T021 封装智谱AI客户端 (backend/app/services/zhipu_client.py: ZhipuAIClient类)
+- [X] T022 实现Embedding-3向量化 (backend/app/services/zhipu_client.py: embed_texts方法)
+- [X] T023 实现GLM-4系列调用封装 (backend/app/services/zhipu_client.py: chat_completion方法)
+- [X] T024 实现流式输出封装 (backend/app/services/zhipu_client.py: chat_completion_stream方法)
+- [X] T025 实现API调用重试机制 (backend/app/services/zhipu_client.py: 指数退避重试)
+- [X] T026 实现Token统计工具 (backend/app/utils/token_counter.py)
 
 ### 前端基础组件
 

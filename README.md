@@ -1,308 +1,289 @@
-# Novel RAG Spec Kit
+# 网络小说智能问答系统
 
-一个基于宪章驱动的项目规范和质量管理工具包，确保代码质量、测试标准、用户体验一致性和性能要求。
+基于RAG（Retrieval-Augmented Generation）架构的网络小说智能问答系统，支持千万字级长篇小说的准确索引、检索和智能问答。
 
-## 概述
+## ✨ 核心特性
 
-本项目采用**宪章驱动开发**（Constitution-Driven Development）方法，通过明确的原则和标准指导所有开发活动。
+- 📚 **小说管理**: 支持TXT/EPUB格式上传，自动解析章节结构
+- 🔍 **智能问答**: 基于GraphRAG和Self-RAG的高准确率问答系统
+- 📖 **在线阅读**: 分章节浏览，支持10万字超长章节
+- 🕸️ **知识图谱**: 角色关系自动提取，时序演变分析
+- 🎭 **诡计识别**: 检测叙述诡计、矛盾信息、非线性叙事
+- 📊 **可视化**: 角色关系图、时间线可视化
+- 💰 **成本控制**: 详细Token统计，多模型切换
 
-### 核心原则
+## 🏗️ 技术栈
 
-我们的项目宪章定义了四大核心原则：
+### 前端
+- React 18 + Next.js 14 + TypeScript
+- Ant Design 5.x (UI组件库)
+- Zustand + TanStack Query (状态管理)
+- Plotly.js (数据可视化)
 
-1. **代码质量卓越** - 一致的编码标准、强制代码审查、复杂度控制
-2. **全面测试标准** - 80%+覆盖率、测试金字塔平衡、关键逻辑100%覆盖
-3. **用户体验一致性** - 统一设计系统、WCAG 2.1 AA可访问性、响应式设计
-4. **性能要求** - Core Web Vitals目标、API响应时间标准、可扩展性设计
+### 后端
+- FastAPI 0.104+ + Python 3.10+
+- LangChain (RAG编排)
+- ChromaDB 0.4+ (向量数据库)
+- SQLite 3.40+ (元数据库)
+- NetworkX 3.0+ (知识图谱)
+- HanLP 2.1+ (中文NLP)
 
-详见 [项目宪章](.specify/memory/constitution.md)。
+### AI服务
+- 智谱AI GLM-4系列 (生成模型)
+- 智谱AI Embedding-3 (向量化模型)
 
-## 目录结构
+## 🚀 快速开始
+
+### 前置要求
+
+- Python 3.12+ 
+- Poetry 1.7+ ([安装指南](https://python-poetry.org/docs/#installation))
+- Node.js 18+
+- 智谱AI API Key ([获取地址](https://open.bigmodel.cn/))
+
+### 方式一：本地开发模式
+
+#### 1. 克隆仓库
+
+```bash
+git clone <repository-url>
+cd novel_rag_spec_kit
+```
+
+#### 2. 后端设置
+
+```bash
+cd backend
+
+# 使用Poetry安装依赖
+poetry install
+
+# 配置环境变量
+cp .env.example .env
+# 编辑 .env 文件，填写智谱AI API Key
+
+# 启动后端服务
+poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# 或者先激活虚拟环境
+poetry shell
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+后端服务将在 http://localhost:8000 启动
+- API文档: http://localhost:8000/docs
+- 健康检查: http://localhost:8000/health
+
+#### 3. 前端设置
+
+```bash
+cd frontend
+
+# 安装依赖
+npm install
+
+# 启动开发服务器
+npm run dev
+```
+
+前端应用将在 http://localhost:3000 启动
+
+### 方式二：Docker Compose (推荐)
+
+```bash
+# 配置环境变量
+cp backend/.env.example backend/.env
+# 编辑 backend/.env 文件，填写智谱AI API Key
+
+# 启动所有服务
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f
+
+# 停止服务
+docker-compose down
+```
+
+- 前端: http://localhost:3000
+- 后端: http://localhost:8000
+- API文档: http://localhost:8000/docs
+
+## 📖 使用指南
+
+### 1. 上传小说
+
+1. 访问 http://localhost:3000
+2. 进入"小说管理"页面
+3. 点击"上传小说"，选择TXT或EPUB文件
+4. 等待系统自动解析和索引（千万字小说约需3-5小时）
+
+### 2. 智能问答
+
+1. 索引完成后，进入"智能问答"页面
+2. 选择小说和AI模型
+3. 输入问题，系统将实时流式返回答案
+4. 查看引用来源、矛盾检测结果、Token消耗统计
+
+### 3. 在线阅读
+
+1. 进入"在线阅读"页面
+2. 选择小说，浏览章节列表
+3. 点击章节进行阅读
+4. 使用搜索功能快速定位章节
+
+### 4. 知识图谱
+
+1. 进入"知识图谱"页面
+2. 查看角色关系图（力导向图）
+3. 查看时间线（时序可视化）
+4. 使用时间滑块查看关系演变
+
+## 📊 性能指标
+
+### 准确率目标
+
+- 事实查询准确率: MVP 80% → 优化后 92%+
+- 诡计识别率: MVP 72% → 优化后 88%+
+- 矛盾检测召回率: MVP 77% → 优化后 90%+
+
+### 响应时间
+
+- 简单查询: < 30秒
+- 复杂查询: < 3分钟
+- 章节切换: < 1秒
+- 前端首屏加载: < 1.5秒
+
+### 资源占用
+
+- 内存峰值: < 8GB (无需GPU)
+- 存储空间: 50GB+ (索引数据)
+
+## 🛠️ 开发指南
+
+### 项目结构
 
 ```
 novel_rag_spec_kit/
-├── .specify/
-│   ├── memory/
-│   │   └── constitution.md       # 项目宪章（核心治理文档）
-│   ├── templates/
-│   │   ├── plan-template.md      # 计划文档模板
-│   │   ├── spec-template.md      # 规范文档模板
-│   │   ├── tasks-template.md     # 任务分解模板
-│   │   └── commands/             # 命令模板
-│   │       ├── constitution.md
-│   │       ├── plan.md
-│   │       ├── spec.md
-│   │       └── tasks.md
-│   ├── plans/                    # 项目计划文档
-│   ├── specs/                    # 详细规范文档
-│   └── tasks/                    # 任务分解文档
-└── README.md
+├── backend/              # 后端FastAPI服务
+│   ├── app/
+│   │   ├── api/         # API路由
+│   │   ├── core/        # 核心配置
+│   │   ├── services/    # 业务逻辑
+│   │   ├── models/      # 数据模型
+│   │   ├── utils/       # 工具函数
+│   │   └── main.py      # 应用入口
+│   ├── data/            # 数据存储
+│   │   ├── chromadb/    # 向量数据库
+│   │   ├── sqlite/      # SQLite数据库
+│   │   ├── graphs/      # 知识图谱
+│   │   └── uploads/     # 上传文件
+│   ├── tests/           # 测试
+│   └── requirements.txt # Python依赖
+├── frontend/            # 前端Next.js应用
+│   ├── app/            # 页面路由
+│   ├── components/     # UI组件
+│   ├── lib/           # 工具库
+│   ├── store/         # 状态管理
+│   └── types/         # TypeScript类型
+├── specs/             # 设计文档
+└── docker-compose.yml # Docker配置
 ```
 
-## 使用指南
-
-### 1. 创建或更新宪章
+### 运行测试
 
 ```bash
-# 使用命令创建/更新宪章
-/speckit.constitution [描述你的原则和要求]
+# 后端测试
+cd backend
+pytest tests/ -v --cov=app --cov-report=html
+
+# 前端测试
+cd frontend
+npm run test
 ```
 
-宪章是项目的"法律"，定义了不可妥协的原则和标准。
-
-### 2. 创建项目计划
+### 代码规范
 
 ```bash
-# 创建新功能的战略计划
-/speckit.plan [功能名称和高层次需求]
-```
+# Python代码格式化
+cd backend
+black app/
+flake8 app/
 
-计划文档提供：
-- 战略目标和成功指标
-- 高层次架构设计
-- 实施阶段划分
-- 风险和依赖管理
-- 宪章合规检查
-
-### 3. 编写详细规范
-
-```bash
-# 创建详细的技术规范
-/speckit.spec [功能详细需求]
-```
-
-规范文档包含：
-- 详细功能需求和验收标准
-- 非功能需求（性能、可访问性、安全等）
-- 用户体验设计
-- 技术设计（API、数据模型、状态管理）
-- 全面测试要求
-
-### 4. 分解为可执行任务
-
-```bash
-# 将规范分解为任务
-/speckit.tasks [基于规范的任务分解]
-```
-
-任务文档提供：
-- 原子化、可执行的任务列表
-- 按类型分类（开发、测试、设计、性能、文档等）
-- 每个任务的宪章合规检查清单
-- 依赖关系和关键路径
-- 进度跟踪
-
-## 工作流程
-
-### 标准开发流程
-
-```
-1. 制定宪章 → 2. 创建计划 → 3. 编写规范 → 4. 分解任务 → 5. 实施 → 6. 审查 → 7. 交付
-     ↓              ↓              ↓              ↓           ↓        ↓        ↓
-  原则确立      战略设计      详细设计      任务执行    编码&测试  质量保证  部署
-```
-
-### 质量门禁
-
-每个阶段都有基于宪章的质量门禁：
-
-**计划阶段：**
-- ✅ 所有宪章原则已考虑
-- ✅ 成功指标清晰可衡量
-- ✅ 风险已识别和缓解
-
-**规范阶段：**
-- ✅ 需求完整且无歧义
-- ✅ 性能目标明确
-- ✅ 可访问性设计包含
-- ✅ 测试策略全面
-
-**任务阶段：**
-- ✅ 所有需求映射到任务
-- ✅ 测试任务已包含
-- ✅ 代码审查已安排
-
-**实施阶段：**
-- ✅ 代码覆盖率 ≥ 80%
-- ✅ 圈复杂度 ≤ 10
-- ✅ 代码审查已批准
-- ✅ 性能指标达标
-- ✅ 可访问性测试通过
-
-## 宪章原则详解
-
-### 代码质量卓越
-
-**标准：**
-- 使用 Linter 强制执行（ESLint/Prettier/Black）
-- 所有代码必须代码审查
-- 圈复杂度 ≤ 10
-- 类大小 ≤ 500行
-- 完整的API文档
-
-**工具支持：**
-```bash
-# 代码检查
+# TypeScript代码格式化
+cd frontend
 npm run lint
-
-# 复杂度分析
-npm run complexity
-
-# 文档生成
-npm run docs
+npm run format
 ```
 
-### 全面测试标准
+## 🗺️ 开发路线图
 
-**覆盖率目标：**
-- 单元测试：≥ 80%
-- 关键逻辑：= 100%
-- 集成测试：所有API端点
-- E2E测试：关键用户流程
+### Phase 1: Setup ✅ (已完成)
+- 项目初始化
+- 基础架构搭建
 
-**测试金字塔：**
-- 70% 单元测试（快速、隔离）
-- 20% 集成测试（服务交互）
-- 10% E2E测试（用户流程）
+### Phase 2: Foundational (进行中)
+- 数据库设计
+- API基础设施
+- 智谱AI集成
 
-**工具支持：**
-```bash
-# 运行所有测试
-npm test
+### Phase 3: MVP - 小说管理与基础问答
+- 文件上传与解析
+- 向量索引构建
+- 基础RAG问答
 
-# 测试覆盖率报告
-npm run test:coverage
+### Phase 4-9: 功能增强
+- 在线阅读
+- 知识图谱
+- Self-RAG增强
+- 可视化分析
+- 模型管理
+- Token统计
 
-# 性能测试
-npm run test:perf
-```
+### Phase 10: 打磨优化
+- 性能优化
+- 测试完善
+- 文档补充
 
-### 用户体验一致性
+详见 [tasks.md](specs/master/tasks.md)
 
-**设计系统：**
-- 使用统一的组件库
-- 遵循交互模式
-- 响应式设计（移动/平板/桌面）
+## 📄 文档
 
-**可访问性（WCAG 2.1 AA）：**
-- 键盘导航支持
-- 屏幕阅读器兼容
-- 颜色对比度 ≥ 4.5:1
-- 语义化HTML和ARIA
+- [技术方案](specs/master/plan.md)
+- [数据模型](specs/master/data-model.md)
+- [API合约](specs/master/contracts/openapi.yaml)
+- [研究笔记](specs/master/research.md)
+- [任务清单](specs/master/tasks.md)
 
-**工具支持：**
-```bash
-# 可访问性审计
-npm run a11y
+## 🤝 贡献
 
-# 设计系统文档
-npm run storybook
-```
+欢迎提交Issue和Pull Request！
 
-### 性能要求
+### 开发流程
 
-**Core Web Vitals：**
-- FCP（首次内容绘制）< 1.5s
-- LCP（最大内容绘制）< 2.5s
-- FID（首次输入延迟）< 100ms
-- CLS（累积布局偏移）< 0.1
+1. Fork本仓库
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启Pull Request
 
-**API性能：**
-- p50 < 200ms
-- p95 < 500ms
-- p99 < 1000ms
+## 📝 许可证
 
-**工具支持：**
-```bash
-# 性能分析
-npm run perf
+本项目采用 MIT 许可证
 
-# Lighthouse审计
-npm run lighthouse
+## 🙏 致谢
 
-# 负载测试
-npm run load-test
-```
+- [智谱AI](https://open.bigmodel.cn/) - 提供GLM-4系列和Embedding-3模型
+- [LangChain](https://www.langchain.com/) - RAG框架
+- [ChromaDB](https://www.trychroma.com/) - 向量数据库
+- [HanLP](https://hanlp.hankcs.com/) - 中文NLP工具
 
-## 宪章修订
+## 📧 联系方式
 
-宪章可以随项目演进而更新，但必须遵循正式的修订流程：
-
-1. **提案** - 提供详细理由和影响分析
-2. **讨论** - 团队讨论，至少3个工作日
-3. **投票** - 需2/3核心成员批准
-4. **文档** - 更新版本号和同步影响报告
-5. **传播** - 更新所有依赖文档和通知团队
-
-版本语义化：
-- **MAJOR**：移除或重新定义原则
-- **MINOR**：添加新原则或显著扩展
-- **PATCH**：澄清、措辞改进、错误修复
-
-## 最佳实践
-
-### 规划阶段
-- 在编码前完成计划和规范
-- 涉及所有相关方（工程、设计、产品）
-- 明确定义成功指标
-- 识别技术债务和风险
-
-### 开发阶段
-- 遵循宪章原则，无例外（除非正式批准）
-- 测试先行（TDD）或测试同步
-- 频繁提交，小步迭代
-- 主动进行代码审查
-
-### 审查阶段
-- 使用宪章合规检查清单
-- 自动化质量门禁
-- 性能基准测试
-- 可访问性审计
-
-### 交付阶段
-- 完整的文档更新
-- 回顾和反思
-- 更新知识库
-- 庆祝成功！🎉
-
-## 常见问题
-
-### Q: 宪章原则是否可以有例外？
-
-A: 例外是允许的，但必须：
-- 书面记录理由、影响和时限
-- 获得技术和产品负责人批准
-- 有明确的到期日期
-- 在季度审查中重新评估
-
-### Q: 如果遵守宪章会导致延期怎么办？
-
-A: 宪章原则是长期质量和可维护性的投资。短期速度牺牲不应成为常态。如果确实面临不合理的约束，应该：
-1. 重新评估需求优先级
-2. 调整范围而非质量标准
-3. 如果原则本身不合理，启动宪章修订流程
-
-### Q: 新成员如何学习宪章？
-
-A: 入职流程应包括：
-1. 阅读完整宪章文档
-2. 与团队成员讨论原则背后的理由
-3. 参与代码审查学习实践应用
-4. 确认理解并承诺遵守
-
-## 贡献
-
-欢迎贡献！但请确保：
-- 遵循项目宪章
-- 包含充分的测试
-- 通过代码审查
-- 更新相关文档
-
-## 许可证
-
-[待定]
+如有问题或建议，请通过Issue联系我们。
 
 ---
 
-**记住：宪章不是束缚，而是确保我们构建高质量、可维护、用户友好软件的承诺。** 🚀
+**Status**: Phase 1 Setup ✅ 完成
 
+**Last Updated**: 2025-11-13
