@@ -15,7 +15,7 @@ from app.models.schemas import TokenStatsResponse
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/stats", tags=["statistics"])
+router = APIRouter(prefix="/api/stats", tags=["statistics"])
 
 
 @router.get("/tokens", response_model=TokenStatsResponse)
@@ -84,13 +84,13 @@ async def get_token_stats(
         stats_by_operation = token_stats_service.get_stats_by_operation(db, start_dt, end_dt)
         
         logger.info(
-            f"✅ 获取Token统计成功: {total_stats['total_tokens']} tokens, "
-            f"¥{total_stats['total_cost']:.4f}"
+            f"✅ 获取Token统计成功: {total_stats['totalTokens']} tokens, "
+            f"¥{total_stats['totalCost']:.4f}"
         )
         
         return TokenStatsResponse(
-            total_tokens=total_stats['total_tokens'],
-            total_cost=total_stats['total_cost'],
+            total_tokens=total_stats['totalTokens'],
+            total_cost=total_stats['totalCost'],
             by_model=stats_by_model,
             by_operation=stats_by_operation,
             period=period

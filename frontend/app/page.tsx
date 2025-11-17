@@ -1,85 +1,130 @@
+/**
+ * 智能问答主界面
+ * 包含左侧小说列表、中间查询区域、右侧引用列表
+ */
+
 'use client';
 
-import Link from "next/link";
+import { useState } from 'react';
+import { NovelSidebar } from '@/components/layout/NovelSidebar';
+import { QueryInput } from '@/components/query/QueryInput';
+import { PresetQueries } from '@/components/query/PresetQueries';
+import { QueryStages } from '@/components/query/QueryStages';
+import { TokenStats } from '@/components/query/TokenStats';
+import { ThinkingPanel } from '@/components/query/ThinkingPanel';
+import { CitationList } from '@/components/query/CitationList';
+import { Separator } from '@/components/ui/separator';
+import { UploadModal } from '@/components/novel/UploadModal';
+import { GraphModal } from '@/components/graph/GraphModal';
+import { useQueryStore } from '@/store/queryStore';
+import { useNovelStore } from '@/store/novelStore';
+import { toast } from 'sonner';
+import type { ModelType } from '@/types/api';
+import { useQueryWebSocket } from '@/hooks/useQuery';
 
-export default function Home() {
+export default function HomePage() {
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [graphModalOpen, setGraphModalOpen] = useState(false);
+  const [selectedGraphNovelId, setSelectedGraphNovelId] = useState<number | null>(null);
+  const [queryText, setQueryText] = useState('');
+
+  const { selectedNovelId } = useNovelStore();
+  const {
+    isQuerying,
+    currentStage,
+    stageProgress,
+    thinking = '',
+    answer = '',
+    citations = [],
+    tokenStats,
+  } = useQueryStore();
+
+  const { executeQuery } = useQueryWebSocket();
+
+  const handleQuery = (query: string, model: ModelType) => {
+    if (!selectedNovelId) {
+      toast.error('请先选择一本小说');
+      return;
+    }
+
+    setQueryText(query);
+    executeQuery(selectedNovelId, query, model);
+  };
+
+  const handlePresetSelect = (query: string) => {
+    setQueryText(query);
+  };
+
+  const handleViewGraph = (novelId: number) => {
+    setSelectedGraphNovelId(novelId);
+    setGraphModalOpen(true);
+  };
+
   return (
-    <div className="min-h-screen">
-      <main className="container mx-auto px-4 py-12">
-        <div className="text-center mb-12">
-          <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-            网络小说智能问答系统
-          </h1>
-          <p className="text-xl text-gray-600 mb-8">
-            基于 RAG 技术的新一代小说阅读助手
-          </p>
-          
-          <div className="flex gap-4 justify-center mb-12">
-            <Link href="/novels">
-              <button className="px-8 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors">
-                开始使用
-              </button>
-            </Link>
-            <Link href="/query">
-              <button className="px-8 py-3 border-2 border-blue-600 text-blue-600 rounded-lg font-medium hover:bg-blue-50 transition-colors">
-                智能问答
-              </button>
-            </Link>
+    <div className="flex h-full">
+      {/* 左侧：小说列表 */}
+      <NovelSidebar
+        onUploadClick={() => setUploadModalOpen(true)}
+        onViewGraphClick={handleViewGraph}
+      />
+
+      {/* 中间：主界面 */}
+      <main className="flex-1 flex flex-col overflow-hidden">
+        {/* 查询输入区 */}
+        <div className="p-3 border-b space-y-3">
+          <QueryInput
+            value={queryText}
+            onChange={setQueryText}
+            onQuery={handleQuery}
+            isQuerying={isQuerying}
+            disabled={!selectedNovelId}
+          />
+          <PresetQueries
+            onSelect={handlePresetSelect}
+            disabled={isQuerying || !selectedNovelId}
+          />
+        </div>
+
+        {/* 查询阶段（压缩高度） */}
+        <div className="flex-shrink-0 px-3 py-2 border-b bg-muted/30">
+          <QueryStages currentStage={currentStage} progress={stageProgress} />
+        </div>
+
+        {/* 思考内容 + 引用列表（固定高度，可独立滚动） */}
+        <div className="flex-1 flex overflow-hidden min-h-0">
+          <ThinkingPanel
+            thinking={thinking}
+            answer={answer}
+            isGenerating={isQuerying && currentStage === 'generating'}
+            className="flex-1"
+          />
+          <Separator orientation="vertical" />
+          <div className="w-80 flex flex-col min-h-0">
+            {/* Token消耗统计 - 使用新组件 */}
+            <div className="flex-shrink-0 border-b p-2">
+              <TokenStats stats={tokenStats} />
+            </div>
+            
+            {/* 引用列表 - 独立固定高度 */}
+            <CitationList
+              citations={citations}
+              novelId={selectedNovelId}
+              className="flex-1 min-h-0"
+            />
           </div>
         </div>
-        
-        <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto">
-          <FeatureCard
-            title="📚 小说管理"
-            description="上传和管理您的小说库，支持TXT和EPUB格式，自动识别章节"
-            link="/novels"
-          />
-          <FeatureCard
-            title="🤖 智能问答"
-            description="基于RAG技术，精准回答小说相关问题，支持流式输出"
-            link="/query"
-          />
-          <FeatureCard
-            title="🕸️ 知识图谱"
-            description="自动构建人物关系和事件图谱（即将推出）"
-            link="#"
-          />
-          <FeatureCard
-            title="🔍 矛盾检测"
-            description="智能发现剧情中的逻辑矛盾（即将推出）"
-            link="#"
-          />
-          <FeatureCard
-            title="📊 数据统计"
-            description="Token使用和费用统计（即将推出）"
-            link="#"
-          />
-          <FeatureCard
-            title="🎯 高性能"
-            description="优化的检索和生成流程，支持500万字小说"
-            link="#"
-          />
-        </div>
       </main>
-      
-      <footer className="text-center py-8 text-sm text-gray-500">
-        Powered by 智谱AI · FastAPI · Next.js · ChromaDB
-      </footer>
-    </div>
-  );
-}
 
-function FeatureCard({ title, description, link }: { title: string; description: string; link: string }) {
-  const content = (
-    <div className="p-6 border rounded-lg hover:shadow-lg transition-all bg-white h-full hover:border-blue-400">
-      <h3 className="text-xl font-semibold mb-2">{title}</h3>
-      <p className="text-gray-600 text-sm">{description}</p>
+      {/* 弹窗 */}
+      <UploadModal
+        open={uploadModalOpen}
+        onOpenChange={setUploadModalOpen}
+      />
+      <GraphModal
+        open={graphModalOpen}
+        onOpenChange={setGraphModalOpen}
+        novelId={selectedGraphNovelId}
+      />
     </div>
   );
-  
-  if (link === '#') {
-    return content;
-  }
-  
-  return <Link href={link}>{content}</Link>;
 }

@@ -5,7 +5,7 @@ WebSocket API端点
 
 import logging
 import asyncio
-from typing import Dict, Set
+from typing import Dict, Set, Optional, Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
@@ -44,9 +44,19 @@ class ConnectionManager:
         novel_id: int,
         progress: float,
         message: str,
-        status: str = "processing"
+        status: str = "processing",
+        token_stats: Optional[Dict[str, Any]] = None
     ):
-        """发送进度更新到所有监听该小说的客户端"""
+        """
+        发送进度更新到所有监听该小说的客户端
+        
+        Args:
+            novel_id: 小说ID
+            progress: 进度 (0.0-1.0)
+            message: 进度消息
+            status: 状态 (pending, processing, completed, failed)
+            token_stats: Token统计信息（可选）
+        """
         if novel_id not in self.active_connections:
             return
         
@@ -57,6 +67,10 @@ class ConnectionManager:
             "message": message,
             "status": status
         }
+        
+        # 添加token统计信息（如果有）
+        if token_stats:
+            data["tokenStats"] = token_stats
         
         # 移除已关闭的连接
         dead_connections = set()
@@ -146,10 +160,21 @@ async def progress_websocket(websocket: WebSocket, novel_id: int):
         manager.disconnect(websocket, novel_id)
 
 
-async def progress_callback(novel_id: int, progress: float, message: str):
+async def progress_callback(
+    novel_id: int, 
+    progress: float, 
+    message: str,
+    token_stats: Optional[Dict[str, Any]] = None
+):
     """
     进度回调函数
     供IndexingService调用，推送进度更新
+    
+    Args:
+        novel_id: 小说ID
+        progress: 进度 (0.0-1.0)
+        message: 进度消息
+        token_stats: Token统计信息（可选）
     """
     status = "processing"
     if progress >= 1.0:
@@ -157,5 +182,5 @@ async def progress_callback(novel_id: int, progress: float, message: str):
     elif progress == 0.0 and "失败" in message:
         status = "failed"
     
-    await manager.send_progress(novel_id, progress, message, status)
+    await manager.send_progress(novel_id, progress, message, status, token_stats)
 

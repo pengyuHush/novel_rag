@@ -97,23 +97,23 @@ class TokenStatsService:
         query = db.query(
             func.sum(TokenStat.total_tokens).label('total_tokens'),
             func.sum(TokenStat.input_tokens).label('input_tokens'),
-            func.sum(TokenStat.output_tokens).label('output_tokens'),
-            func.sum(TokenStat.cost).label('total_cost')
+            func.sum(TokenStat.completion_tokens).label('completion_tokens'),
+            func.sum(TokenStat.estimated_cost).label('total_cost')
         )
         
         # 时间范围过滤
         if start_date:
-            query = query.filter(TokenStat.timestamp >= start_date)
+            query = query.filter(TokenStat.created_at >= start_date.isoformat())
         if end_date:
-            query = query.filter(TokenStat.timestamp <= end_date)
+            query = query.filter(TokenStat.created_at <= end_date.isoformat())
         
         result = query.first()
         
         return {
-            'total_tokens': result.total_tokens or 0,
-            'input_tokens': result.input_tokens or 0,
-            'output_tokens': result.output_tokens or 0,
-            'total_cost': float(result.total_cost or 0.0)
+            'totalTokens': result.total_tokens or 0,  # 驼峰命名，匹配前端期望
+            'inputTokens': result.input_tokens or 0,
+            'completionTokens': result.completion_tokens or 0,
+            'totalCost': float(result.total_cost or 0.0)
         }
     
     def get_stats_by_model(
@@ -137,27 +137,27 @@ class TokenStatsService:
             TokenStat.model_name,
             func.sum(TokenStat.total_tokens).label('total_tokens'),
             func.sum(TokenStat.input_tokens).label('input_tokens'),
-            func.sum(TokenStat.output_tokens).label('output_tokens'),
-            func.sum(TokenStat.cost).label('total_cost'),
+            func.sum(TokenStat.completion_tokens).label('completion_tokens'),
+            func.sum(TokenStat.estimated_cost).label('total_cost'),
             func.count(TokenStat.id).label('usage_count')
         ).group_by(TokenStat.model_name)
         
         # 时间范围过滤
         if start_date:
-            query = query.filter(TokenStat.timestamp >= start_date)
+            query = query.filter(TokenStat.created_at >= start_date.isoformat())
         if end_date:
-            query = query.filter(TokenStat.timestamp <= end_date)
+            query = query.filter(TokenStat.created_at <= end_date.isoformat())
         
         results = query.all()
         
         stats_by_model = {}
         for result in results:
             stats_by_model[result.model_name] = {
-                'total_tokens': result.total_tokens,
-                'input_tokens': result.input_tokens,
-                'output_tokens': result.output_tokens,
-                'total_cost': float(result.total_cost),
-                'usage_count': result.usage_count
+                'totalTokens': result.total_tokens or 0,  # 驼峰命名，匹配前端期望
+                'inputTokens': result.input_tokens or 0,
+                'completionTokens': result.completion_tokens or 0,
+                'totalCost': float(result.total_cost or 0),
+                'usageCount': result.usage_count
             }
         
         return stats_by_model
@@ -182,24 +182,24 @@ class TokenStatsService:
         query = db.query(
             TokenStat.operation_type,
             func.sum(TokenStat.total_tokens).label('total_tokens'),
-            func.sum(TokenStat.cost).label('total_cost'),
+            func.sum(TokenStat.estimated_cost).label('total_cost'),
             func.count(TokenStat.id).label('operation_count')
         ).group_by(TokenStat.operation_type)
         
         # 时间范围过滤
         if start_date:
-            query = query.filter(TokenStat.timestamp >= start_date)
+            query = query.filter(TokenStat.created_at >= start_date.isoformat())
         if end_date:
-            query = query.filter(TokenStat.timestamp <= end_date)
+            query = query.filter(TokenStat.created_at <= end_date.isoformat())
         
         results = query.all()
         
         stats_by_operation = {}
         for result in results:
             stats_by_operation[result.operation_type] = {
-                'total_tokens': result.total_tokens,
-                'total_cost': float(result.total_cost),
-                'operation_count': result.operation_count
+                'totalTokens': result.total_tokens or 0,  # 驼峰命名，匹配前端期望
+                'totalCost': float(result.total_cost or 0),
+                'operationCount': result.operation_count
             }
         
         return stats_by_operation
@@ -222,20 +222,21 @@ class TokenStatsService:
             List[Dict]: 按时间段分组的统计数据
         """
         # 根据period确定分组格式
+        # created_at 是 ISO 格式的字符串，需要转换
         if period == 'day':
-            date_format = func.date(TokenStat.timestamp)
+            date_format = func.substr(TokenStat.created_at, 1, 10)  # 取前10位 YYYY-MM-DD
         elif period == 'week':
             # SQLite的周统计
-            date_format = func.strftime('%Y-W%W', TokenStat.timestamp)
+            date_format = func.strftime('%Y-W%W', TokenStat.created_at)
         elif period == 'month':
-            date_format = func.strftime('%Y-%m', TokenStat.timestamp)
+            date_format = func.substr(TokenStat.created_at, 1, 7)  # 取前7位 YYYY-MM
         else:
-            date_format = func.date(TokenStat.timestamp)
+            date_format = func.substr(TokenStat.created_at, 1, 10)
         
         query = db.query(
             date_format.label('period'),
             func.sum(TokenStat.total_tokens).label('total_tokens'),
-            func.sum(TokenStat.cost).label('total_cost')
+            func.sum(TokenStat.estimated_cost).label('total_cost')
         ).group_by('period').order_by(date_format.desc()).limit(limit)
         
         results = query.all()
@@ -244,8 +245,8 @@ class TokenStatsService:
         for result in results:
             stats_by_period.append({
                 'period': str(result.period),
-                'total_tokens': result.total_tokens,
-                'total_cost': float(result.total_cost)
+                'totalTokens': result.total_tokens or 0,  # 驼峰命名，匹配前端期望
+                'totalCost': float(result.total_cost or 0)
             })
         
         # 反转顺序，使时间从早到晚

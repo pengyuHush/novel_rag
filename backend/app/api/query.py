@@ -42,6 +42,13 @@ async def query_novel(
         if not novel:
             raise NovelNotFoundError(request.novel_id)
         
+        # Token计数器
+        from app.utils.token_counter import get_token_counter
+        token_counter = get_token_counter()
+        
+        # 统计Embedding tokens
+        embedding_tokens = token_counter.count_tokens(request.query)
+        
         # 执行RAG查询
         rag_engine = get_rag_engine()
         answer, citations, stats = rag_engine.query(
@@ -51,6 +58,20 @@ async def query_novel(
             model=request.model.value
         )
         
+        # 统计Prompt和Completion tokens
+        # 注意：这里使用估算，因为非流式接口不返回实际的usage信息
+        # 可以通过重新构建prompt来计算，或者估算
+        query_embedding = rag_engine.query_embedding(request.query)
+        vector_results = rag_engine.vector_search(request.novel_id, query_embedding)
+        reranked_chunks = rag_engine.rerank(request.query, vector_results, None)
+        
+        # 构建prompt用于计算tokens
+        prompt = rag_engine.build_prompt(db, request.novel_id, request.query, reranked_chunks)
+        prompt_tokens = token_counter.count_tokens(prompt)
+        completion_tokens = token_counter.count_tokens(answer)
+        
+        total_tokens = embedding_tokens + prompt_tokens + completion_tokens
+        
         response_time = time.time() - start_time
         
         # 保存查询历史
@@ -59,22 +80,84 @@ async def query_novel(
             query_text=request.query,
             answer_text=answer,
             model_used=request.model.value,
-            response_time=response_time
+            response_time=response_time,
+            total_tokens=total_tokens
         )
         db.add(query_record)
         db.commit()
         db.refresh(query_record)
+        
+        # 记录Token使用统计
+        try:
+            from app.services.token_stats_service import get_token_stats_service
+            token_stats_service = get_token_stats_service()
+            
+            # Embedding-3使用记录
+            token_stats_service.record_token_usage(
+                db=db,
+                operation_type='query',
+                operation_id=query_record.id,
+                model_name='embedding-3',
+                input_tokens=embedding_tokens,
+                output_tokens=0
+            )
+            
+            # LLM模型使用记录
+            token_stats_service.record_token_usage(
+                db=db,
+                operation_type='query',
+                operation_id=query_record.id,
+                model_name=request.model.value,
+                input_tokens=prompt_tokens,
+                output_tokens=completion_tokens
+            )
+        except Exception as e:
+            logger.warning(f"⚠️ Token统计记录失败（不影响主流程）: {e}")
+        
+        # 构建详细的TokenStats对象（包含阶段统计）
+        by_stage = [
+            {
+                'stage': 'retrieving',
+                'model': 'embedding-3',
+                'inputTokens': embedding_tokens,
+                'outputTokens': 0,
+                'totalTokens': embedding_tokens
+            },
+            {
+                'stage': 'generating',
+                'model': request.model.value,
+                'inputTokens': prompt_tokens,
+                'outputTokens': completion_tokens,
+                'totalTokens': prompt_tokens + completion_tokens
+            }
+        ]
+        
+        token_stats_obj = TokenStats(
+            total_tokens=total_tokens,
+            input_tokens=embedding_tokens + prompt_tokens,
+            output_tokens=completion_tokens,
+            embedding_tokens=embedding_tokens,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            by_model={
+                'embedding-3': {
+                    'inputTokens': embedding_tokens
+                },
+                request.model.value: {
+                    'promptTokens': prompt_tokens,
+                    'completionTokens': completion_tokens,
+                    'totalTokens': prompt_tokens + completion_tokens
+                }
+            },
+            by_stage=by_stage
+        )
         
         # 构建响应
         return QueryResponse(
             query_id=query_record.id,
             answer=answer,
             citations=citations,
-            token_stats=TokenStats(
-                total_tokens=0,  # TODO: 实际统计
-                prompt_tokens=0,
-                completion_tokens=0
-            ),
+            token_stats=token_stats_obj,
             response_time=response_time,
             confidence=Confidence.MEDIUM,  # TODO: 计算置信度
             model=request.model.value,
@@ -184,6 +267,49 @@ async def query_stream(websocket: WebSocket):
                 await websocket.close()
                 return
             
+            # ✨ 检索完成后立即构建并发送引用列表
+            logger.info("📚 检索完成，构建引用列表...")
+            citations = []
+            seen_chapters = set()
+            
+            for chunk in reranked_chunks[:5]:  # 只返回前5条引用
+                metadata = chunk['metadata']
+                chapter_num = metadata.get('chapter_num')
+                
+                if chapter_num in seen_chapters:
+                    continue
+                seen_chapters.add(chapter_num)
+                
+                # 获取章节标题，如果metadata中没有，从数据库查询
+                chapter_title = metadata.get('chapter_title')
+                if not chapter_title and chapter_num:
+                    try:
+                        from app.models.database import Chapter
+                        chapter = db.query(Chapter).filter(
+                            Chapter.novel_id == novel_id,
+                            Chapter.num == chapter_num
+                        ).first()
+                        if chapter:
+                            chapter_title = chapter.title
+                    except Exception as e:
+                        logger.warning(f"获取章节标题失败: {e}")
+                
+                citations.append({
+                    'chapter_num': chapter_num,
+                    'chapter_title': chapter_title,
+                    'text': chunk['content'][:200] + "...",
+                    'score': chunk.get('score')
+                })
+            
+            # 发送包含引用的检索完成消息
+            logger.info(f"📤 发送引用列表: {len(citations)} 条")
+            await websocket.send_json({
+                'stage': 'retrieving',
+                'content': f"检索完成，找到 {len(citations)} 个相关章节",
+                'progress': 0.4,
+                'citations': citations
+            })
+            
             # 阶段3: 生成答案
             await websocket.send_json(StreamMessage(
                 stage=QueryStage.GENERATING,
@@ -197,20 +323,42 @@ async def query_stream(websocket: WebSocket):
             # 流式生成答案
             full_answer = ""
             generation_usage = None
+            finish_reason = None
+            
+            logger.info("🔄 开始流式生成答案...")
             
             for chunk_data in rag_engine.generate_answer_with_stats(prompt, model, stream=True):
-                # chunk_data可能包含content和usage
+                # chunk_data可能包含content、thinking和usage
                 if isinstance(chunk_data, dict):
                     chunk = chunk_data.get('content', '')
+                    thinking_chunk = chunk_data.get('reasoning_content')  # 提取thinking内容
                     usage = chunk_data.get('usage')
+                    finish_reason_value = chunk_data.get('finish_reason')
                     
                     if usage:
                         # 保存最后的usage信息
                         generation_usage = usage
+                        logger.info(f"💡 [WebSocket] 收到usage: {usage}")
+                    
+                    if finish_reason_value:
+                        finish_reason = finish_reason_value
+                        logger.info(f"🏁 [WebSocket] 收到finish_reason: {finish_reason}")
                 else:
                     # 向后兼容：纯文本chunk
                     chunk = chunk_data if chunk_data else ''
+                    thinking_chunk = None
                 
+                # 发送thinking内容（如果有）
+                if thinking_chunk:
+                    await websocket.send_json({
+                        'stage': 'generating',
+                        'thinking': thinking_chunk,  # 发送thinking增量内容
+                        'content': '',
+                        'progress': 0.6,
+                        'is_delta': True
+                    })
+                
+                # 发送答案内容（如果有）
                 if chunk:
                     full_answer += chunk
                     await websocket.send_json({
@@ -220,21 +368,27 @@ async def query_stream(websocket: WebSocket):
                         'is_delta': True
                     })
             
+            logger.info(f"✅ 流式生成完成，答案长度: {len(full_answer)}, 是否有usage: {generation_usage is not None}")
+            
             # 从generation_usage中提取Token统计
             if generation_usage:
                 prompt_tokens = generation_usage.get('prompt_tokens', 0)
                 completion_tokens = generation_usage.get('completion_tokens', 0)
+                logger.info(f"✅ 使用API返回的Token统计: prompt={prompt_tokens}, completion={completion_tokens}")
             else:
                 # 如果没有从API获取到usage，使用估算
+                logger.warning("⚠️ API未返回usage信息，使用Token计数器估算")
                 prompt_tokens = token_counter.count_tokens(prompt)
                 completion_tokens = token_counter.count_tokens(full_answer)
+                logger.info(f"📊 估算Token数: prompt={prompt_tokens}, completion={completion_tokens}")
             
             # 阶段4: Self-RAG验证
-            await websocket.send_json(StreamMessage(
-                stage=QueryStage.VALIDATING,
-                content="正在验证答案准确性...",
-                progress=0.8
-            ).model_dump())
+            # 注意：不发送 content，避免覆盖之前的答案
+            await websocket.send_json({
+                'stage': 'validating',
+                'progress': 0.8,
+                'metadata': {'message': '正在验证答案准确性...'}
+            })
             
             # Self-RAG验证流程
             from app.services.self_rag import (
@@ -347,63 +501,56 @@ async def query_stream(websocket: WebSocket):
                 # Self-RAG失败不影响主流程，继续返回原答案
             
             # 阶段5: 完成汇总
-            await websocket.send_json(StreamMessage(
-                stage=QueryStage.FINALIZING,
-                content="正在整理结果...",
-                progress=0.9
-            ).model_dump())
-            
-            # 构建引用列表
-            citations = []
-            seen_chapters = set()
-            
-            for chunk in reranked_chunks[:5]:  # 只返回前5条引用
-                metadata = chunk['metadata']
-                chapter_num = metadata.get('chapter_num')
-                
-                if chapter_num in seen_chapters:
-                    continue
-                seen_chapters.add(chapter_num)
-                
-                citations.append({
-                    'chapter_num': chapter_num,
-                    'chapter_title': metadata.get('chapter_title'),
-                    'text': chunk['content'][:200] + "...",
-                    'score': chunk.get('score')
-                })
+            logger.info("📋 开始构建最终结果...")
+            # 注意：不发送 content，避免覆盖之前的答案
+            await websocket.send_json({
+                'stage': 'finalizing',
+                'progress': 0.9,
+                'metadata': {'message': '正在整理结果...'}  # 状态信息放在 metadata 中
+            })
             
             # 计算总Token消耗
             total_tokens = embedding_tokens + prompt_tokens + completion_tokens
             
-            # 构建Token统计信息
+            # 构建详细的Token统计信息（包含阶段级别统计）
+            by_stage = [
+                {
+                    'stage': 'retrieving',
+                    'model': 'embedding-3',
+                    'inputTokens': embedding_tokens,
+                    'outputTokens': 0,
+                    'totalTokens': embedding_tokens
+                },
+                {
+                    'stage': 'generating',
+                    'model': model,
+                    'inputTokens': prompt_tokens,
+                    'outputTokens': completion_tokens,
+                    'totalTokens': prompt_tokens + completion_tokens
+                }
+            ]
+            
             token_stats = {
                 'totalTokens': total_tokens,
+                'inputTokens': embedding_tokens + prompt_tokens,
+                'outputTokens': completion_tokens,
                 'byModel': {
                     'embedding-3': {
-                        'inputTokens': embedding_tokens
+                        'inputTokens': embedding_tokens,
+                        'stage': 'retrieving'
                     },
                     model: {
-                        'promptTokens': prompt_tokens,
+                        'inputTokens': prompt_tokens,
                         'completionTokens': completion_tokens,
-                        'totalTokens': prompt_tokens + completion_tokens
+                        'totalTokens': prompt_tokens + completion_tokens,
+                        'stage': 'generating'
                     }
-                }
+                },
+                'byStage': by_stage
             }
             
             logger.info(f"✅ Token统计: 总计 {total_tokens} tokens")
-            
-            # 发送最终结果（使用修正后的答案）
-            await websocket.send_json({
-                'stage': 'finalizing',
-                'content': corrected_answer,
-                'progress': 1.0,
-                'done': True,
-                'citations': citations,
-                'contradictions': contradictions_list,  # 矛盾检测结果
-                'confidence': confidence_level,  # 置信度
-                'original_answer': full_answer if corrected_answer != full_answer else None,  # 如果有修正，提供原答案
-                'tokenStats': token_stats  # Token统计
-            })
+            logger.info(f"💾 保存查询记录到数据库...")
             
             # 保存查询历史（使用修正后的答案）
             query_record = Query(
@@ -418,6 +565,7 @@ async def query_stream(websocket: WebSocket):
             db.add(query_record)
             db.commit()
             db.refresh(query_record)
+            logger.info(f"✅ 查询记录已保存，query_id={query_record.id}")
             
             # 记录Token使用情况到统计表
             try:
@@ -445,7 +593,25 @@ async def query_stream(websocket: WebSocket):
             except Exception as e:
                 logger.warning(f"⚠️ Token统计记录失败（不影响主流程）: {e}")
             
-            logger.info(f"✅ 流式查询完成")
+            # 发送最终结果（包含query_id和完整token统计）
+            # 注意：citations 已在 retrieving 阶段发送，这里不再重复发送
+            final_message = {
+                'stage': 'finalizing',
+                'content': corrected_answer,
+                'progress': 1.0,
+                'done': True,
+                'contradictions': contradictions_list,
+                'confidence': confidence_level,
+                'query_id': query_record.id,
+                'original_answer': full_answer if corrected_answer != full_answer else None,
+                'metadata': {
+                    'token_stats': token_stats  # 使用完整的token统计信息
+                }
+            }
+            
+            logger.info(f"📤 准备发送最终消息: query_id={query_record.id}, done=True, answer_length={len(corrected_answer)}")
+            await websocket.send_json(final_message)
+            logger.info(f"✅ 流式查询完成，最终消息已发送")
             
         finally:
             db.close()
@@ -465,6 +631,66 @@ async def query_stream(websocket: WebSocket):
             await websocket.close()
         except:
             pass
+
+
+@router.get("/{query_id}/token-stats", response_model=TokenStats, summary="获取查询Token统计")
+async def get_query_token_stats(
+    query_id: int,
+    db: Session = Depends(get_db_session)
+):
+    """
+    获取指定查询的Token消耗统计
+    
+    - 从token_stats表查询并聚合
+    - 按模型分组统计
+    - 返回详细的Token消耗信息
+    """
+    try:
+        from app.models.database import TokenStat
+        
+        # 查询该query的所有token统计记录
+        stats_records = db.query(TokenStat).filter(
+            TokenStat.operation_type == 'query',
+            TokenStat.operation_id == query_id
+        ).all()
+        
+        if not stats_records:
+            raise HTTPException(status_code=404, detail="未找到Token统计记录")
+        
+        # 按模型聚合
+        by_model = {}
+        total_tokens = 0
+        
+        for record in stats_records:
+            model_name = record.model_name
+            
+            if model_name not in by_model:
+                by_model[model_name] = {}
+            
+            # 根据模型类型设置不同的字段
+            if 'embedding' in model_name.lower():
+                # Embedding模型只有input_tokens
+                by_model[model_name]['inputTokens'] = record.input_tokens or 0
+            else:
+                # LLM模型有prompt和completion
+                by_model[model_name]['promptTokens'] = record.prompt_tokens or 0
+                by_model[model_name]['completionTokens'] = record.completion_tokens or 0
+                by_model[model_name]['totalTokens'] = record.total_tokens or 0
+            
+            total_tokens += record.total_tokens or 0
+        
+        logger.info(f"✅ 获取查询#{query_id}的Token统计: {total_tokens} tokens")
+        
+        return TokenStats(
+            total_tokens=total_tokens,
+            by_model=by_model
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ 获取Token统计失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取Token统计失败: {str(e)}")
 
 
 @router.get("/history", summary="获取查询历史")
@@ -506,7 +732,7 @@ async def get_query_history(
                 "model": q.model_used,
                 "total_tokens": q.total_tokens or 0,
                 "confidence": q.confidence or "medium",
-                "created_at": q.created_at.isoformat() if q.created_at else None,
+                "created_at": q.created_at if q.created_at else None,
                 "feedback": "positive" if q.user_feedback == 1 else ("negative" if q.user_feedback == -1 else None)
             })
         

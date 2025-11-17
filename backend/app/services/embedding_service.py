@@ -4,13 +4,14 @@
 """
 
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 from app.services.zhipu_client import get_zhipu_client
 from app.core.chromadb_client import get_chroma_client
 from app.core.config import settings
+from app.utils.token_counter import get_token_counter
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ class EmbeddingService:
         """初始化向量化服务"""
         self.zhipu_client = get_zhipu_client()
         self.chroma_client = get_chroma_client()
+        self.token_counter = get_token_counter()
         self.batch_size = 10  # 批量处理大小
         logger.info("✅ 向量化服务初始化完成")
     
@@ -29,7 +31,7 @@ class EmbeddingService:
         self,
         texts: List[str],
         batch_size: Optional[int] = None
-    ) -> List[List[float]]:
+    ) -> Tuple[List[List[float]], int]:
         """
         批量向量化文本
         
@@ -38,18 +40,23 @@ class EmbeddingService:
             batch_size: 批处理大小
         
         Returns:
-            List[List[float]]: 向量列表
+            Tuple[List[List[float]], int]: (向量列表, 消耗的token数)
         """
         if not texts:
-            return []
+            return [], 0
         
         batch_size = batch_size or self.batch_size
         all_embeddings = []
+        total_tokens = 0
         
         # 分批处理
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i + batch_size]
             logger.info(f"🔄 正在向量化批次 {i//batch_size + 1}/{(len(texts)-1)//batch_size + 1}...")
+            
+            # 计算本批次的token消耗
+            batch_tokens = sum(self.token_counter.count_tokens(text) for text in batch)
+            total_tokens += batch_tokens
             
             try:
                 # 调用智谱AI
@@ -62,8 +69,8 @@ class EmbeddingService:
                 zero_embeddings = [[0.0] * settings.embedding_dimension for _ in batch]
                 all_embeddings.extend(zero_embeddings)
         
-        logger.info(f"✅ 完成 {len(all_embeddings)} 个文本的向量化")
-        return all_embeddings
+        logger.info(f"✅ 完成 {len(all_embeddings)} 个文本的向量化，消耗 {total_tokens} tokens")
+        return all_embeddings, total_tokens
     
     def create_collection(self, novel_id: int) -> str:
         """
@@ -146,7 +153,7 @@ class EmbeddingService:
         chapter_num: int,
         chapter_title: str,
         chapter_chunks: List[Dict]
-    ) -> bool:
+    ) -> Tuple[bool, int]:
         """
         处理单个章节（向量化并存储）
         
@@ -157,18 +164,18 @@ class EmbeddingService:
             chapter_chunks: 章节块列表（包含content和metadata）
         
         Returns:
-            bool: 是否成功
+            Tuple[bool, int]: (是否成功, 消耗的token数)
         """
         if not chapter_chunks:
             logger.warning(f"⚠️ 章节 {chapter_num} 没有内容")
-            return False
+            return False, 0
         
         try:
             # 提取文本
             texts = [chunk['content'] for chunk in chapter_chunks]
             
-            # 向量化
-            embeddings = self.embed_texts(texts)
+            # 向量化（获取token消耗）
+            embeddings, tokens_used = self.embed_texts(texts)
             
             # 准备元数据
             metadata_list = []
@@ -194,11 +201,11 @@ class EmbeddingService:
                 metadata_list=metadata_list
             )
             
-            return success
+            return success, tokens_used
             
         except Exception as e:
             logger.error(f"❌ 处理章节 {chapter_num} 失败: {e}")
-            return False
+            return False, 0
     
     def query_similar_chunks(
         self,

@@ -423,24 +423,26 @@ class RAGEngine:
         """
         生成答案（带Token统计）
         
+        支持thinking模式的模型会自动返回reasoning_content（思考过程）
+        
         Args:
             prompt: 完整的Prompt
             model: 使用的模型
             stream: 是否流式输出
         
         Returns:
-            Dict | Generator[Dict]: 包含content和usage的字典或生成器
+            Dict | Generator[Dict]: 包含content、reasoning_content和usage的字典或生成器
         """
         try:
             messages = [{"role": "user", "content": prompt}]
             
             if stream:
-                # 流式生成（返回完整的chunk数据，包含usage）
+                # 流式生成（返回完整的chunk数据，包含content、reasoning_content和usage）
                 for chunk_data in self.zhipu_client.chat_completion_stream(
                     messages=messages,
                     model=model
                 ):
-                    # 返回完整的chunk_data，包含content和usage
+                    # 返回完整的chunk_data，某些模型会包含reasoning_content
                     yield chunk_data
             else:
                 # 非流式生成

@@ -23,6 +23,7 @@ hanlp==2.1.0b55
 
 # Graph
 networkx==3.2.1
+scipy==1.11.4
 
 # Data Processing
 pandas==2.1.4

@@ -15,7 +15,7 @@ from app.services.graph.graph_exporter import get_graph_exporter
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/graph", tags=["graph"])
+router = APIRouter(prefix="/api/graph", tags=["graph"])
 
 
 class RelationGraphResponse(BaseModel):
@@ -49,7 +49,7 @@ async def get_relation_graph(
     start_chapter: Optional[int] = Query(None, description="起始章节"),
     end_chapter: Optional[int] = Query(None, description="结束章节"),
     max_nodes: int = Query(50, ge=10, le=200, description="最大节点数"),
-    min_importance: float = Query(0.3, ge=0.0, le=1.0, description="最小重要性阈值")
+    min_importance: float = Query(0.0, ge=0.0, le=1.0, description="最小重要性阈值")
 ):
     """
     获取小说关系图数据
@@ -66,11 +66,20 @@ async def get_relation_graph(
     """
     try:
         # 加载图谱
-        graph_path = Path(f"./backend/data/graphs/novel_{novel_id}_graph.pkl")
+        graph_path = Path(f"./data/graphs/novel_{novel_id}_graph.pkl")
         if not graph_path.exists():
-            raise HTTPException(
-                status_code=404,
-                detail=f"小说 {novel_id} 的知识图谱不存在，请先完成索引"
+            logger.warning(f"小说 {novel_id} 的知识图谱不存在，返回空数据")
+            # 返回空图谱数据而不是报错
+            return RelationGraphResponse(
+                nodes=[],
+                edges=[],
+                metadata={
+                    "novel_id": novel_id,
+                    "total_nodes": 0,
+                    "total_edges": 0,
+                    "chapter_range": [start_chapter or 0, end_chapter or 0],
+                    "message": "知识图谱尚未构建，请先完成小说索引"
+                }
             )
         
         with open(graph_path, 'rb') as f:
@@ -98,16 +107,31 @@ async def get_relation_graph(
         
         return RelationGraphResponse(**graph_data)
         
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=404,
-            detail=f"小说 {novel_id} 的知识图谱文件不存在"
+    except FileNotFoundError as e:
+        logger.warning(f"小说 {novel_id} 的知识图谱文件不存在: {e}")
+        # 返回空图谱数据
+        return RelationGraphResponse(
+            nodes=[],
+            edges=[],
+            metadata={
+                "novel_id": novel_id,
+                "total_nodes": 0,
+                "total_edges": 0,
+                "message": "知识图谱文件不存在"
+            }
         )
     except Exception as e:
-        logger.error(f"❌ 获取关系图失败: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"获取关系图失败: {str(e)}"
+        logger.error(f"❌ 获取关系图失败: {type(e).__name__}: {str(e)}", exc_info=True)
+        # 返回空数据而不是报错
+        return RelationGraphResponse(
+            nodes=[],
+            edges=[],
+            metadata={
+                "novel_id": novel_id,
+                "total_nodes": 0,
+                "total_edges": 0,
+                "error": f"加载图谱失败: {type(e).__name__}"
+            }
         )
 
 
@@ -128,7 +152,7 @@ async def get_node_details(
     """
     try:
         # 加载图谱
-        graph_path = Path(f"./backend/data/graphs/novel_{novel_id}_graph.pkl")
+        graph_path = Path(f"./data/graphs/novel_{novel_id}_graph.pkl")
         if not graph_path.exists():
             raise HTTPException(
                 status_code=404,
@@ -155,10 +179,10 @@ async def get_node_details(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ 获取节点详情失败: {e}")
+        logger.error(f"❌ 获取节点详情失败: {type(e).__name__}: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"获取节点详情失败: {str(e)}"
+            detail=f"获取节点详情失败: {type(e).__name__}"
         )
 
 
@@ -181,11 +205,17 @@ async def get_timeline(
     """
     try:
         # 加载图谱
-        graph_path = Path(f"./backend/data/graphs/novel_{novel_id}_graph.pkl")
+        graph_path = Path(f"./data/graphs/novel_{novel_id}_graph.pkl")
         if not graph_path.exists():
-            raise HTTPException(
-                status_code=404,
-                detail=f"小说 {novel_id} 的知识图谱不存在，请先完成索引"
+            logger.warning(f"小说 {novel_id} 的知识图谱不存在，返回空时间线")
+            return TimelineResponse(
+                events=[],
+                metadata={
+                    "total_events": 0,
+                    "entity_filter": entity_filter,
+                    "chapter_range": [0, 0],
+                    "message": "知识图谱尚未构建"
+                }
             )
         
         with open(graph_path, 'rb') as f:
@@ -245,31 +275,58 @@ async def get_timeline(
         # 限制数量
         events = events[:max_events]
         
+        # 添加叙述顺序和转换字段名以匹配前端期望的格式
+        formatted_events = []
+        for i, event in enumerate(events):
+            formatted_events.append({
+                'chapterNum': event['chapter'],  # 前端期望的字段名
+                'narrativeOrder': i + 1,  # 叙述顺序，从1开始
+                'description': event['description'],
+                'eventType': event.get('type', 'unknown'),  # 事件类型
+                'importance': event.get('importance', 0.5),  # 重要性
+                # 保留额外信息用于悬停提示
+                'entity': event.get('entity'),
+                'source': event.get('source'),
+                'target': event.get('target'),
+                'relationType': event.get('relation_type'),
+            })
+        
         metadata = {
-            'total_events': len(events),
+            'total_events': len(formatted_events),
             'entity_filter': entity_filter,
             'chapter_range': (
-                min(e['chapter'] for e in events) if events else 0,
-                max(e['chapter'] for e in events) if events else 0
+                min(e['chapterNum'] for e in formatted_events) if formatted_events else 0,
+                max(e['chapterNum'] for e in formatted_events) if formatted_events else 0
             )
         }
         
         logger.info(
-            f"✅ 成功获取小说 {novel_id} 的时间线: {len(events)} 个事件"
+            f"✅ 成功获取小说 {novel_id} 的时间线: {len(formatted_events)} 个事件"
         )
         
-        return TimelineResponse(events=events, metadata=metadata)
+        return TimelineResponse(events=formatted_events, metadata=metadata)
         
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=404,
-            detail=f"小说 {novel_id} 的知识图谱文件不存在"
+    except FileNotFoundError as e:
+        logger.warning(f"小说 {novel_id} 的知识图谱文件不存在: {e}")
+        return TimelineResponse(
+            events=[],
+            metadata={
+                "total_events": 0,
+                "entity_filter": entity_filter,
+                "chapter_range": [0, 0],
+                "message": "知识图谱文件不存在"
+            }
         )
     except Exception as e:
-        logger.error(f"❌ 获取时间线失败: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"获取时间线失败: {str(e)}"
+        logger.error(f"❌ 获取时间线失败: {type(e).__name__}: {str(e)}", exc_info=True)
+        return TimelineResponse(
+            events=[],
+            metadata={
+                "total_events": 0,
+                "entity_filter": entity_filter,
+                "chapter_range": [0, 0],
+                "error": f"加载时间线失败: {type(e).__name__}"
+            }
         )
 
 
@@ -309,7 +366,7 @@ async def get_statistics(novel_id: int):
             chapters = db.query(Chapter).filter(Chapter.novel_id == novel_id).all()
             
             # 加载知识图谱
-            graph_path = Path(f"./backend/data/graphs/novel_{novel_id}_graph.pkl")
+            graph_path = Path(f"./data/graphs/novel_{novel_id}_graph.pkl")
             graph = None
             if graph_path.exists():
                 with open(graph_path, 'rb') as f:

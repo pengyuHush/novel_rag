@@ -5,6 +5,7 @@
 """
 
 import logging
+from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -13,7 +14,7 @@ from app.services.zhipu_client import get_zhipu_client
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/config", tags=["config"])
+router = APIRouter(prefix="/api/config", tags=["config"])
 
 
 class ModelInfo(BaseModel):
@@ -43,6 +44,26 @@ class ConnectionTestResponse(BaseModel):
     success: bool
     message: str
     model_tested: str
+
+
+class AppConfig(BaseModel):
+    """应用配置"""
+    defaultModel: str
+    topK: Optional[int] = None
+    chunkSize: Optional[int] = None
+    chunkOverlap: Optional[int] = None
+    enableSelfRAG: Optional[bool] = None
+    enableSmartRouting: Optional[bool] = None
+
+
+class UpdateConfigRequest(BaseModel):
+    """更新配置请求"""
+    defaultModel: Optional[str] = None
+    topK: Optional[int] = None
+    chunkSize: Optional[int] = None
+    chunkOverlap: Optional[int] = None
+    enableSelfRAG: Optional[bool] = None
+    enableSmartRouting: Optional[bool] = None
 
 
 @router.get("/models", response_model=ModelListResponse)
@@ -160,5 +181,77 @@ async def get_current_config():
         raise HTTPException(
             status_code=500,
             detail=f"获取配置失败: {str(e)}"
+        )
+
+
+@router.get("", response_model=AppConfig)
+async def get_config():
+    """
+    获取应用配置（前端使用）
+    
+    Returns:
+        AppConfig: 应用配置
+    """
+    try:
+        return AppConfig(
+            defaultModel=settings.zhipu_default_model,
+            topK=settings.top_k_retrieval,
+            chunkSize=settings.chunk_size,
+            chunkOverlap=settings.chunk_overlap,
+            enableSelfRAG=True,  # 默认启用
+            enableSmartRouting=True  # 默认启用
+        )
+    except Exception as e:
+        logger.error(f"❌ 获取配置失败: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"获取配置失败: {str(e)}"
+        )
+
+
+@router.put("")
+async def update_config(request: UpdateConfigRequest):
+    """
+    更新应用配置
+    
+    Args:
+        request: 配置更新请求
+    
+    Returns:
+        dict: 成功响应
+    """
+    try:
+        # 注意：这里只是验证配置，实际的配置更新需要修改环境变量或配置文件
+        # 在生产环境中，您可能需要实现持久化存储
+        
+        if request.defaultModel:
+            if request.defaultModel not in settings.supported_models:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"不支持的模型: {request.defaultModel}"
+                )
+            # 在运行时更新设置
+            settings.zhipu_default_model = request.defaultModel
+        
+        if request.topK is not None:
+            settings.top_k_retrieval = request.topK
+        
+        if request.chunkSize is not None:
+            settings.chunk_size = request.chunkSize
+        
+        if request.chunkOverlap is not None:
+            settings.chunk_overlap = request.chunkOverlap
+        
+        logger.info(f"✅ 配置更新成功")
+        
+        return {"success": True, "message": "配置更新成功"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ 更新配置失败: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"更新配置失败: {str(e)}"
         )
 

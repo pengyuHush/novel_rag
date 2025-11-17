@@ -2,7 +2,7 @@
 Pydantic数据模型（API请求/响应）
 """
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
@@ -78,7 +78,7 @@ class NovelResponse(BaseModel):
     total_chars: int
     total_chapters: int
     index_status: IndexStatus
-    index_progress: float = Field(ge=0.0, le=1.0, description="索引进度 0-1")
+    index_progress: float = Field(ge=0.0, description="索引进度 0-1")
     file_format: FileFormat
     
     # 索引统计
@@ -91,6 +91,12 @@ class NovelResponse(BaseModel):
     indexed_date: Optional[str] = None
     created_at: str
     updated_at: str
+    
+    @field_validator('index_progress')
+    @classmethod
+    def clamp_index_progress(cls, v: float) -> float:
+        """确保进度在0-1范围内，处理浮点数精度问题"""
+        return max(0.0, min(v, 1.0))
 
 
 class NovelListItem(BaseModel):
@@ -108,14 +114,54 @@ class NovelListItem(BaseModel):
     upload_date: str
 
 
+class IndexingStep(BaseModel):
+    """索引步骤"""
+    name: str = Field(..., description="步骤名称")
+    status: str = Field(..., description="状态：pending/processing/completed/failed")
+    progress: float = Field(0.0, ge=0.0, description="步骤进度 0-1")
+    message: str = Field("", description="状态消息")
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    error: Optional[str] = None
+    
+    @field_validator('progress')
+    @classmethod
+    def clamp_progress(cls, v: float) -> float:
+        """确保进度在0-1范围内，处理浮点数精度问题"""
+        return max(0.0, min(v, 1.0))
+
+
+class FailedChapter(BaseModel):
+    """失败的章节"""
+    chapter_num: int
+    chapter_title: Optional[str] = None
+    error: str
+
+
+class IndexingDetail(BaseModel):
+    """索引详情"""
+    steps: List[IndexingStep] = Field(default_factory=list, description="处理步骤")
+    failed_chapters: List[FailedChapter] = Field(default_factory=list, description="失败的章节")
+    token_stats: Optional[Dict[str, Any]] = Field(None, description="Token统计")
+    warnings: List[str] = Field(default_factory=list, description="警告信息")
+
+
 class NovelProgressResponse(BaseModel):
-    """索引进度响应"""
+    """索引进度响应（扩展版）"""
     novel_id: int
     status: IndexStatus
-    progress: float = Field(ge=0.0, le=1.0)
+    progress: float = Field(ge=0.0, description="索引进度 0-1")
     current_chapter: Optional[int] = None
     total_chapters: int
+    total_chars: int = 0  # 总字数
     message: str
+    detail: Optional[IndexingDetail] = None  # 详细信息
+    
+    @field_validator('progress')
+    @classmethod
+    def clamp_progress(cls, v: float) -> float:
+        """确保进度在0-1范围内，处理浮点数精度问题"""
+        return max(0.0, min(v, 1.0))
 
 
 # ========================================
@@ -175,16 +221,28 @@ class Contradiction(BaseModel):
     confidence: Confidence = Field(..., description="置信度")
 
 
+class StageTokenStats(BaseModel):
+    """阶段级别的Token统计"""
+    stage: str = Field(..., description="阶段名称")
+    model: str = Field(..., description="使用的模型")
+    inputTokens: int = Field(..., alias="inputTokens", description="输入Token数")
+    outputTokens: int = Field(..., alias="outputTokens", description="输出Token数")
+    totalTokens: int = Field(..., alias="totalTokens", description="该阶段总Token数")
+
+
 class TokenStats(BaseModel):
     """Token统计"""
     model_config = ConfigDict(populate_by_name=True)
     
     total_tokens: int = Field(..., alias="totalTokens", description="总Token数")
+    input_tokens: int = Field(0, alias="inputTokens", description="总输入Token数")
+    output_tokens: int = Field(0, alias="outputTokens", description="总输出Token数")
     embedding_tokens: int = Field(0, alias="embeddingTokens", description="Embedding消耗的Token")
     prompt_tokens: int = Field(0, alias="promptTokens", description="提示词Token数")
     completion_tokens: int = Field(0, alias="completionTokens", description="生成内容Token数")
     self_rag_tokens: int = Field(0, alias="selfRagTokens", description="Self-RAG验证额外消耗的Token")
     by_model: Dict[str, Dict[str, int]] = Field(default_factory=dict, alias="byModel", description="按模型分类的Token统计")
+    by_stage: List[Dict[str, Any]] = Field(default_factory=list, alias="byStage", description="按阶段分类的Token统计")
 
 
 class QueryResponse(BaseModel):
@@ -216,8 +274,21 @@ class StreamMessage(BaseModel):
     """流式消息"""
     stage: QueryStage
     content: str = ""
-    progress: float = Field(ge=0.0, le=1.0, default=0.0)
+    thinking: Optional[str] = None  # 思考过程内容（thinking模式）
+    progress: float = Field(ge=0.0, default=0.0, description="进度 0-1")
+    is_delta: bool = False  # 是否为增量消息
+    done: bool = False  # 是否完成
+    citations: Optional[List[Citation]] = None  # 引用来源
+    contradictions: Optional[List[Contradiction]] = None  # 矛盾检测结果
+    query_id: Optional[int] = None  # 查询ID
+    error: Optional[str] = None  # 错误信息
     metadata: Optional[Dict[str, Any]] = None
+    
+    @field_validator('progress')
+    @classmethod
+    def clamp_progress(cls, v: float) -> float:
+        """确保进度在0-1范围内，处理浮点数精度问题"""
+        return max(0.0, min(v, 1.0))
 
 
 # ========================================
@@ -233,6 +304,7 @@ class IndexingProgressMessage(BaseModel):
     total_chapters: int
     message: str
     timestamp: str
+    token_stats: Optional[Dict[str, Any]] = Field(None, description="Token统计信息")
 
 
 # ========================================
@@ -252,6 +324,6 @@ class TokenStatsResponse(BaseModel):
     total_tokens: int
     total_cost: float
     by_model: Dict[str, Dict[str, Any]]
-    by_operation: Dict[str, int]
+    by_operation: Dict[str, Dict[str, Any]]
     period: str
 

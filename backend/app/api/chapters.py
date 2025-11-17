@@ -186,10 +186,14 @@ def _read_chapter_from_file(novel: Novel, chapter: Chapter) -> str:
         encoding = 'gbk'  # GBK兼容GB2312和GB18030
     
     # 读取章节内容(根据start_pos和end_pos)
+    # 注意: start_pos和end_pos是字符位置，不是字节位置
+    # 因此需要先读取整个文件内容，然后使用字符切片
     try:
         with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
-            f.seek(chapter.start_pos)
-            content = f.read(chapter.end_pos - chapter.start_pos)
+            full_content = f.read()
+        
+        # 使用字符位置切片提取章节内容
+        content = full_content[chapter.start_pos:chapter.end_pos]
         return content
     except Exception as e:
         raise HTTPException(

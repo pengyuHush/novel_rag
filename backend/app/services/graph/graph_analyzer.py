@@ -30,7 +30,7 @@ class GraphAnalyzer:
         
         Args:
             graph: 图谱对象
-            alpha: 阻尼系数(0-1)
+            alpha: 阻尼系数(0-1)，推荐0.85
             max_iter: 最大迭代次数
         
         Returns:
@@ -41,13 +41,37 @@ class GraphAnalyzer:
         
         try:
             # NetworkX内置PageRank算法
+            # 对于共现关系图，使用权重(strength)来提升重要关系的影响
             pagerank = nx.pagerank(
                 graph,
                 alpha=alpha,
-                max_iter=max_iter
+                max_iter=max_iter,
+                weight='strength'  # 使用边的strength属性作为权重
             )
             
-            logger.info(f"PageRank计算完成: {len(pagerank)} 个节点")
+            # 归一化到合理的范围(0.1-1.0)，避免过小的值
+            if pagerank:
+                min_val = min(pagerank.values())
+                max_val = max(pagerank.values())
+                
+                if max_val > min_val:
+                    # 线性归一化到 0.1-1.0 范围
+                    normalized = {
+                        node: 0.1 + 0.9 * (score - min_val) / (max_val - min_val)
+                        for node, score in pagerank.items()
+                    }
+                    
+                    logger.info(
+                        f"PageRank计算完成: {len(pagerank)} 个节点 "
+                        f"(范围: {min(normalized.values()):.3f} - {max(normalized.values()):.3f})"
+                    )
+                    
+                    return normalized
+                else:
+                    # 所有节点重要性相同，设为中等重要性
+                    logger.warning(f"所有节点PageRank值相同，设置为默认值0.5")
+                    return {node: 0.5 for node in pagerank.keys()}
+            
             return pagerank
             
         except Exception as e:

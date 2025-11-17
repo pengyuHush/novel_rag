@@ -150,9 +150,17 @@ class GraphExporter:
         node_ids = {node['id'] for node in filtered_nodes}
         edges = []
         
+        # 调试日志
+        total_edges = graph.number_of_edges()
+        logger.info(f"🔍 开始筛选边: 图谱总边数={total_edges}, 筛选后节点数={len(node_ids)}")
+        
+        filtered_by_node = 0
+        filtered_by_chapter = 0
+        
         for source, target, key, data in graph.edges(keys=True, data=True):
             # 只保留两端都在筛选节点中的边
             if source not in node_ids or target not in node_ids:
+                filtered_by_node += 1
                 continue
             
             # 章节范围过滤
@@ -163,8 +171,10 @@ class GraphExporter:
                 
                 # 检查边是否在章节范围内有效
                 if edge_start > end_ch:
+                    filtered_by_chapter += 1
                     continue
                 if edge_end and edge_end < start_ch:
+                    filtered_by_chapter += 1
                     continue
             
             # 转换边数据
@@ -182,6 +192,13 @@ class GraphExporter:
             }
             
             edges.append(edge_json)
+        
+        logger.info(
+            f"✅ 边筛选完成: 原始{total_edges}条 -> "
+            f"节点过滤掉{filtered_by_node}条, "
+            f"章节过滤掉{filtered_by_chapter}条, "
+            f"最终{len(edges)}条"
+        )
         
         return edges
     

@@ -212,12 +212,34 @@ class ZhipuAIClient:
             )
             
             total_tokens = 0
+            chunk_count = 0
+            first_chunk_logged = False
+            
             for chunk in response:
+                chunk_count += 1
+                
+                # 🔍 只打印第1个chunk的详细结构
+                if chunk_count == 1:
+                    logger.info(f"📦 第1个Chunk结构: {chunk}")
+                    if hasattr(chunk, 'choices') and chunk.choices:
+                        logger.info(f"   - delta: {chunk.choices[0].delta}")
+                        delta_attrs = [attr for attr in dir(chunk.choices[0].delta) if not attr.startswith('_')]
+                        logger.info(f"   - delta公共属性: {delta_attrs}")
+                    first_chunk_logged = True
+                
                 if chunk.choices:
                     delta = chunk.choices[0].delta
+                    choice = chunk.choices[0]
                     
-                    # 提取内容
-                    content = delta.content if hasattr(delta, 'content') else ""
+                    # 提取内容（可能在content字段）
+                    content = delta.content if hasattr(delta, 'content') and delta.content else ""
+                    
+                    # 🤔 提取thinking模式的推理内容
+                    reasoning_content = None
+                    if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
+                        reasoning_content = delta.reasoning_content
+                        if chunk_count <= 3:
+                            logger.info(f"🤔 Chunk #{chunk_count} 有reasoning_content (前20字符): {reasoning_content[:20]}...")
                     
                     # 提取Token使用情况（如果有）
                     usage = None
@@ -228,13 +250,22 @@ class ZhipuAIClient:
                             "total_tokens": chunk.usage.total_tokens
                         }
                         total_tokens = chunk.usage.total_tokens
+                        logger.info(f"📊 Chunk #{chunk_count} 收到usage: {usage}")
                     
-                    yield {
-                        "content": content,
-                        "model": model,
-                        "usage": usage,
-                        "finish_reason": chunk.choices[0].finish_reason if hasattr(chunk.choices[0], 'finish_reason') else None
-                    }
+                    # 获取finish_reason
+                    finish_reason = choice.finish_reason if hasattr(choice, 'finish_reason') else None
+                    if finish_reason:
+                        logger.info(f"🏁 Chunk #{chunk_count} finish_reason: {finish_reason}")
+                    
+                    # 只yield有内容、thinking内容、usage或finish_reason的chunk
+                    if content or reasoning_content or usage or finish_reason:
+                        yield {
+                            "content": content,
+                            "reasoning_content": reasoning_content,
+                            "model": model,
+                            "usage": usage,
+                            "finish_reason": finish_reason
+                        }
             
             logger.info(f"✅ {model} 流式调用完成 (tokens: {total_tokens})")
             

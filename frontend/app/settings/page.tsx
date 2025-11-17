@@ -1,247 +1,286 @@
-'use client';
-
 /**
  * 设置页面
- * 
- * 提供API Key配置、模型管理等设置功能
+ * 包含API配置、默认模型、Token统计等设置
  */
 
-import React, { useState, useEffect } from 'react';
-import { Tabs, Typography, Space, Row, Col, Card, Spin } from 'antd';
-import { SettingOutlined, KeyOutlined, ThunderboltOutlined, InfoCircleOutlined, BarChartOutlined } from '@ant-design/icons';
-import ApiKeyConfig from '@/components/ApiKeyConfig';
-import ModelConfig from '@/components/ModelConfig';
-import { TokenStatCard, CostStatCard, QueryCountStatCard, IndexCountStatCard } from '@/components/StatCard';
-import TokenChart from '@/components/TokenChart';
-import { apiClient } from '@/lib/api';
+'use client';
 
-const { Title, Paragraph } = Typography;
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
+import { api } from '@/lib/api';
+import { toast } from 'sonner';
+import { ModelType, type AppConfig, type TokenStatsResponse } from '@/types/api';
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<string>('api');
-  const [statsLoading, setStatsLoading] = useState(false);
-  const [tokenStats, setTokenStats] = useState<any>(null);
+  const router = useRouter();
+  const [config, setConfig] = useState<AppConfig | null>(null);
+  const [apiKey, setApiKey] = useState('');
+  const [tokenStats, setTokenStats] = useState<TokenStatsResponse | null>(null);
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [isSaving, setIsSaving] = useState(false);
 
-  // 加载统计数据
   useEffect(() => {
-    if (activeTab === 'stats') {
-      loadStats();
-    }
-  }, [activeTab]);
+    loadConfig();
+    loadTokenStats();
+  }, []);
 
-  const loadStats = async () => {
-    setStatsLoading(true);
+  const loadConfig = async () => {
     try {
-      const [stats, summary] = await Promise.all([
-        apiClient.get('/stats/tokens', { period: 'all' }),
-        apiClient.get('/stats/tokens/summary'),
-      ]);
-      setTokenStats({ ...stats, summary });
+      const configData = await api.getConfig();
+      setConfig(configData);
     } catch (error) {
-      console.error('Failed to load stats:', error);
+      console.error('Failed to load config:', error);
+    }
+  };
+
+  const loadTokenStats = async () => {
+    try {
+      const stats = await api.getTokenStats({ period: 'month' });
+      setTokenStats(stats);
+    } catch (error) {
+      console.error('Failed to load token stats:', error);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    if (!apiKey) {
+      toast.error('请输入API Key');
+      return;
+    }
+
+    try {
+      setIsTestingConnection(true);
+      setConnectionStatus('idle');
+      const result = await api.testConnection({ apiKey });
+      if (result.success) {
+        setConnectionStatus('success');
+        toast.success('连接测试成功');
+      } else {
+        setConnectionStatus('error');
+        toast.error(result.message || '连接测试失败');
+      }
+    } catch (error) {
+      setConnectionStatus('error');
+      toast.error('连接测试失败');
     } finally {
-      setStatsLoading(false);
+      setIsTestingConnection(false);
+    }
+  };
+
+  const handleSaveConfig = async () => {
+    if (!config) return;
+
+    try {
+      setIsSaving(true);
+      await api.updateConfig(config);
+      toast.success('设置已保存');
+    } catch (error) {
+      console.error('Failed to save config:', error);
+      toast.error('保存设置失败');
+    } finally {
+      setIsSaving(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-5xl mx-auto">
-        {/* 页面标题 */}
-        <div className="mb-6">
-          <Space>
-            <SettingOutlined style={{ fontSize: 32, color: '#1890ff' }} />
-            <Title level={2} style={{ margin: 0 }}>系统设置</Title>
-          </Space>
-          <Paragraph type="secondary" className="mt-2">
-            配置API Key、选择默认模型，优化您的使用体验
-          </Paragraph>
-        </div>
+    <div className="max-w-4xl mx-auto p-8 space-y-6">
+      {/* 返回按钮 */}
+      <Button
+        variant="ghost"
+        onClick={() => router.push('/')}
+        className="mb-4"
+      >
+        <ArrowLeft className="mr-2 h-4 w-4" />
+        返回主页
+      </Button>
 
-        {/* 设置标签页 */}
-        <Tabs
-          activeKey={activeTab}
-          onChange={setActiveTab}
-          items={[
-            {
-              key: 'api',
-              label: (
-                <span>
-                  <KeyOutlined />
-                  API配置
-                </span>
-              ),
-              children: (
-                <div className="p-4">
-                  <ApiKeyConfig />
-                </div>
-              ),
-            },
-            {
-              key: 'model',
-              label: (
-                <span>
-                  <ThunderboltOutlined />
-                  模型管理
-                </span>
-              ),
-              children: (
-                <div className="p-4">
-                  <ModelConfig />
-                </div>
-              ),
-            },
-            {
-              key: 'stats',
-              label: (
-                <span>
-                  <BarChartOutlined />
-                  Token统计
-                </span>
-              ),
-              children: (
-                <div className="p-4">
-                  {statsLoading ? (
-                    <div className="text-center py-12">
-                      <Spin size="large" />
-                    </div>
-                  ) : tokenStats ? (
-                    <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                      {/* 统计卡片 */}
-                      <Row gutter={[16, 16]}>
-                        <Col xs={24} sm={12} lg={6}>
-                          <TokenStatCard
-                            value={tokenStats.summary?.all_time?.total_tokens || 0}
-                          />
-                        </Col>
-                        <Col xs={24} sm={12} lg={6}>
-                          <CostStatCard
-                            value={tokenStats.summary?.all_time?.total_cost || 0}
-                          />
-                        </Col>
-                        <Col xs={24} sm={12} lg={6}>
-                          <QueryCountStatCard
-                            value={tokenStats.by_operation?.query?.operation_count || 0}
-                          />
-                        </Col>
-                        <Col xs={24} sm={12} lg={6}>
-                          <IndexCountStatCard
-                            value={tokenStats.by_operation?.index?.operation_count || 0}
-                          />
-                        </Col>
-                      </Row>
+      <h1 className="text-3xl font-bold">系统设置</h1>
 
-                      {/* 趋势图 */}
-                      <TokenChart />
+      {/* API配置 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>智谱AI配置</CardTitle>
+          <CardDescription>
+            配置智谱AI API Key以使用大模型服务
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">API Key</label>
+            <div className="flex gap-2">
+              <Input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="请输入智谱AI API Key"
+                className="flex-1"
+              />
+              <Button
+                onClick={handleTestConnection}
+                disabled={isTestingConnection || !apiKey}
+                variant="outline"
+              >
+                {isTestingConnection ? '测试中...' : '测试连接'}
+              </Button>
+            </div>
+            {connectionStatus === 'success' && (
+              <div className="flex items-center gap-2 text-sm text-green-600">
+                <CheckCircle className="h-4 w-4" />
+                连接成功
+              </div>
+            )}
+            {connectionStatus === 'error' && (
+              <div className="flex items-center gap-2 text-sm text-destructive">
+                <XCircle className="h-4 w-4" />
+                连接失败
+              </div>
+            )}
+          </div>
 
-                      {/* 按模型分类统计 */}
-                      <Card title="按模型分类统计" className="shadow-sm">
-                        <div className="space-y-3">
-                          {Object.entries(tokenStats.by_model || {}).map(
-                            ([model, data]: [string, any]) => (
-                              <div
-                                key={model}
-                                className="flex justify-between items-center p-3 bg-gray-50 rounded"
-                              >
-                                <div>
-                                  <div className="font-medium">{model}</div>
-                                  <div className="text-sm text-gray-500">
-                                    使用 {data.usage_count} 次
-                                  </div>
-                                </div>
-                                <div className="text-right">
-                                  <div className="text-lg font-bold text-blue-600">
-                                    {data.total_tokens.toLocaleString()} tokens
-                                  </div>
-                                  <div className="text-sm text-green-600">
-                                    ¥{data.total_cost.toFixed(4)}
-                                  </div>
-                                </div>
-                              </div>
-                            )
-                          )}
-                        </div>
-                      </Card>
+          <p className="text-xs text-muted-foreground">
+            请访问{' '}
+            <a
+              href="https://open.bigmodel.cn/usercenter/apikeys"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline"
+            >
+              智谱AI控制台
+            </a>{' '}
+            获取API Key
+          </p>
+        </CardContent>
+      </Card>
 
-                      {/* 按操作类型统计 */}
-                      <Card title="按操作类型统计" className="shadow-sm">
-                        <Row gutter={16}>
-                          {Object.entries(tokenStats.by_operation || {}).map(
-                            ([type, data]: [string, any]) => (
-                              <Col key={type} xs={24} sm={12}>
-                                <div className="p-4 bg-gray-50 rounded">
-                                  <div className="text-gray-600 mb-2">
-                                    {type === 'index' ? '索引操作' : '查询操作'}
-                                  </div>
-                                  <div className="text-2xl font-bold text-blue-600 mb-1">
-                                    {data.total_tokens.toLocaleString()} tokens
-                                  </div>
-                                  <div className="text-sm text-green-600">
-                                    ¥{data.total_cost.toFixed(4)} / {data.operation_count} 次
-                                  </div>
-                                </div>
-                              </Col>
-                            )
-                          )}
-                        </Row>
-                      </Card>
-                    </Space>
-                  ) : (
-                    <div className="text-center py-12 text-gray-500">
-                      暂无统计数据
-                    </div>
-                  )}
-                </div>
-              ),
-            },
-            {
-              key: 'about',
-              label: (
-                <span>
-                  <InfoCircleOutlined />
-                  关于
-                </span>
-              ),
-              children: (
-                <div className="p-4">
-                  <div className="bg-white rounded-lg shadow-sm p-6">
-                    <Title level={3}>关于本系统</Title>
-                    <Paragraph>
-                      <Text strong>网络小说智能问答系统</Text> v0.1.0
-                    </Paragraph>
-                    <Paragraph>
-                      基于RAG（Retrieval-Augmented Generation）架构的网络小说智能问答系统，
-                      支持小说上传、智能问答、知识图谱、可视化分析等功能。
-                    </Paragraph>
-                    
-                    <Title level={4} className="mt-6">核心功能</Title>
-                    <ul className="list-disc ml-6 space-y-2">
-                      <li>📚 小说管理：支持TXT/EPUB格式上传</li>
-                      <li>🤖 智能问答：基于GraphRAG和Self-RAG</li>
-                      <li>📖 在线阅读：分章节浏览</li>
-                      <li>🕸️ 知识图谱：角色关系自动提取</li>
-                      <li>📊 可视化：关系图和时间线</li>
-                      <li>⚙️ 模型管理：多模型切换</li>
-                    </ul>
-                    
-                    <Title level={4} className="mt-6">技术栈</Title>
-                    <Paragraph>
-                      <Text strong>前端：</Text> Next.js 14 + React + TypeScript + Ant Design<br />
-                      <Text strong>后端：</Text> FastAPI + Python 3.12<br />
-                      <Text strong>AI：</Text> 智谱AI (GLM-4系列 + Embedding-3)<br />
-                      <Text strong>数据库：</Text> SQLite + ChromaDB + NetworkX
-                    </Paragraph>
-                    
-                    <Paragraph className="mt-6 text-gray-500">
-                      © 2025 网络小说智能问答系统. All rights reserved.
-                    </Paragraph>
+      {/* 模型配置 */}
+      {config && (
+        <Card>
+          <CardHeader>
+            <CardTitle>模型配置</CardTitle>
+            <CardDescription>设置默认使用的大语言模型</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">默认模型</label>
+              <Select
+                value={config.defaultModel}
+                onValueChange={(value) =>
+                  setConfig({ ...config, defaultModel: value as ModelType })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ModelType.GLM_4_5_FLASH}>
+                    GLM-4.5-Flash（免费）
+                  </SelectItem>
+                  <SelectItem value={ModelType.GLM_4_FLASH}>
+                    GLM-4-Flash（免费，128K）
+                  </SelectItem>
+                  <SelectItem value={ModelType.GLM_4_5_AIR}>
+                    GLM-4.5-Air（推荐）
+                  </SelectItem>
+                  <SelectItem value={ModelType.GLM_4_5_AIRX}>
+                    GLM-4.5-AirX（增强）
+                  </SelectItem>
+                  <SelectItem value={ModelType.GLM_4_5_X}>
+                    GLM-4.5-X（极速）
+                  </SelectItem>
+                  <SelectItem value={ModelType.GLM_4_5}>
+                    GLM-4.5（高性能）
+                  </SelectItem>
+                  <SelectItem value={ModelType.GLM_4_PLUS}>
+                    GLM-4-Plus（顶级）
+                  </SelectItem>
+                  <SelectItem value={ModelType.GLM_4_6}>
+                    GLM-4.6（旗舰）
+                  </SelectItem>
+                  <SelectItem value={ModelType.GLM_4_LONG}>
+                    GLM-4-Long（百万上下文）
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Button onClick={handleSaveConfig} disabled={isSaving}>
+              {isSaving ? '保存中...' : '保存设置'}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Token统计 */}
+      {tokenStats && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Token统计</CardTitle>
+            <CardDescription>本月Token使用情况</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">总消耗</p>
+                <p className="text-2xl font-bold">
+                  {tokenStats.total_tokens.toLocaleString()}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">预估成本</p>
+                <p className="text-2xl font-bold">
+                  ¥{tokenStats.total_cost.toFixed(2)}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm text-muted-foreground">统计周期</p>
+                <p className="text-2xl font-bold">{tokenStats.period}</p>
+              </div>
+            </div>
+
+            <Separator />
+
+            <div>
+              <h4 className="text-sm font-medium mb-3">按模型分类</h4>
+              <div className="space-y-2">
+                {tokenStats.by_model && Object.entries(tokenStats.by_model).map(([model, stats]) => (
+                  <div key={model} className="flex justify-between items-center">
+                    <Badge variant="outline">{model}</Badge>
+                    <span className="text-sm text-muted-foreground">
+                      {(stats as any).totalTokens?.toLocaleString() || 0} tokens
+                    </span>
                   </div>
-                </div>
-              ),
-            },
-          ]}
-        />
-      </div>
+                ))}
+              </div>
+            </div>
+
+            <Separator />
+
+            <div>
+              <h4 className="text-sm font-medium mb-3">按操作分类</h4>
+              <div className="space-y-2">
+                {tokenStats.by_operation && Object.entries(tokenStats.by_operation).map(([operation, stats]) => (
+                  <div key={operation} className="flex justify-between items-center">
+                    <Badge variant="secondary">
+                      {operation === 'index' ? '索引' : '查询'}
+                    </Badge>
+                    <span className="text-sm text-muted-foreground">
+                      {(stats as any).totalTokens?.toLocaleString() || 0} tokens
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

@@ -189,14 +189,125 @@ async def get_indexing_progress(
     if not progress_info.get('found'):
         raise NovelNotFoundError(novel_id)
     
+    from app.models.schemas import IndexingDetail
+    
+    # 构建详细信息
+    detail = None
+    if progress_info.get('detail'):
+        detail = IndexingDetail(**progress_info['detail'])
+    
     return NovelProgressResponse(
         novel_id=novel_id,
         status=IndexStatus(progress_info['status']),
         progress=progress_info['progress'],
         current_chapter=progress_info.get('completed_chapters'),
         total_chapters=progress_info['total_chapters'],
-        message=progress_info['message']
+        total_chars=progress_info.get('total_chars', 0),
+        message=progress_info['message'],
+        detail=detail
     )
+
+
+@router.get("/{novel_id}/token-stats", summary="获取小说Token统计")
+async def get_novel_token_stats(
+    novel_id: int,
+    db: Session = Depends(get_db_session)
+):
+    """
+    获取小说的Token消耗统计
+    
+    返回该小说索引过程中的详细Token统计信息：
+    - 按模型分类的Token消耗
+    - Embedding总消耗
+    - 估算成本
+    """
+    try:
+        # 验证小说是否存在
+        novel = db.query(Novel).filter(Novel.id == novel_id).first()
+        if not novel:
+            raise NovelNotFoundError(novel_id)
+        
+        # 从token_stats表查询该小说的统计记录
+        from app.models.database import TokenStat
+        from app.services.token_stats_service import get_token_stats_service
+        
+        token_stats_service = get_token_stats_service()
+        
+        # 查询该小说的所有token记录
+        stats_records = db.query(TokenStat).filter(
+            TokenStat.operation_type == 'index',
+            TokenStat.operation_id == novel_id
+        ).all()
+        
+        # 按模型汇总
+        by_model = {}
+        total_tokens = 0
+        total_cost = 0.0
+        
+        for record in stats_records:
+            model_name = record.model_name
+            
+            if model_name not in by_model:
+                by_model[model_name] = {
+                    'inputTokens': 0,
+                    'outputTokens': 0,
+                    'totalTokens': 0,
+                    'cost': 0.0
+                }
+            
+            # Embedding模型只有input tokens
+            if record.input_tokens:
+                by_model[model_name]['inputTokens'] += record.input_tokens
+            
+            # LLM模型有prompt和completion tokens（这里索引阶段应该只有embedding）
+            if record.prompt_tokens:
+                by_model[model_name]['promptTokens'] = by_model[model_name].get('promptTokens', 0) + record.prompt_tokens
+            if record.completion_tokens:
+                by_model[model_name]['completionTokens'] = by_model[model_name].get('completionTokens', 0) + record.completion_tokens
+            
+            by_model[model_name]['totalTokens'] += record.total_tokens
+            by_model[model_name]['cost'] += float(record.estimated_cost or 0.0)
+            
+            total_tokens += record.total_tokens
+            total_cost += float(record.estimated_cost or 0.0)
+        
+        # 如果没有详细记录，使用Novel表中的embedding_tokens
+        if not by_model and novel.embedding_tokens > 0:
+            # 计算成本
+            from app.utils.token_counter import get_token_counter
+            token_counter = get_token_counter()
+            cost = token_counter.calculate_cost(novel.embedding_tokens, 0, 'embedding-3')
+            
+            by_model = {
+                'embedding-3': {
+                    'inputTokens': novel.embedding_tokens,
+                    'totalTokens': novel.embedding_tokens,
+                    'cost': cost
+                }
+            }
+            total_tokens = novel.embedding_tokens
+            total_cost = cost
+        
+        logger.info(f"✅ 获取小说 {novel_id} 的Token统计: {total_tokens} tokens, ¥{total_cost:.4f}")
+        
+        return {
+            "novel_id": novel_id,
+            "total_tokens": total_tokens,
+            "total_cost": round(total_cost, 6),
+            "by_model": by_model,
+            "novel_info": {
+                "title": novel.title,
+                "total_chapters": novel.total_chapters,
+                "total_chunks": novel.total_chunks,
+                "index_status": novel.index_status
+            }
+        }
+        
+    except NovelNotFoundError:
+        raise
+    except Exception as e:
+        logger.error(f"❌ 获取Token统计失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取Token统计失败: {str(e)}")
 
 
 # ========================================
@@ -206,6 +317,9 @@ async def get_indexing_progress(
 def start_indexing(novel_id: int, file_path: str, file_format: FileFormat):
     """
     启动索引任务（后台任务）
+    
+    注意：不使用progress_callback，因为会导致事件循环冲突
+    前端通过轮询数据库获取进度
     """
     try:
         logger.info(f"🔄 开始索引小说 ID={novel_id}")
@@ -217,7 +331,6 @@ def start_indexing(novel_id: int, file_path: str, file_format: FileFormat):
         from app.db.init_db import get_database_url
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
-        from app.api.websocket import progress_callback
         
         # 创建独立的数据库会话
         engine = create_engine(get_database_url())
@@ -227,20 +340,43 @@ def start_indexing(novel_id: int, file_path: str, file_format: FileFormat):
         try:
             indexing_service = get_indexing_service()
             
-            # 执行索引（带进度回调）
+            # 执行索引（不使用WebSocket回调，避免事件循环冲突）
+            # 前端会通过轮询 /api/novels/{id}/progress 来获取进度
             loop.run_until_complete(
                 indexing_service.index_novel(
                     db=db,
                     novel_id=novel_id,
                     file_path=file_path,
                     file_format=file_format,
-                    progress_callback=progress_callback
+                    progress_callback=None  # 不使用WebSocket回调
                 )
             )
+            logger.info(f"✅ 索引任务完成: novel_id={novel_id}")
         finally:
             db.close()
             loop.close()
             
     except Exception as e:
         logger.error(f"❌ 索引任务失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        # 更新小说状态为失败
+        try:
+            from app.db.init_db import get_database_url
+            from sqlalchemy import create_engine
+            from sqlalchemy.orm import sessionmaker
+            
+            engine = create_engine(get_database_url())
+            SessionLocal = sessionmaker(bind=engine)
+            db = SessionLocal()
+            try:
+                novel = db.query(Novel).filter(Novel.id == novel_id).first()
+                if novel:
+                    novel.index_status = IndexStatus.FAILED.value
+                    db.commit()
+            finally:
+                db.close()
+        except Exception as inner_e:
+            logger.error(f"❌ 更新失败状态失败: {inner_e}")
 
