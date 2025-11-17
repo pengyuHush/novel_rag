@@ -23,6 +23,7 @@ export function useQueryWebSocket() {
     setTokenStats,
     completeQuery,
     setError,
+    queryConfig,
   } = useQueryStore();
 
   const executeQuery = useCallback(
@@ -35,8 +36,8 @@ export function useQueryWebSocket() {
       // 重置状态并开始查询
       startQuery();
 
-      // 创建新的WebSocket连接
-      wsRef.current = createQueryWebSocket(novelId, query, model, {
+      // 创建新的WebSocket连接（传递查询配置）
+      wsRef.current = createQueryWebSocket(novelId, query, model, queryConfig, {
         onStage: (stage, progress) => {
           setStage(stage, progress);
         },
@@ -78,6 +79,7 @@ export function useQueryWebSocket() {
       setTokenStats,
       completeQuery,
       setError,
+      queryConfig,
     ]
   );
 

@@ -13,11 +13,13 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Brain, CheckCircle, Maximize2 } from 'lucide-react';
+import { FeedbackButtons } from './FeedbackButtons';
 
 interface ThinkingPanelProps {
   thinking?: string;
   answer?: string;
   isGenerating: boolean;
+  queryId?: number | null;
   className?: string;
 }
 
@@ -25,6 +27,7 @@ export function ThinkingPanel({
   thinking,
   answer,
   isGenerating,
+  queryId,
   className,
 }: ThinkingPanelProps) {
   const answerScrollRef = useRef<HTMLDivElement>(null);
@@ -184,28 +187,36 @@ export function ThinkingPanel({
             )}
           </CardTitle>
         </CardHeader>
-        <CardContent className="pt-2 pb-2 px-3 flex-1 min-h-0">
-          <ScrollArea className="h-full" ref={answerScrollRef}>
-            {answer ? (
-              <div className="prose prose-sm max-w-none dark:prose-invert pr-3">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {answer}
-                </ReactMarkdown>
-                {isGenerating && (
-                  <span className="inline-block w-2 h-4 ml-1 bg-primary animate-pulse">▋</span>
-                )}
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-full text-muted-foreground">
-                <div className="text-center">
-                  <Brain className="h-10 w-10 mx-auto mb-3 opacity-20" />
-                  <p className="text-sm">
-                    {isGenerating ? '正在生成答案...' : '选择小说并输入问题开始查询'}
-                  </p>
+        <CardContent className="pt-2 pb-2 px-3 flex-1 min-h-0 flex flex-col overflow-hidden">
+          <div className="flex-1 min-h-0">
+            <ScrollArea className="h-full" ref={answerScrollRef}>
+              {answer ? (
+                <div className="prose prose-sm max-w-none dark:prose-invert pr-3">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {answer}
+                  </ReactMarkdown>
+                  {isGenerating && (
+                    <span className="inline-block w-2 h-4 ml-1 bg-primary animate-pulse">▋</span>
+                  )}
                 </div>
-              </div>
-            )}
-          </ScrollArea>
+              ) : (
+                <div className="flex items-center justify-center h-full text-muted-foreground">
+                  <div className="text-center">
+                    <Brain className="h-10 w-10 mx-auto mb-3 opacity-20" />
+                    <p className="text-sm">
+                      {isGenerating ? '正在生成答案...' : '选择小说并输入问题开始查询'}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </ScrollArea>
+          </div>
+          {/* 反馈按钮 - 只在查询完成且有答案时显示 */}
+          {!isGenerating && answer && queryId && (
+            <div className="flex-shrink-0 mt-2">
+              <FeedbackButtons queryId={queryId} />
+            </div>
+          )}
         </CardContent>
       </Card>
 

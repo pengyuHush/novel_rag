@@ -150,27 +150,27 @@ export default function ReaderPage({ params }: ReaderPageProps) {
 
         <div className="flex-1 overflow-hidden">
           <ScrollArea className="h-full">
-            <div className="p-2">
-              {filteredChapters.map((chapter) => (
-                <Button
-                  key={chapter.num}
-                  variant={currentChapterNum === chapter.num ? 'secondary' : 'ghost'}
-                  size="sm"
-                  onClick={() => setCurrentChapterNum(chapter.num)}
-                  className="w-full justify-start mb-1 h-auto py-2"
-                >
-                  <div className="text-left">
-                    <div className="font-medium">第{chapter.num}章</div>
-                    {chapter.title && (
-                      <div className="text-xs text-muted-foreground truncate">
-                        {chapter.title}
-                      </div>
-                    )}
-                  </div>
-                </Button>
-              ))}
-            </div>
-          </ScrollArea>
+          <div className="p-2">
+            {filteredChapters.map((chapter) => (
+              <Button
+                key={chapter.num}
+                variant={currentChapterNum === chapter.num ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setCurrentChapterNum(chapter.num)}
+                className="w-full justify-start mb-1 h-auto py-2"
+              >
+                <div className="text-left">
+                  <div className="font-medium">第{chapter.num}章</div>
+                  {chapter.title && (
+                    <div className="text-xs text-muted-foreground truncate">
+                      {chapter.title}
+                    </div>
+                  )}
+                </div>
+              </Button>
+            ))}
+          </div>
+        </ScrollArea>
         </div>
       </aside>
 

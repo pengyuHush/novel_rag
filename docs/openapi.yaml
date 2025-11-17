@@ -1,0 +1,1447 @@
+openapi: 3.0.3
+info:
+  title: 网络小说智能问答系统 API
+  description: |
+    基于RAG、GraphRAG和Self-RAG技术的网络小说智能问答系统API文档。
+    
+    ## 功能特性
+    - 支持TXT/EPUB格式小说上传和索引
+    - 基于智谱AI的向量检索和语义理解
+    - 知识图谱增强检索（GraphRAG）
+    - Self-RAG自我验证和矛盾检测
+    - WebSocket流式问答
+    - 图谱可视化和时间线分析
+    
+    ## 技术栈
+    - 后端: FastAPI + Python 3.10+
+    - 向量数据库: ChromaDB
+    - 图数据库: NetworkX
+    - AI模型: 智谱AI GLM系列 + Embedding-3
+    
+  version: 0.1.0
+  contact:
+    name: API支持
+    url: https://github.com/your-repo
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8000
+    description: 本地开发服务器
+  - url: http://localhost:8000
+    description: 生产环境（待配置）
+
+tags:
+  - name: health
+    description: 健康检查
+  - name: novels
+    description: 小说管理
+  - name: chapters
+    description: 章节管理
+  - name: query
+    description: 智能问答
+  - name: graph
+    description: 知识图谱
+  - name: stats
+    description: 统计信息
+  - name: config
+    description: 系统配置
+  - name: websocket
+    description: WebSocket通信
+
+paths:
+  # ==================== 健康检查 ====================
+  /api/health:
+    get:
+      tags: [health]
+      summary: 健康检查
+      description: 检查API服务是否正常运行
+      operationId: healthCheck
+      responses:
+        '200':
+          description: 服务正常
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  message:
+                    type: string
+                    example: 服务运行正常
+
+  /api/health/database:
+    get:
+      tags: [health]
+      summary: 数据库健康检查
+      description: 检查SQLite数据库连接是否正常
+      operationId: databaseHealthCheck
+      responses:
+        '200':
+          description: 数据库连接正常
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /api/health/chromadb:
+    get:
+      tags: [health]
+      summary: ChromaDB健康检查
+      description: 检查向量数据库连接是否正常
+      operationId: chromadbHealthCheck
+      responses:
+        '200':
+          description: ChromaDB连接正常
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /api/health/zhipu:
+    get:
+      tags: [health]
+      summary: 智谱AI健康检查
+      description: 检查智谱AI API连接是否正常
+      operationId: zhipuHealthCheck
+      responses:
+        '200':
+          description: 智谱AI连接正常
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  # ==================== 小说管理 ====================
+  /api/novels/upload:
+    post:
+      tags: [novels]
+      summary: 上传小说
+      description: |
+        上传小说文件并启动后台索引任务
+        - 支持TXT和EPUB格式
+        - 自动检测文件编码
+        - 后台异步处理索引
+      operationId: uploadNovel
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+                - title
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 小说文件（TXT或EPUB）
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                  description: 小说标题
+                author:
+                  type: string
+                  maxLength: 100
+                  description: 作者（可选）
+      responses:
+        '200':
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NovelResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/novels:
+    get:
+      tags: [novels]
+      summary: 获取小说列表
+      description: 分页获取小说列表，支持按状态筛选
+      operationId: listNovels
+      parameters:
+        - name: skip
+          in: query
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+          description: 跳过的记录数
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 200
+          description: 返回的最大记录数
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/IndexStatus'
+          description: 按索引状态筛选
+      responses:
+        '200':
+          description: 成功返回小说列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NovelListItem'
+
+  /api/novels/{novel_id}:
+    get:
+      tags: [novels]
+      summary: 获取小说详情
+      description: 根据ID获取单个小说的完整信息
+      operationId: getNovel
+      parameters:
+        - $ref: '#/components/parameters/NovelIdPath'
+      responses:
+        '200':
+          description: 成功返回小说详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NovelResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [novels]
+      summary: 删除小说
+      description: |
+        删除小说及其所有相关数据
+        - 删除文件
+        - 删除向量数据
+        - 删除知识图谱
+        - 删除章节记录
+      operationId: deleteNovel
+      parameters:
+        - $ref: '#/components/parameters/NovelIdPath'
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/novels/{novel_id}/progress:
+    get:
+      tags: [novels]
+      summary: 获取索引进度
+      description: 获取小说索引的详细进度信息
+      operationId: getNovelProgress
+      parameters:
+        - $ref: '#/components/parameters/NovelIdPath'
+      responses:
+        '200':
+          description: 成功返回进度信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NovelProgressResponse'
+
+  /api/novels/{novel_id}/reindex:
+    post:
+      tags: [novels]
+      summary: 重新索引
+      description: 触发小说的重新索引任务
+      operationId: reindexNovel
+      parameters:
+        - $ref: '#/components/parameters/NovelIdPath'
+      responses:
+        '200':
+          description: 重新索引任务已启动
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+
+  # ==================== 章节管理 ====================
+  /api/chapters/{novel_id}:
+    get:
+      tags: [chapters]
+      summary: 获取章节列表
+      description: 获取指定小说的所有章节列表
+      operationId: listChapters
+      parameters:
+        - $ref: '#/components/parameters/NovelIdPath'
+        - name: skip
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: 成功返回章节列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChapterListItem'
+
+  /api/chapters/{novel_id}/{chapter_num}:
+    get:
+      tags: [chapters]
+      summary: 获取章节内容
+      description: 根据章节号获取章节完整内容
+      operationId: getChapter
+      parameters:
+        - $ref: '#/components/parameters/NovelIdPath'
+        - name: chapter_num
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: 章节编号
+      responses:
+        '200':
+          description: 成功返回章节内容
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChapterDetail'
+
+  /api/chapters/{novel_id}/search:
+    get:
+      tags: [chapters]
+      summary: 搜索章节
+      description: 按关键词搜索章节
+      operationId: searchChapters
+      parameters:
+        - $ref: '#/components/parameters/NovelIdPath'
+        - name: keyword
+          in: query
+          required: true
+          schema:
+            type: string
+          description: 搜索关键词
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: 搜索结果
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChapterListItem'
+
+  /api/chapters/{novel_id}/range:
+    get:
+      tags: [chapters]
+      summary: 获取章节范围
+      description: 获取指定章节范围的内容
+      operationId: getChapterRange
+      parameters:
+        - $ref: '#/components/parameters/NovelIdPath'
+        - name: start
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: end
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 章节范围内容
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChapterDetail'
+
+  # ==================== 智能问答 ====================
+  /api/query:
+    post:
+      tags: [query]
+      summary: 非流式查询
+      description: |
+        提交查询并等待完整结果（非流式）
+        - 适用于查询历史加载
+        - 返回完整的查询结果
+      operationId: queryNovel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryRequest'
+      responses:
+        '200':
+          description: 查询成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/query/history:
+    get:
+      tags: [query]
+      summary: 获取查询历史
+      description: 分页获取历史查询记录
+      operationId: getQueryHistory
+      parameters:
+        - name: novel_id
+          in: query
+          schema:
+            type: integer
+          description: 按小说ID过滤（可选）
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: 成功返回查询历史
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryHistoryResponse'
+
+  /api/query/{query_id}:
+    get:
+      tags: [query]
+      summary: 获取查询详情
+      description: 获取单个查询的完整详情（用于历史查询详情查看）
+      operationId: getQueryDetail
+      parameters:
+        - name: query_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 查询详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/query/{query_id}/feedback:
+    post:
+      tags: [query]
+      summary: 提交用户反馈
+      description: |
+        对查询结果提交反馈
+        - positive: 答案准确
+        - negative: 答案不准确（可附带备注）
+      operationId: submitFeedback
+      parameters:
+        - name: query_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: feedback
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [positive, negative]
+          description: 反馈类型
+        - name: note
+          in: query
+          schema:
+            type: string
+            maxLength: 500
+          description: 反馈备注（可选）
+      responses:
+        '200':
+          description: 反馈提交成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  query_id:
+                    type: integer
+                  feedback:
+                    type: string
+
+  /api/query/{query_id}/token-stats:
+    get:
+      tags: [query]
+      summary: 获取Token统计
+      description: 获取单次查询的详细Token消耗统计
+      operationId: getQueryTokenStats
+      parameters:
+        - name: query_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Token统计信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenStats'
+
+  # ==================== 知识图谱 ====================
+  /api/graph/relations/{novel_id}:
+    get:
+      tags: [graph]
+      summary: 获取关系图谱
+      description: |
+        获取小说的角色关系图谱数据
+        - 支持章节范围筛选
+        - 支持节点数量限制
+        - 支持重要性阈值过滤
+      operationId: getRelationGraph
+      parameters:
+        - $ref: '#/components/parameters/NovelIdPath'
+        - name: start_chapter
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+          description: 起始章节（可选）
+        - name: end_chapter
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+          description: 结束章节（可选）
+        - name: max_nodes
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 10
+            maximum: 200
+          description: 最大节点数
+        - name: min_importance
+          in: query
+          schema:
+            type: number
+            format: float
+            default: 0.0
+            minimum: 0.0
+            maximum: 1.0
+          description: 最小重要性阈值
+      responses:
+        '200':
+          description: 关系图谱数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RelationGraphResponse'
+
+  /api/graph/timeline/{novel_id}:
+    get:
+      tags: [graph]
+      summary: 获取时间线
+      description: 获取小说的时间线事件数据
+      operationId: getTimeline
+      parameters:
+        - $ref: '#/components/parameters/NovelIdPath'
+        - name: entity_filter
+          in: query
+          schema:
+            type: string
+          description: 按实体名称过滤（可选）
+        - name: max_events
+          in: query
+          schema:
+            type: integer
+            default: 100
+            minimum: 10
+            maximum: 500
+          description: 最大事件数
+      responses:
+        '200':
+          description: 时间线数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimelineResponse'
+
+  /api/graph/statistics/{novel_id}:
+    get:
+      tags: [graph]
+      summary: 获取图谱统计
+      description: 获取小说的知识图谱统计信息
+      operationId: getGraphStatistics
+      parameters:
+        - $ref: '#/components/parameters/NovelIdPath'
+      responses:
+        '200':
+          description: 统计信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatisticsResponse'
+
+  /api/graph/relations/{novel_id}/node/{node_id}:
+    get:
+      tags: [graph]
+      summary: 获取节点详情
+      description: 获取知识图谱中单个节点的详细信息
+      operationId: getNodeDetails
+      parameters:
+        - $ref: '#/components/parameters/NovelIdPath'
+        - name: node_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 节点ID（实体名称）
+      responses:
+        '200':
+          description: 节点详情
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ==================== 统计信息 ====================
+  /api/stats/tokens/{novel_id}:
+    get:
+      tags: [stats]
+      summary: 获取Token统计
+      description: 获取小说索引过程的Token消耗统计
+      operationId: getNovelTokenStats
+      parameters:
+        - $ref: '#/components/parameters/NovelIdPath'
+      responses:
+        '200':
+          description: Token统计
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenStatsDetail'
+
+  /api/stats/system:
+    get:
+      tags: [stats]
+      summary: 获取系统统计
+      description: 获取系统级别的使用统计
+      operationId: getSystemStats
+      responses:
+        '200':
+          description: 系统统计
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_novels:
+                    type: integer
+                  total_queries:
+                    type: integer
+                  total_tokens:
+                    type: integer
+                  total_cost:
+                    type: number
+
+  /api/stats/models:
+    get:
+      tags: [stats]
+      summary: 获取模型使用统计
+      description: 获取各模型的使用统计
+      operationId: getModelStats
+      responses:
+        '200':
+          description: 模型统计
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+                  properties:
+                    count:
+                      type: integer
+                    tokens:
+                      type: integer
+                    cost:
+                      type: number
+
+  # ==================== 系统配置 ====================
+  /api/config:
+    get:
+      tags: [config]
+      summary: 获取配置
+      description: 获取当前应用配置（前端使用）
+      operationId: getConfig
+      responses:
+        '200':
+          description: 配置信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppConfig'
+
+    put:
+      tags: [config]
+      summary: 更新配置
+      description: |
+        更新应用配置（运行时配置）
+        注意：某些配置可能需要重启服务才能生效
+      operationId: updateConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateConfigRequest'
+      responses:
+        '200':
+          description: 配置更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+
+  /api/config/models:
+    get:
+      tags: [config]
+      summary: 获取支持的模型列表
+      description: 获取系统支持的所有智谱AI模型
+      operationId: getSupportedModels
+      responses:
+        '200':
+          description: 模型列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    category:
+                      type: string
+                    max_tokens:
+                      type: integer
+                    price_input:
+                      type: number
+                    price_output:
+                      type: number
+                    description:
+                      type: string
+
+  /api/config/test-connection:
+    post:
+      tags: [config]
+      summary: 测试API连接
+      description: 测试智谱AI API连接是否正常
+      operationId: testConnection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                api_key:
+                  type: string
+                  description: 智谱AI API密钥
+      responses:
+        '200':
+          description: 测试结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+
+  /api/config/env:
+    get:
+      tags: [config]
+      summary: 获取环境信息
+      description: 获取系统环境和版本信息
+      operationId: getEnvironment
+      responses:
+        '200':
+          description: 环境信息
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app_name:
+                    type: string
+                  app_version:
+                    type: string
+                  python_version:
+                    type: string
+                  debug_mode:
+                    type: boolean
+
+  # ==================== WebSocket ====================
+  /api/query/stream:
+    get:
+      tags: [websocket]
+      summary: 流式查询（WebSocket）
+      description: |
+        通过WebSocket建立连接并进行流式问答
+        
+        ## 连接流程
+        1. 客户端建立WebSocket连接
+        2. 发送查询请求: `{"novel_id": 1, "query": "问题", "model": "GLM-4.5-Air"}`
+        3. 服务端流式返回5个阶段的消息
+        4. 查询完成后连接自动关闭
+        
+        ## 消息格式
+        统一格式：
+        ```json
+        {
+          "stage": "understanding|retrieving|generating|validating|complete|error",
+          "content": "阶段文本内容",
+          "progress": 0.0-1.0,
+          "data": {}
+        }
+        ```
+        
+        ## 阶段说明
+        - `understanding`: 查询理解（提取实体、识别类型）
+        - `retrieving`: 检索上下文（向量检索+图谱检索）
+        - `generating`: 生成答案（LLM流式输出）
+        - `validating`: Self-RAG验证（矛盾检测）
+        - `complete`: 完成（返回完整结果）
+        - `error`: 错误（返回错误信息）
+      operationId: streamQuery
+      responses:
+        '101':
+          description: 切换到WebSocket协议
+
+components:
+  parameters:
+    NovelIdPath:
+      name: novel_id
+      in: path
+      required: true
+      schema:
+        type: integer
+      description: 小说ID
+
+  responses:
+    BadRequest:
+      description: 请求参数错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    
+    InternalError:
+      description: 服务器内部错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    # ==================== 基础类型 ====================
+    IndexStatus:
+      type: string
+      enum: [pending, processing, completed, failed]
+      description: 索引状态
+    
+    FileFormat:
+      type: string
+      enum: [txt, epub]
+      description: 文件格式
+    
+    ModelType:
+      type: string
+      enum:
+        - GLM-4.5-Flash
+        - GLM-4-Flash-250414
+        - GLM-4.5-Air
+        - GLM-4.5-AirX
+        - GLM-4.5-X
+        - GLM-4.5
+        - GLM-4-Plus
+        - GLM-4.6
+        - GLM-4-Long
+      description: 智谱AI模型类型
+    
+    Confidence:
+      type: string
+      enum: [high, medium, low]
+      description: 置信度
+    
+    QueryStage:
+      type: string
+      enum: [understanding, retrieving, generating, validating, complete, error]
+      description: 查询阶段
+
+    # ==================== 小说相关 ====================
+    NovelResponse:
+      type: object
+      required: [id, title, total_chars, total_chapters, index_status, index_progress, file_format, upload_date, created_at, updated_at]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        author:
+          type: string
+          nullable: true
+        total_chars:
+          type: integer
+          description: 总字符数
+        total_chapters:
+          type: integer
+          description: 总章节数
+        index_status:
+          $ref: '#/components/schemas/IndexStatus'
+        index_progress:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: 索引进度
+        file_format:
+          $ref: '#/components/schemas/FileFormat'
+        total_chunks:
+          type: integer
+          default: 0
+        total_entities:
+          type: integer
+          default: 0
+        total_relations:
+          type: integer
+          default: 0
+        embedding_tokens:
+          type: integer
+          default: 0
+        upload_date:
+          type: string
+          format: date-time
+        indexed_date:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    NovelListItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        author:
+          type: string
+          nullable: true
+        total_chars:
+          type: integer
+        total_chapters:
+          type: integer
+        index_status:
+          $ref: '#/components/schemas/IndexStatus'
+        index_progress:
+          type: number
+          format: float
+        file_format:
+          $ref: '#/components/schemas/FileFormat'
+        upload_date:
+          type: string
+          format: date-time
+
+    NovelProgressResponse:
+      type: object
+      properties:
+        novel_id:
+          type: integer
+        status:
+          $ref: '#/components/schemas/IndexStatus'
+        progress:
+          type: number
+          format: float
+        current_step:
+          type: string
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/IndexingStep'
+        token_stats:
+          type: object
+        warnings:
+          type: array
+          items:
+            type: string
+
+    IndexingStep:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        progress:
+          type: number
+          format: float
+        message:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        error:
+          type: string
+          nullable: true
+
+    # ==================== 章节相关 ====================
+    ChapterListItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        novel_id:
+          type: integer
+        chapter_num:
+          type: integer
+        title:
+          type: string
+          nullable: true
+        char_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    ChapterDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+        novel_id:
+          type: integer
+        chapter_num:
+          type: integer
+        title:
+          type: string
+          nullable: true
+        content:
+          type: string
+          description: 章节完整内容
+        char_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    # ==================== 查询相关 ====================
+    QueryRequest:
+      type: object
+      required: [novel_id, query, model]
+      properties:
+        novel_id:
+          type: integer
+        query:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        model:
+          $ref: '#/components/schemas/ModelType'
+
+    QueryResponse:
+      type: object
+      properties:
+        query_id:
+          type: integer
+        answer:
+          type: string
+          description: 完整答案
+        citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Citation'
+        graph_info:
+          type: object
+          nullable: true
+        contradictions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Contradiction'
+        token_stats:
+          $ref: '#/components/schemas/TokenStats'
+        response_time:
+          type: number
+          format: float
+        confidence:
+          $ref: '#/components/schemas/Confidence'
+        model:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    Citation:
+      type: object
+      properties:
+        chapter_id:
+          type: integer
+        chapter_num:
+          type: integer
+        text:
+          type: string
+        similarity:
+          type: number
+          format: float
+
+    Contradiction:
+      type: object
+      properties:
+        type:
+          type: string
+          description: 矛盾类型
+        early_chapter:
+          type: integer
+        late_chapter:
+          type: integer
+        early_text:
+          type: string
+        late_text:
+          type: string
+        analysis:
+          type: string
+        confidence:
+          type: string
+
+    QueryHistoryResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/QueryHistoryItem'
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total_pages:
+          type: integer
+
+    QueryHistoryItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        novel_id:
+          type: integer
+        query:
+          type: string
+        answer:
+          type: string
+          description: 答案摘要（前200字）
+        model:
+          type: string
+        total_tokens:
+          type: integer
+        confidence:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        feedback:
+          type: string
+          enum: [positive, negative]
+          nullable: true
+
+    # ==================== Token统计 ====================
+    TokenStats:
+      type: object
+      properties:
+        total_tokens:
+          type: integer
+        by_model:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              input_tokens:
+                type: integer
+              output_tokens:
+                type: integer
+              total_tokens:
+                type: integer
+
+    TokenStatsDetail:
+      type: object
+      properties:
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              step:
+                type: string
+              model:
+                type: string
+              input_tokens:
+                type: integer
+              output_tokens:
+                type: integer
+              total_tokens:
+                type: integer
+              cost:
+                type: number
+        total:
+          type: object
+          properties:
+            total_tokens:
+              type: integer
+            total_cost:
+              type: number
+
+    # ==================== 图谱相关 ====================
+    RelationGraphResponse:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              type:
+                type: string
+              importance:
+                type: number
+        edges:
+          type: array
+          items:
+            type: object
+            properties:
+              source:
+                type: string
+              target:
+                type: string
+              relation_type:
+                type: string
+              strength:
+                type: number
+        metadata:
+          type: object
+          properties:
+            total_nodes:
+              type: integer
+            total_edges:
+              type: integer
+            chapter_range:
+              type: array
+              items:
+                type: integer
+
+    TimelineResponse:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            type: object
+            properties:
+              chapter_num:
+                type: integer
+              narrative_order:
+                type: integer
+              description:
+                type: string
+              event_type:
+                type: string
+              importance:
+                type: number
+        metadata:
+          type: object
+          properties:
+            total_events:
+              type: integer
+            chapter_range:
+              type: array
+              items:
+                type: integer
+
+    StatisticsResponse:
+      type: object
+      properties:
+        total_chapters:
+          type: integer
+        total_characters:
+          type: integer
+        total_chars:
+          type: integer
+        character_count:
+          type: integer
+        relation_count:
+          type: integer
+        average_chapter_length:
+          type: number
+        top_characters:
+          type: array
+          items:
+            type: object
+        chapter_density:
+          type: array
+          items:
+            type: object
+
+    # ==================== 配置相关 ====================
+    AppConfig:
+      type: object
+      properties:
+        default_model:
+          $ref: '#/components/schemas/ModelType'
+        top_k:
+          type: integer
+          nullable: true
+        chunk_size:
+          type: integer
+          nullable: true
+        chunk_overlap:
+          type: integer
+          nullable: true
+        enable_self_rag:
+          type: boolean
+          nullable: true
+        enable_smart_routing:
+          type: boolean
+          nullable: true
+
+    UpdateConfigRequest:
+      type: object
+      properties:
+        default_model:
+          $ref: '#/components/schemas/ModelType'
+        top_k:
+          type: integer
+          nullable: true
+        chunk_size:
+          type: integer
+          nullable: true
+        chunk_overlap:
+          type: integer
+          nullable: true
+        enable_self_rag:
+          type: boolean
+          nullable: true
+        enable_smart_routing:
+          type: boolean
+          nullable: true
+
+    # ==================== 通用响应 ====================
+    HealthResponse:
+      type: object
+      properties:
+        service:
+          type: string
+        status:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+
+    ErrorResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+        error_code:
+          type: string
+          nullable: true
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API密钥认证（如需要）
+
+security: []
+

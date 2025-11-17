@@ -529,20 +529,21 @@ Edge: "角色A" -[盟友]-> "角色B"
 | 模型类型 | 模型名称 | 特点 | 适用场景 | 价格（元/千tokens） |
 |---------|---------|------|----------|---------------------|
 | **免费模型** | GLM-4.5-Flash | 免费，日常查询 | 简单事实查询、开发测试 | 免费 |
-| **免费模型** | GLM-4-Flash | 免费，128K上下文 | 长文本查询 | 免费 |
+| **免费模型** | GLM-4-Flash-250414 | 免费，128K上下文 | 长文本查询 | 免费 |
 | **高性价比** | GLM-4.5-Air | 推荐，性价比最高 | 常规问答、关系查询 | 输入/输出: ¥0.001 |
 | **高性价比** | GLM-4.5-AirX | 增强版，高性价比 | 复杂查询、推理 | 输入/输出: ¥0.001 |
 | **极速模型** | GLM-4.5-X | 极速响应 | 需要快速响应的场景 | 输入/输出: ¥0.01 |
-| **高性能** | GLM-4.5 | 高性能 | 复杂诡计识别、深度分析 | 输入/输出: ¥0.05 |
-| **高性能** | GLM-4-Plus | 顶级性能，128K上下文 | 演变分析、矛盾检测 | 输入/输出: ¥0.05 |
-| **旗舰模型** | GLM-4.6 | 最新旗舰 | 超复杂推理、关键查询 | 输入/输出: ¥0.1 |
-| **超长上下文** | GLM-4-Long | 100万tokens上下文 | 极长文本分析 | 输入/输出: ¥0.001 |
+| **标准模型** | GLM-4.5 | 标准版 | 复杂推理 | 输入/输出: ¥0.05 |
+| **旗舰模型** | GLM-4-Plus | Plus版本，推理能力强 | 诡计识别、深度分析 | 输入/输出: ¥0.05 |
+| **旗舰模型** | GLM-4.6 | 最新旗舰，128K上下文 | 复杂场景、最高准确率 | 输入/输出: ¥0.1 |
+| **长文本模型** | GLM-4-Long | 1M上下文，适合超长文本 | 全书分析、时间线重建 | 输入/输出: ¥0.001 |
 | **向量模型** | Embedding-3 | 1024维向量 | 文本向量化 | 输入: ¥0.001 |
 
 **说明**：
-- 系统支持9个智谱AI大语言模型，涵盖免费、高性价比、高性能等多个级别
+- 系统支持10个智谱AI模型（9个大语言模型 + 1个向量模型）
 - 推荐日常使用**GLM-4.5-Air**（性价比最高）或免费模型**GLM-4.5-Flash**
-- GLM-4-Long支持百万tokens上下文，适合极长文本场景
+- GLM-4-Flash-250414和GLM-4-Long支持128K-1M上下文，适合长文本场景
+- 所有模型均通过API调用，无需本地部署
 - 价格为2025年11月数据，最新价格请参考[智谱AI定价页面](https://open.bigmodel.cn/pricing)
 
 #### 2.5.2 手动切换机制
@@ -1470,6 +1471,36 @@ Response: {
       </ActionButtons>
     </QueryInput>
 
+    {/* 预设查询快捷按钮 */}
+    <PresetQueriesRow>
+      <PresetQueryButton onClick={() => handlePresetQuery("主角的能力体系是怎样的？")}>
+        🎯 能力体系
+      </PresetQueryButton>
+      <PresetQueryButton onClick={() => handlePresetQuery("主要角色之间是什么关系？")}>
+        👥 角色关系
+      </PresetQueryButton>
+      <PresetQueryButton onClick={() => handlePresetQuery("故事的时间线顺序是怎样的？")}>
+        ⏰ 时间线
+      </PresetQueryButton>
+      <PresetQueryButton onClick={() => handlePresetQuery("主角获得了哪些重要道具或传承？")}>
+        📦 重要物品
+      </PresetQueryButton>
+      <PresetQueryButton onClick={() => handlePresetQuery("请帮我找出可能的情节矛盾")}>
+        🔍 矛盾检测
+      </PresetQueryButton>
+    </PresetQueriesRow>
+
+**预设查询功能说明**：
+- **目的**：提供常见查询类型的快捷入口，降低用户学习成本
+- **实现方式**：点击预设按钮将查询文本自动填入输入框，用户可再次编辑
+- **预设类别**：
+  1. **能力体系**：查询主角的修炼/进化系统、等级划分、技能树等
+  2. **角色关系**：查询主要角色之间的关系网络、演变历程
+  3. **时间线**：查询故事的时间顺序、非线性叙事结构
+  4. **重要物品**：查询道具、法宝、传承等关键物品的获取和作用
+  5. **矛盾检测**：主动触发Self-RAG检测，寻找情节逻辑矛盾
+- **扩展性**：支持动态配置预设问题列表，可根据小说类型自适应
+
     {/* 流式响应区 - 查询进行中 */}
     {isQuerying && (
       <StreamingResponseContainer>
@@ -2004,94 +2035,127 @@ WS /api/query/stream
   "model": str  // "GLM-4.5-Flash" | "GLM-4-Flash-250414" | "GLM-4.5-Air" | "GLM-4.5-AirX" | "GLM-4.5-X" | "GLM-4.5" | "GLM-4-Plus" | "GLM-4.6" | "GLM-4-Long"
 }
 
-# 服务端发送（多个消息，按顺序）
-# 1. 阶段开始
+# 服务端发送（流式消息，按顺序）
+# 消息统一格式
 {
-  "type": "stage_start",
-  "stage": "understand" | "retrieve" | "generate" | "verify"
+  "stage": "understanding" | "retrieving" | "generating" | "validating" | "complete",
+  "content": str,        // 当前阶段的文本内容（思考过程或答案片段）
+  "progress": float,     // 当前阶段进度 0.0-1.0
+  "data": {}             // 可选，阶段完成时的额外数据
 }
 
-# 2. 阶段完成
+# 阶段1: 查询理解 (understanding)
 {
-  "type": "stage_complete",
-  "stage": "understand" | "retrieve" | "verify",
+  "stage": "understanding",
+  "content": "正在理解您的问题...\n检测到实体：萧炎、药老",
+  "progress": 0.2,
   "data": {
-    // understand阶段
-    "entities": [str, ...],
-    "queryType": str,
-    
-    // retrieve阶段
-    "vectorCount": int,
-    "graphCount": int,
-    
-    // verify阶段
-    "assertionCount": int,
-    "contradictionCount": int,
-    "modified": bool
+    "entities": ["萧炎", "药老"],
+    "queryType": "关系查询"
   }
 }
 
-# 3. 流式Token（LLM生成阶段）
+# 阶段2: 检索上下文 (retrieving)
 {
-  "type": "stream_token",
-  "token": str  // 单个词/字
+  "stage": "retrieving",
+  "content": "正在检索相关章节...\n找到5个相关片段",
+  "progress": 0.4,
+  "data": {
+    "vectorCount": 3,
+    "graphCount": 2
+  }
 }
 
-# 4. 查询完成
+# 阶段3: 生成答案 (generating)
+# 流式发送多个消息，每个消息包含答案片段
 {
-  "type": "query_complete",
+  "stage": "generating",
+  "content": "萧炎在第",  // 第一个片段
+  "progress": 0.5
+}
+{
+  "stage": "generating",
+  "content": "三章",      // 第二个片段
+  "progress": 0.55
+}
+{
+  "stage": "generating",
+  "content": "遇到药老...",  // 更多片段
+  "progress": 0.6
+}
+
+# 阶段4: 自我验证 (validating)
+{
+  "stage": "validating",
+  "content": "正在验证答案准确性...",
+  "progress": 0.8,
   "data": {
-    "queryId": int,
+    "assertionCount": 3,
+    "contradictionCount": 0,
+    "modified": false
+  }
+}
+
+# 阶段5: 完成 (complete)
+{
+  "stage": "complete",
+  "content": "",
+  "progress": 1.0,
+  "data": {
+    "query_id": int,
     "answer": str,  // 完整答案
     "citations": [
       {
-        "id": int,
-        "chapterNum": int,
-        "text": str
-      },
-      ...
+        "chapter_id": int,
+        "chapter_num": int,
+        "text": str,
+        "similarity": float
+      }
     ],
-    "graphInfo": {
-      "entities": [str, ...],
+    "graph_info": {
+      "entities": [str],
       "relations": [
-        { "source": str, "target": str, "type": str },
-        ...
+        { "source": str, "target": str, "type": str }
       ]
     },
     "contradictions": [
       {
-        "id": int,
         "type": str,  // "时间线矛盾" | "角色设定矛盾" | "情节不一致"
-        "early": str,
-        "late": str,
+        "early_chapter": int,
+        "late_chapter": int,
+        "early_text": str,
+        "late_text": str,
         "analysis": str
-      },
-      ...
+      }
     ],
-    "tokenStats": {
-      "totalTokens": int,
-      "byModel": {
+    "token_stats": {
+      "total_tokens": int,
+      "by_model": {
         "embedding-3": {
-          "inputTokens": int
+          "input_tokens": int
         },
         "glm-4": {  // 或其他使用的模型
-          "promptTokens": int,
-          "completionTokens": int,
-          "totalTokens": int
+          "prompt_tokens": int,
+          "completion_tokens": int,
+          "total_tokens": int
         }
       }
     },
-    "responseTime": float,
-    "confidence": str,  // "高" | "中" | "低"
+    "response_time": float,
+    "confidence": "high" | "medium" | "low",
     "model": str,
     "timestamp": str  // ISO 8601格式
   }
 }
 
-# 5. 错误消息
+# 错误消息
 {
-  "type": "error",
-  "error": str  // 错误描述
+  "stage": "error",
+  "content": str,     // 错误描述
+  "progress": 0,
+  "data": {
+    "error": str      // 详细错误信息
+  }
 }
 ```
 
@@ -2155,14 +2219,15 @@ Response: {
 }
 
 # 提交反馈
-POST /api/query/{query_id}/feedback
-Body: {
-  "feedback": "positive" | "negative",
-  "note": str  // 可选，用户备注
-}
+POST /api/query/{query_id}/feedback?feedback=positive&note=备注内容
+Query Parameters:
+  - feedback: "positive" | "negative" (required)
+  - note: string (optional，最大500字符)
 Response: {
   "success": bool,
-  "message": str
+  "message": str,
+  "query_id": int,
+  "feedback": str
 }
 ```
 

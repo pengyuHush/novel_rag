@@ -6,7 +6,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Upload, BookOpen, Network, Trash2, Plus, Library } from 'lucide-react';
+import { Upload, BookOpen, Network, Trash2, Plus, Library, History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -22,6 +22,7 @@ import type { NovelListItem, IndexStatus } from '@/types/api';
 interface NovelSidebarProps {
   onUploadClick?: () => void;
   onViewGraphClick?: (novelId: number) => void;
+  onHistoryClick?: () => void;
 }
 
 function formatNumber(num: number): string {
@@ -43,7 +44,7 @@ function getStatusBadge(status: IndexStatus) {
   return <Badge variant={variant}>{label}</Badge>;
 }
 
-export function NovelSidebar({ onUploadClick, onViewGraphClick }: NovelSidebarProps) {
+export function NovelSidebar({ onUploadClick, onViewGraphClick, onHistoryClick }: NovelSidebarProps) {
   const router = useRouter();
   const { novels = [], selectedNovelId, setNovels, setSelectedNovel, removeNovel, setLoading } = useNovelStore();
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -108,12 +109,18 @@ export function NovelSidebar({ onUploadClick, onViewGraphClick }: NovelSidebarPr
 
   return (
     <aside className="w-80 border-r bg-background flex flex-col">
-      {/* 顶部：上传按钮 */}
-      <div className="p-4 border-b">
+      {/* 顶部：操作按钮 */}
+      <div className="p-4 border-b space-y-2">
         <Button onClick={onUploadClick} className="w-full" size="lg">
           <Upload className="mr-2 h-4 w-4" />
           上传小说
         </Button>
+        {onHistoryClick && (
+          <Button onClick={onHistoryClick} variant="outline" className="w-full" size="lg">
+            <History className="mr-2 h-4 w-4" />
+            查询历史
+          </Button>
+        )}
       </div>
 
       {/* 小说总览 */}

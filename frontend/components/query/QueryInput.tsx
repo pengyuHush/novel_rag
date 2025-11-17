@@ -9,8 +9,9 @@ import { useState } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Loader2 } from 'lucide-react';
+import { Search, Loader2, Settings } from 'lucide-react';
 import { ModelType } from '@/types/api';
+import { QueryConfigModal } from './QueryConfigModal';
 
 interface QueryInputProps {
   value?: string;
@@ -23,6 +24,7 @@ interface QueryInputProps {
 export function QueryInput({ value, onChange, onQuery, isQuerying, disabled }: QueryInputProps) {
   const [internalQuery, setInternalQuery] = useState('');
   const [model, setModel] = useState<ModelType>(ModelType.GLM_4_5_AIR);
+  const [configModalOpen, setConfigModalOpen] = useState(false);
   
   const query = value !== undefined ? value : internalQuery;
   const setQuery = onChange || setInternalQuery;
@@ -78,7 +80,17 @@ export function QueryInput({ value, onChange, onQuery, isQuerying, disabled }: Q
           </Select>
         </div>
 
-        {/* 查询按钮 */}
+        {/* 查询按钮组 */}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={() => setConfigModalOpen(true)}
+            disabled={disabled || isQuerying}
+            title="查询参数配置"
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
         <Button
           onClick={handleSubmit}
           disabled={!query.trim() || disabled || isQuerying}
@@ -97,6 +109,13 @@ export function QueryInput({ value, onChange, onQuery, isQuerying, disabled }: Q
           )}
         </Button>
       </div>
+      </div>
+
+      {/* 配置弹窗 */}
+      <QueryConfigModal
+        open={configModalOpen}
+        onOpenChange={setConfigModalOpen}
+      />
     </div>
   );
 }

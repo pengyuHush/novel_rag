@@ -9,6 +9,10 @@ import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card } from '@/components/ui/card';
 import type { RelationGraphData } from '@/types/api';
 
 // 动态导入Plotly以避免SSR问题
@@ -21,15 +25,23 @@ interface RelationGraphProps {
 export function RelationGraph({ novelId }: RelationGraphProps) {
   const [data, setData] = useState<RelationGraphData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [startChapter, setStartChapter] = useState<string>('');
+  const [endChapter, setEndChapter] = useState<string>('');
+  const [maxNodes, setMaxNodes] = useState<string>('50');
+  const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
     loadGraph();
   }, [novelId]);
 
-  const loadGraph = async () => {
+  const loadGraph = async (filters?: {
+    startChapter?: number;
+    endChapter?: number;
+    maxNodes?: number;
+  }) => {
     try {
       setIsLoading(true);
-      const graphData = await api.getRelationGraph(novelId);
+      const graphData = await api.getRelationGraph(novelId, filters);
       setData(graphData);
     } catch (error) {
       console.error('Failed to load relation graph:', error);
@@ -37,6 +49,21 @@ export function RelationGraph({ novelId }: RelationGraphProps) {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleApplyFilters = () => {
+    const filters: any = {};
+    if (startChapter) filters.startChapter = parseInt(startChapter);
+    if (endChapter) filters.endChapter = parseInt(endChapter);
+    if (maxNodes) filters.maxNodes = parseInt(maxNodes);
+    loadGraph(filters);
+  };
+
+  const handleResetFilters = () => {
+    setStartChapter('');
+    setEndChapter('');
+    setMaxNodes('50');
+    loadGraph();
   };
 
   if (isLoading) {
@@ -100,7 +127,82 @@ export function RelationGraph({ novelId }: RelationGraphProps) {
   });
 
   return (
-    <div className="w-full h-full">
+    <div className="flex flex-col h-full gap-3">
+      {/* 筛选控制栏 */}
+      <Card className="p-3">
+        <div className="flex items-center gap-4 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowFilters(!showFilters)}
+          >
+            {showFilters ? '隐藏筛选' : '显示筛选'}
+          </Button>
+
+          {showFilters && (
+            <>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="startChapter" className="text-sm whitespace-nowrap">
+                  起始章节:
+                </Label>
+                <Input
+                  id="startChapter"
+                  type="number"
+                  min="1"
+                  value={startChapter}
+                  onChange={(e) => setStartChapter(e.target.value)}
+                  placeholder="1"
+                  className="w-20 h-8"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Label htmlFor="endChapter" className="text-sm whitespace-nowrap">
+                  结束章节:
+                </Label>
+                <Input
+                  id="endChapter"
+                  type="number"
+                  min="1"
+                  value={endChapter}
+                  onChange={(e) => setEndChapter(e.target.value)}
+                  placeholder="最后"
+                  className="w-20 h-8"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Label htmlFor="maxNodes" className="text-sm whitespace-nowrap">
+                  最大节点数:
+                </Label>
+                <Input
+                  id="maxNodes"
+                  type="number"
+                  min="10"
+                  max="200"
+                  value={maxNodes}
+                  onChange={(e) => setMaxNodes(e.target.value)}
+                  className="w-20 h-8"
+                />
+              </div>
+
+              <Button size="sm" onClick={handleApplyFilters}>
+                应用
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleResetFilters}>
+                重置
+              </Button>
+            </>
+          )}
+
+          <div className="ml-auto text-sm text-muted-foreground">
+            节点: {data?.metadata?.total_nodes || 0} | 边: {data?.metadata?.total_edges || 0}
+          </div>
+        </div>
+      </Card>
+
+      {/* 图谱可视化 */}
+      <div className="flex-1 min-h-0">
       <Plot
         data={[...edgeTraces, nodeTrace] as any}
         layout={{
@@ -108,17 +210,21 @@ export function RelationGraph({ novelId }: RelationGraphProps) {
           hovermode: 'closest',
           xaxis: { visible: false },
           yaxis: { visible: false },
-          margin: { t: 20, b: 20, l: 20, r: 20 },
+            margin: { t: 10, b: 10, l: 10, r: 10 },
           autosize: true,
+            paper_bgcolor: 'transparent',
+            plot_bgcolor: 'transparent',
         }}
         config={{
           responsive: true,
           displayModeBar: true,
           displaylogo: false,
+            modeBarButtonsToRemove: ['select2d', 'lasso2d'],
         }}
         style={{ width: '100%', height: '100%' }}
         useResizeHandler={true}
       />
+      </div>
     </div>
   );
 }

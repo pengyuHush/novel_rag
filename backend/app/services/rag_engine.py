@@ -319,7 +319,8 @@ class RAGEngine:
         db: Session,
         novel_id: int,
         query: str,
-        context_chunks: List[Dict]
+        context_chunks: List[Dict],
+        max_chunks: int = 10
     ) -> str:
         """
         构建RAG Prompt
@@ -329,6 +330,7 @@ class RAGEngine:
             novel_id: 小说ID
             query: 查询文本
             context_chunks: 上下文块列表
+            max_chunks: 最大使用的上下文块数量（默认10）
         
         Returns:
             str: 构建好的Prompt
@@ -338,9 +340,12 @@ class RAGEngine:
         novel_title = novel.title if novel else "未知"
         novel_author = novel.author if novel and novel.author else "未知"
         
+        # 限制上下文块数量
+        limited_chunks = context_chunks[:max_chunks]
+        
         # 构建上下文
         context_parts = []
-        for i, chunk in enumerate(context_chunks, 1):
+        for i, chunk in enumerate(limited_chunks, 1):
             metadata = chunk['metadata']
             chapter_num = metadata.get('chapter_num', '?')
             chapter_title = metadata.get('chapter_title', '')

@@ -8,6 +8,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPExce
 from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import List, Optional
+from pydantic import BaseModel
 
 from app.db.init_db import get_db_session
 from app.models.schemas import (
@@ -20,6 +21,38 @@ from app.models.database import Novel, Query
 
 router = APIRouter(prefix="/api/query", tags=["智能问答"])
 logger = logging.getLogger(__name__)
+
+
+# ==================== 数据模型 ====================
+
+class QueryFeedbackRequest(BaseModel):
+    """查询反馈请求"""
+    feedback: str  # "positive" | "negative"
+    note: Optional[str] = None  # 用户备注
+
+
+class QueryHistoryItem(BaseModel):
+    """查询历史项"""
+    id: int
+    novel_id: int
+    query: str
+    answer: str  # 简短摘要（前100字）
+    model: str
+    total_tokens: int
+    confidence: str
+    created_at: datetime
+    feedback: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class QueryHistoryResponse(BaseModel):
+    """查询历史响应"""
+    items: List[QueryHistoryItem]
+    total: int
+    page: int
+    page_size: int
 
 
 @router.post("", response_model=QueryResponse, summary="非流式查询")
@@ -188,6 +221,19 @@ async def query_stream(websocket: WebSocket):
         novel_id = data.get('novel_id')
         query = data.get('query')
         model = data.get('model', 'glm-4')
+        config = data.get('config', {})
+        
+        # 提取配置参数，使用默认值
+        top_k_retrieval = config.get('top_k_retrieval', 30)
+        top_k_rerank = config.get('top_k_rerank', 10)
+        max_context_chunks = config.get('max_context_chunks', 10)
+        
+        # 验证参数范围
+        top_k_retrieval = max(10, min(100, top_k_retrieval))
+        top_k_rerank = max(5, min(30, top_k_rerank))
+        max_context_chunks = max(5, min(20, max_context_chunks))
+        
+        logger.info(f"📊 查询配置: top_k_retrieval={top_k_retrieval}, top_k_rerank={top_k_rerank}, max_context_chunks={max_context_chunks}")
         
         if not novel_id or not query:
             await websocket.send_json({
@@ -246,15 +292,20 @@ async def query_stream(websocket: WebSocket):
             
             query_embedding = rag_engine.query_embedding(query)
             
-            # 语义检索
-            vector_results = rag_engine.vector_search(novel_id, query_embedding)
+            # 语义检索（使用配置的top_k_retrieval）
+            vector_results = rag_engine.vector_search(
+                novel_id, 
+                query_embedding,
+                top_k=top_k_retrieval
+            )
             
-            # Rerank（带GraphRAG增强）
+            # Rerank（带GraphRAG增强，使用配置的top_k_rerank）
             reranked_chunks = rag_engine.rerank(
                 query=query,
                 vector_results=vector_results,
                 novel_id=novel_id,
-                db=db
+                db=db,
+                top_k=top_k_rerank
             )
             
             if not reranked_chunks:
@@ -317,8 +368,14 @@ async def query_stream(websocket: WebSocket):
                 progress=0.5
             ).model_dump())
             
-            # 构建Prompt
-            prompt = rag_engine.build_prompt(db, novel_id, query, reranked_chunks)
+            # 构建Prompt（使用配置的max_context_chunks）
+            prompt = rag_engine.build_prompt(
+                db, 
+                novel_id, 
+                query, 
+                reranked_chunks,
+                max_chunks=max_context_chunks
+            )
             
             # 流式生成答案
             full_answer = ""
@@ -749,6 +806,52 @@ async def get_query_history(
     except Exception as e:
         logger.error(f"❌ 获取查询历史失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取查询历史失败: {str(e)}")
+
+
+@router.get("/{query_id}", response_model=QueryResponse, summary="获取查询详情")
+async def get_query_detail(
+    query_id: int,
+    db: Session = Depends(get_db_session)
+):
+    """
+    获取单个查询的完整详情
+    
+    - 包含完整答案、引用、Token统计等
+    - 用于查询历史的详情查看
+    """
+    try:
+        # 查询记录
+        query_record = db.query(Query).filter(Query.id == query_id).first()
+        
+        if not query_record:
+            raise HTTPException(status_code=404, detail=f"查询记录 ID={query_id} 不存在")
+        
+        # 构建响应（尽可能恢复原始结构）
+        response = QueryResponse(
+            query_id=query_record.id,
+            answer=query_record.answer_text,
+            citations=[],  # 历史查询不保存citations，返回空列表
+            graph_info={},  # 历史查询不保存graph_info
+            contradictions=[],  # 历史查询不保存contradictions
+            token_stats=TokenStats(
+                total_tokens=query_record.total_tokens or 0,
+                by_model={}
+            ),
+            response_time=query_record.response_time or 0.0,
+            confidence=Confidence(query_record.confidence) if query_record.confidence else Confidence.MEDIUM,
+            model=query_record.model_used or "unknown",
+            timestamp=query_record.created_at.isoformat() if query_record.created_at else datetime.now().isoformat()
+        )
+        
+        logger.info(f"✅ 获取查询详情成功: query_id={query_id}")
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ 获取查询详情失败: {e}")
+        raise HTTPException(status_code=500, detail=f"获取查询详情失败: {str(e)}")
 
 
 @router.post("/{query_id}/feedback", summary="提交用户反馈")

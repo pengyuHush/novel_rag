@@ -181,6 +181,12 @@ export interface QueryRequest {
   model: ModelType;
 }
 
+export interface QueryConfig {
+  top_k_retrieval: number;
+  top_k_rerank: number;
+  max_context_chunks: number;
+}
+
 export interface Citation {
   chapterNum: number;
   chapterTitle?: string;

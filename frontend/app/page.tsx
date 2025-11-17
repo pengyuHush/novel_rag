@@ -7,12 +7,14 @@
 
 import { useState } from 'react';
 import { NovelSidebar } from '@/components/layout/NovelSidebar';
+import { Header } from '@/components/layout/Header';
 import { QueryInput } from '@/components/query/QueryInput';
 import { PresetQueries } from '@/components/query/PresetQueries';
 import { QueryStages } from '@/components/query/QueryStages';
 import { TokenStats } from '@/components/query/TokenStats';
 import { ThinkingPanel } from '@/components/query/ThinkingPanel';
 import { CitationList } from '@/components/query/CitationList';
+import { QueryHistoryModal } from '@/components/query/QueryHistoryModal';
 import { Separator } from '@/components/ui/separator';
 import { UploadModal } from '@/components/novel/UploadModal';
 import { GraphModal } from '@/components/graph/GraphModal';
@@ -25,6 +27,7 @@ import { useQueryWebSocket } from '@/hooks/useQuery';
 export default function HomePage() {
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [graphModalOpen, setGraphModalOpen] = useState(false);
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [selectedGraphNovelId, setSelectedGraphNovelId] = useState<number | null>(null);
   const [queryText, setQueryText] = useState('');
 
@@ -37,6 +40,7 @@ export default function HomePage() {
     answer = '',
     citations = [],
     tokenStats,
+    queryId,
   } = useQueryStore();
 
   const { executeQuery } = useQueryWebSocket();
@@ -66,6 +70,7 @@ export default function HomePage() {
       <NovelSidebar
         onUploadClick={() => setUploadModalOpen(true)}
         onViewGraphClick={handleViewGraph}
+        onHistoryClick={() => setHistoryModalOpen(true)}
       />
 
       {/* 中间：主界面 */}
@@ -96,6 +101,7 @@ export default function HomePage() {
             thinking={thinking}
             answer={answer}
             isGenerating={isQuerying && currentStage === 'generating'}
+            queryId={queryId}
             className="flex-1"
           />
           <Separator orientation="vertical" />
@@ -124,6 +130,11 @@ export default function HomePage() {
         open={graphModalOpen}
         onOpenChange={setGraphModalOpen}
         novelId={selectedGraphNovelId}
+      />
+      <QueryHistoryModal
+        open={historyModalOpen}
+        onOpenChange={setHistoryModalOpen}
+        novelId={selectedNovelId}
       />
     </div>
   );

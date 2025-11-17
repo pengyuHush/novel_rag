@@ -1,0 +1,616 @@
+{
+  "info": {
+    "name": "网络小说智能问答系统 API",
+    "description": "基于RAG、GraphRAG和Self-RAG技术的网络小说智能问答系统API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "0.1.0"
+  },
+  "item": [
+    {
+      "name": "健康检查",
+      "item": [
+        {
+          "name": "基础健康检查",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "health"]
+            }
+          }
+        },
+        {
+          "name": "数据库健康检查",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/health/database",
+              "host": ["{{base_url}}"],
+              "path": ["api", "health", "database"]
+            }
+          }
+        },
+        {
+          "name": "ChromaDB健康检查",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/health/chromadb",
+              "host": ["{{base_url}}"],
+              "path": ["api", "health", "chromadb"]
+            }
+          }
+        },
+        {
+          "name": "智谱AI健康检查",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/health/zhipu",
+              "host": ["{{base_url}}"],
+              "path": ["api", "health", "zhipu"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "小说管理",
+      "item": [
+        {
+          "name": "上传小说",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "title",
+                  "value": "斗破苍穹",
+                  "type": "text"
+                },
+                {
+                  "key": "author",
+                  "value": "天蚕土豆",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/novels/upload",
+              "host": ["{{base_url}}"],
+              "path": ["api", "novels", "upload"]
+            }
+          }
+        },
+        {
+          "name": "获取小说列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/novels?skip=0&limit=100",
+              "host": ["{{base_url}}"],
+              "path": ["api", "novels"],
+              "query": [
+                {
+                  "key": "skip",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                },
+                {
+                  "key": "status",
+                  "value": "completed",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "获取小说详情",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/novels/{{novel_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "novels", "{{novel_id}}"]
+            }
+          }
+        },
+        {
+          "name": "获取索引进度",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/novels/{{novel_id}}/progress",
+              "host": ["{{base_url}}"],
+              "path": ["api", "novels", "{{novel_id}}", "progress"]
+            }
+          }
+        },
+        {
+          "name": "重新索引",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/novels/{{novel_id}}/reindex",
+              "host": ["{{base_url}}"],
+              "path": ["api", "novels", "{{novel_id}}", "reindex"]
+            }
+          }
+        },
+        {
+          "name": "删除小说",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/novels/{{novel_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "novels", "{{novel_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "章节管理",
+      "item": [
+        {
+          "name": "获取章节列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/chapters/{{novel_id}}?skip=0&limit=100",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chapters", "{{novel_id}}"],
+              "query": [
+                {
+                  "key": "skip",
+                  "value": "0"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "获取章节内容",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/chapters/{{novel_id}}/{{chapter_num}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chapters", "{{novel_id}}", "{{chapter_num}}"]
+            }
+          }
+        },
+        {
+          "name": "搜索章节",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/chapters/{{novel_id}}/search?keyword=萧炎&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chapters", "{{novel_id}}", "search"],
+              "query": [
+                {
+                  "key": "keyword",
+                  "value": "萧炎"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "获取章节范围",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/chapters/{{novel_id}}/range?start=1&end=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chapters", "{{novel_id}}", "range"],
+              "query": [
+                {
+                  "key": "start",
+                  "value": "1"
+                },
+                {
+                  "key": "end",
+                  "value": "10"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "智能问答",
+      "item": [
+        {
+          "name": "非流式查询",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"novel_id\": {{novel_id}},\n  \"query\": \"萧炎在什么时候恢复斗之气的？\",\n  \"model\": \"GLM-4.5-Air\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/query",
+              "host": ["{{base_url}}"],
+              "path": ["api", "query"]
+            }
+          }
+        },
+        {
+          "name": "获取查询历史",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/query/history?page=1&page_size=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "query", "history"],
+              "query": [
+                {
+                  "key": "novel_id",
+                  "value": "{{novel_id}}",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "获取查询详情",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/query/{{query_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "query", "{{query_id}}"]
+            }
+          }
+        },
+        {
+          "name": "提交正面反馈",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/query/{{query_id}}/feedback?feedback=positive&note=答案很准确",
+              "host": ["{{base_url}}"],
+              "path": ["api", "query", "{{query_id}}", "feedback"],
+              "query": [
+                {
+                  "key": "feedback",
+                  "value": "positive"
+                },
+                {
+                  "key": "note",
+                  "value": "答案很准确"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "提交负面反馈",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/query/{{query_id}}/feedback?feedback=negative&note=答案有误",
+              "host": ["{{base_url}}"],
+              "path": ["api", "query", "{{query_id}}", "feedback"],
+              "query": [
+                {
+                  "key": "feedback",
+                  "value": "negative"
+                },
+                {
+                  "key": "note",
+                  "value": "答案有误"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "获取Token统计",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/query/{{query_id}}/token-stats",
+              "host": ["{{base_url}}"],
+              "path": ["api", "query", "{{query_id}}", "token-stats"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "知识图谱",
+      "item": [
+        {
+          "name": "获取关系图谱",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/graph/relations/{{novel_id}}?max_nodes=50",
+              "host": ["{{base_url}}"],
+              "path": ["api", "graph", "relations", "{{novel_id}}"],
+              "query": [
+                {
+                  "key": "start_chapter",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "end_chapter",
+                  "value": "100",
+                  "disabled": true
+                },
+                {
+                  "key": "max_nodes",
+                  "value": "50"
+                },
+                {
+                  "key": "min_importance",
+                  "value": "0.1",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "获取时间线",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/graph/timeline/{{novel_id}}?max_events=100",
+              "host": ["{{base_url}}"],
+              "path": ["api", "graph", "timeline", "{{novel_id}}"],
+              "query": [
+                {
+                  "key": "entity_filter",
+                  "value": "萧炎",
+                  "disabled": true
+                },
+                {
+                  "key": "max_events",
+                  "value": "100"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "获取图谱统计",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/graph/statistics/{{novel_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "graph", "statistics", "{{novel_id}}"]
+            }
+          }
+        },
+        {
+          "name": "获取节点详情",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/graph/relations/{{novel_id}}/node/{{node_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "graph", "relations", "{{novel_id}}", "node", "{{node_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "统计信息",
+      "item": [
+        {
+          "name": "获取小说Token统计",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/stats/tokens/{{novel_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "stats", "tokens", "{{novel_id}}"]
+            }
+          }
+        },
+        {
+          "name": "获取系统统计",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/stats/system",
+              "host": ["{{base_url}}"],
+              "path": ["api", "stats", "system"]
+            }
+          }
+        },
+        {
+          "name": "获取模型使用统计",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/stats/models",
+              "host": ["{{base_url}}"],
+              "path": ["api", "stats", "models"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "系统配置",
+      "item": [
+        {
+          "name": "获取配置",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/config",
+              "host": ["{{base_url}}"],
+              "path": ["api", "config"]
+            }
+          }
+        },
+        {
+          "name": "更新配置",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"default_model\": \"GLM-4-Plus\",\n  \"top_k\": 50\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/config",
+              "host": ["{{base_url}}"],
+              "path": ["api", "config"]
+            }
+          }
+        },
+        {
+          "name": "获取支持的模型列表",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/config/models",
+              "host": ["{{base_url}}"],
+              "path": ["api", "config", "models"]
+            }
+          }
+        },
+        {
+          "name": "测试API连接",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"api_key\": \"your_zhipu_api_key_here\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/config/test-connection",
+              "host": ["{{base_url}}"],
+              "path": ["api", "config", "test-connection"]
+            }
+          }
+        },
+        {
+          "name": "获取环境信息",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/config/env",
+              "host": ["{{base_url}}"],
+              "path": ["api", "config", "env"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "novel_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "chapter_num",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "query_id",
+      "value": "123",
+      "type": "string"
+    },
+    {
+      "key": "node_id",
+      "value": "萧炎",
+      "type": "string"
+    }
+  ]
+}
+
