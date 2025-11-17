@@ -53,12 +53,6 @@ export function TokenStats({ stats }: TokenStatsProps) {
         <span className="text-sm font-bold text-primary">{formatNumber(totalTokens)}</span>
       </div>
 
-      {/* 输入输出 */}
-      <div className="flex justify-between text-[10px] text-muted-foreground px-1">
-        <span>输入: {formatNumber(inputTokens)}</span>
-        <span>输出: {formatNumber(outputTokens)}</span>
-      </div>
-
       {/* 按阶段统计（紧凑显示） */}
       {byStage.length > 0 && (
         <div className="space-y-1 pt-1">

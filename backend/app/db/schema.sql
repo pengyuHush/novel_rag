@@ -106,6 +106,25 @@ CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(novel_id, entity_type);
 CREATE INDEX IF NOT EXISTS idx_entities_name ON entities(novel_id, entity_name);
 
 -- ========================================
+-- 3.5. entity_aliases（实体别名表）
+-- ========================================
+CREATE TABLE IF NOT EXISTS entity_aliases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    novel_id INTEGER NOT NULL,
+    canonical_name TEXT NOT NULL,  -- 规范名称（主名称）
+    alias TEXT NOT NULL,           -- 别名
+    entity_type TEXT NOT NULL,     -- 'character', 'location', 'organization'
+    confidence REAL DEFAULT 1.0,   -- 映射置信度（支持后期调整）
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE,
+    UNIQUE(novel_id, alias, entity_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_entity_aliases_novel ON entity_aliases(novel_id);
+CREATE INDEX IF NOT EXISTS idx_entity_aliases_lookup ON entity_aliases(novel_id, alias, entity_type);
+
+-- ========================================
 -- 4. queries（查询记录表）
 -- ========================================
 CREATE TABLE IF NOT EXISTS queries (

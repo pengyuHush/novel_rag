@@ -1,9 +1,10 @@
 """
 RAG引擎 - 检索增强生成
-实现基础RAG流程，支持智能查询路由
+实现基础RAG流程，支持智能查询路由、查询改写、自适应Prompt
 """
 
 import logging
+import math
 import re
 from typing import List, Dict, Optional, Tuple
 from sqlalchemy.orm import Session
@@ -11,10 +12,16 @@ from sqlalchemy.orm import Session
 from app.services.embedding_service import get_embedding_service
 from app.services.zhipu_client import get_zhipu_client
 from app.services.query_router import query_router, QueryType
+from app.services.query_rewriter import get_query_rewriter
+from app.services.adaptive_prompt_builder import get_adaptive_prompt_builder
+from app.services.nlp import get_hanlp_client
 from app.models.database import Novel, Chapter
 from app.models.schemas import Citation, Confidence
+from app.core.trace_logger import get_trace_logger
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+trace_logger = get_trace_logger()
 
 
 class RAGEngine:
@@ -26,6 +33,14 @@ class RAGEngine:
         self.zhipu_client = get_zhipu_client()
         self.top_k_retrieval = 30  # 检索Top-30
         self.top_k_rerank = 10     # Rerank后Top-10
+        self.min_similarity_threshold = settings.min_similarity_threshold  # 相似度阈值
+        
+        # 查询优化组件
+        self.query_rewriter = get_query_rewriter()
+        self.prompt_builder = get_adaptive_prompt_builder()
+        
+        # NLP组件（复用现有的HanLP客户端）
+        self.hanlp_client = get_hanlp_client()
         
         # GraphRAG组件
         from app.services.graph.graph_query import GraphQuery
@@ -36,25 +51,37 @@ class RAGEngine:
         self.graph_analyzer = GraphAnalyzer()
         self.graph_builder = GraphBuilder()
         
-        logger.info("✅ RAG引擎初始化完成（含GraphRAG支持）")
+        logger.info("✅ RAG引擎初始化完成（含查询优化、GraphRAG支持）")
     
-    def query_embedding(self, query: str) -> List[float]:
+    def query_embedding(self, query: str, query_id: Optional[int] = None) -> List[float]:
         """
         查询向量化
         
         Args:
             query: 查询文本
+            query_id: 查询ID（用于日志记录）
         
         Returns:
             List[float]: 查询向量
         """
-        return self.zhipu_client.embed_text(query)
+        embedding = self.zhipu_client.embed_text(query)
+        
+        # 详细日志
+        if query_id:
+            trace_logger.trace_embedding(
+                query_id=query_id,
+                query_text=query,
+                embedding_vector=embedding
+            )
+        
+        return embedding
     
     def vector_search(
         self,
         novel_id: int,
         query_embedding: List[float],
-        top_k: int = None
+        top_k: int = None,
+        query_id: Optional[int] = None
     ) -> Dict:
         """
         语义检索
@@ -63,6 +90,7 @@ class RAGEngine:
             novel_id: 小说ID
             query_embedding: 查询向量
             top_k: 返回Top-K结果
+            query_id: 查询ID（用于日志记录）
         
         Returns:
             Dict: 检索结果
@@ -81,7 +109,74 @@ class RAGEngine:
                 n_results=top_k
             )
             
-            logger.info(f"✅ 语义检索完成: {len(results.get('ids', [[]])[0])} 个结果")
+            original_count = len(results.get('ids', [[]])[0])
+            
+            # 🎯 相似度阈值过滤
+            ids = results.get('ids', [[]])[0]
+            documents = results.get('documents', [[]])[0]
+            metadatas = results.get('metadatas', [[]])[0]
+            distances = results.get('distances', [[]])[0]
+            
+            # 过滤低相似度结果
+            filtered_ids = []
+            filtered_documents = []
+            filtered_metadatas = []
+            filtered_distances = []
+            
+            for doc_id, content, metadata, distance in zip(ids, documents, metadatas, distances):
+                # L2距离：距离越小越相似，过滤掉距离大于阈值的结果
+                if distance <= self.min_similarity_threshold:
+                    filtered_ids.append(doc_id)
+                    filtered_documents.append(content)
+                    filtered_metadatas.append(metadata)
+                    filtered_distances.append(distance)
+            
+            # 更新结果
+            results['ids'] = [filtered_ids]
+            results['documents'] = [filtered_documents]
+            results['metadatas'] = [filtered_metadatas]
+            results['distances'] = [filtered_distances]
+            
+            filtered_count = len(filtered_ids)
+            logger.info(f"✅ 语义检索完成: {original_count} 个结果 → 过滤后 {filtered_count} 个 (阈值: {self.min_similarity_threshold:.2f})")
+            
+            # 详细日志
+            if query_id:
+                # 格式化检索结果
+                formatted_results = []
+                for i, (doc_id, content, metadata, distance) in enumerate(zip(filtered_ids, filtered_documents, filtered_metadatas, filtered_distances), 1):
+                    # L2距离：distance本身就是距离值（越小越相似）
+                    formatted_results.append({
+                        'id': doc_id,
+                        'content': content,
+                        'metadata': metadata,
+                        'distance': distance,
+                        'l2_distance': f"{distance:.4f}"
+                    })
+                
+                trace_logger.trace_retrieval(
+                    query_id=query_id,
+                    top_k=top_k,
+                    results=formatted_results
+                )
+                
+                # 如果过滤掉了结果，记录详情
+                if original_count > filtered_count:
+                    trace_logger.trace_step(
+                        query_id=query_id,
+                        step_name="L2距离过滤",
+                        emoji="🔍",
+                        input_data=f"原始结果: {original_count} 个",
+                        output_data={
+                            "过滤后结果": filtered_count,
+                            "过滤掉": original_count - filtered_count,
+                            "L2距离阈值": self.min_similarity_threshold,
+                            "最小L2距离": f"{min(filtered_distances):.4f}" if filtered_distances else "N/A",
+                            "最大L2距离": f"{max(filtered_distances):.4f}" if filtered_distances else "N/A"
+                        },
+                        status="success"
+                    )
+            
             return results
             
         except Exception as e:
@@ -115,6 +210,189 @@ class RAGEngine:
         # 暂时返回空结果
         return []
     
+    def _extract_entities(self, query: str) -> List[str]:
+        """
+        从查询中提取关键实体（人名、地名等）
+        
+        复用现有的HanLP客户端（与小说导入流程共享），fallback到简单正则
+        """
+        try:
+            # 使用现有的HanLP客户端（与小说导入共享同一个实例）
+            if not self.hanlp_client.is_available():
+                logger.warning("⚠️ HanLP不可用，使用简单正则提取实体")
+                return self._extract_entities_fallback(query)
+            
+            # 调用HanLP提取实体 - 使用宽松模式（查询时）
+            entities_dict = self.hanlp_client.extract_entities(
+                query, 
+                max_length=512,
+                strict=False  # 🔑 查询时使用宽松模式
+            )
+            
+            # 合并三类实体：人名、地名、组织名
+            entities = []
+            entities.extend(entities_dict.get('characters', []))
+            entities.extend(entities_dict.get('locations', []))
+            entities.extend(entities_dict.get('organizations', []))
+            
+            # 如果HanLP没提取到实体，使用fallback
+            if not entities:
+                logger.debug("HanLP未提取到实体，使用fallback方法")
+                return self._extract_entities_fallback(query)
+            
+            # 去重并保持顺序
+            seen = set()
+            unique_entities = []
+            for e in entities:
+                if e not in seen:
+                    seen.add(e)
+                    unique_entities.append(e)
+            
+            logger.info(f"🎯 HanLP提取实体: {unique_entities} (人名:{len(entities_dict.get('characters', []))}, 地名:{len(entities_dict.get('locations', []))}, 组织:{len(entities_dict.get('organizations', []))})")
+            return unique_entities
+            
+        except Exception as e:
+            logger.warning(f"⚠️ HanLP实体提取失败（{type(e).__name__}: {e}），使用fallback")
+            return self._extract_entities_fallback(query)
+    
+    def _extract_entities_fallback(self, query: str) -> List[str]:
+        """
+        Fallback实体提取方法（简单正则）
+        """
+        import re
+        
+        # 提取连续中文字符（2-4字）
+        entities = re.findall(r'[\u4e00-\u9fa5]{2,4}', query)
+        
+        # 过滤常见停用词
+        stopwords = {'什么', '怎么', '为什么', '哪里', '如何', '是否', '有没有', 
+                     '关于', '描述', '介绍', '说明', '解释', '分析', '评价', '时候',
+                     '这个', '那个', '一个', '这些', '那些', '发生', '事情'}
+        entities = [e for e in entities if e not in stopwords]
+        
+        return entities
+    
+    def _resolve_entity_aliases(
+        self, 
+        entities: List[str], 
+        novel_id: Optional[int],
+        db: Optional[Session]
+    ) -> List[str]:
+        """
+        将实体别名解析为规范名称
+        
+        Args:
+            entities: 提取的实体列表（可能包含别名）
+            novel_id: 小说ID
+            db: 数据库会话
+        
+        Returns:
+            解析后的规范名称列表
+        """
+        if not entities or not novel_id or not db:
+            return entities
+        
+        try:
+            from app.services.entity_service import get_entity_service
+            entity_service = get_entity_service()
+            
+            canonical_entities = []
+            for entity in entities:
+                canonical = entity_service.get_canonical_name(db, novel_id, entity)
+                if canonical != entity:
+                    logger.info(f"🔄 实体别名解析: '{entity}' → '{canonical}'")
+                canonical_entities.append(canonical)
+            
+            return canonical_entities
+        except Exception as e:
+            logger.warning(f"⚠️ 别名解析失败: {e}")
+            return entities
+    
+    def _calculate_entity_match_score(self, text: str, entities: List[str]) -> float:
+        """
+        计算文本中实体匹配得分（改进版，避免误匹配）
+        
+        Args:
+            text: 文档内容
+            entities: 查询中的实体列表
+        
+        Returns:
+            float: 匹配得分 (0-1.5)
+        """
+        if not entities:
+            return 1.0  # 没有明确实体，不惩罚
+        
+        import re
+        
+        matched_count = 0
+        partial_match_count = 0  # 部分匹配计数
+        
+        for entity in entities:
+            # 策略1：长实体（≥3字符）使用简单包含即可
+            if len(entity) >= 3:
+                if entity in text:
+                    matched_count += 1
+                continue
+            
+            # 策略2：短实体（2字符）需要精确匹配
+            # 使用词边界：实体前后不能是中文字符
+            pattern = f'(?<![\\u4e00-\\u9fa5]){re.escape(entity)}(?![\\u4e00-\\u9fa5])'
+            
+            if re.search(pattern, text):
+                # 精确匹配（独立词）
+                matched_count += 1
+            elif entity in text:
+                # 部分匹配（包含在其他词中）
+                partial_match_count += 1
+        
+        # 计算得分
+        total_entities = len(entities)
+        match_ratio = matched_count / total_entities
+        partial_ratio = partial_match_count / total_entities
+        
+        # 精确匹配 + 部分匹配（权重减半）
+        effective_ratio = match_ratio + (partial_ratio * 0.5)
+        
+        # 得分计算
+        if effective_ratio >= 0.5:
+            return 1.0 + (effective_ratio - 0.5)  # 1.0 - 1.5
+        else:
+            # 严重惩罚：匹配不足50%
+            return 0.3 + (effective_ratio * 0.7)  # 0.3 - 0.65
+    
+    def _calculate_recency_bias(
+        self, 
+        chapter_num: int, 
+        total_chapters: int, 
+        bias_weight: float
+    ) -> float:
+        """
+        计算时间衰减偏向得分
+        
+        Args:
+            chapter_num: 当前章节号
+            total_chapters: 总章节数
+            bias_weight: 衰减权重 (0.0-0.5)
+        
+        Returns:
+            float: 时间衰减得分 (0.7-1.3)
+        """
+        if bias_weight == 0.0 or total_chapters == 0:
+            return 1.0  # 无偏向
+        
+        # 章节位置归一化 (0.0 = 第1章, 1.0 = 最后一章)
+        position = chapter_num / total_chapters
+        
+        # 指数增长权重
+        recency_score = math.exp(bias_weight * position)
+        
+        # 归一化到 [0.7, 1.3] 范围
+        # bias_weight=0.5, chapter_num=total_chapters时: recency_score ≈ 1.65
+        # 归一化后 ≈ 1.3
+        normalized = 0.7 + (recency_score - 1.0) * 0.6
+        
+        return max(0.7, min(1.3, normalized))
+    
     def rerank(
         self,
         query: str,
@@ -123,10 +401,12 @@ class RAGEngine:
         top_k: int = None,
         query_type: QueryType = None,
         novel_id: int = None,
-        db: Session = None
+        db: Session = None,
+        query_id: Optional[int] = None,
+        recency_bias_weight: float = 0.15
     ) -> List[Dict]:
         """
-        混合Rerank，支持查询类型特定策略 + GraphRAG增强
+        混合Rerank，支持查询类型特定策略 + GraphRAG增强 + 实体匹配
         
         Args:
             query: 查询文本
@@ -142,11 +422,31 @@ class RAGEngine:
         """
         top_k = top_k or self.top_k_rerank
         
+        # 提取查询中的关键实体
+        query_entities = self._extract_entities(query)
+        logger.info(f"🎯 提取查询实体: {query_entities}")
+        
+        # 解析实体别名为规范名称
+        query_entities = self._resolve_entity_aliases(query_entities, novel_id, db)
+        if query_entities:
+            logger.info(f"✅ 别名解析后实体: {query_entities}")
+        
         # 自动检测查询类型
         if query_type is None:
             query_type = query_router.classify_query(query)
         
         logger.info(f"🔍 查询类型: {query_type.value}")
+        
+        # 获取总章节数（用于时间衰减计算）
+        total_chapters = 0
+        if novel_id and db:
+            try:
+                novel = db.query(Novel).filter(Novel.id == novel_id).first()
+                if novel:
+                    total_chapters = novel.total_chapters
+                    logger.debug(f"📚 小说总章节数: {total_chapters}")
+            except Exception as e:
+                logger.warning(f"⚠️ 获取章节数失败: {e}")
         
         # GraphRAG: 加载知识图谱（如果提供了novel_id）
         graph = None
@@ -182,7 +482,12 @@ class RAGEngine:
         # 构建候选文档
         candidates = []
         for i, (doc, metadata, distance) in enumerate(zip(documents, metadatas, distances)):
-            base_score = 1 - distance  # 转换为相似度分数
+            # L2距离转换为相似度分数：使用高斯核函数
+            # distance=0 -> score=1.0, distance=2 -> score≈0.135
+            base_score = math.exp(-distance**2 / 2)
+            
+            # 🎯 实体匹配得分
+            entity_match_score = self._calculate_entity_match_score(doc, query_entities)
             
             # GraphRAG: 获取章节重要性（时序权重）
             chapter_num = metadata.get('chapter_num')
@@ -193,27 +498,88 @@ class RAGEngine:
             
             # 应用查询类型特定的权重
             if query_type == QueryType.DIALOGUE:
-                # 对话类查询：提升包含引号的内容权重
+                # 对话类查询：提升包含引号的内容权重 + 实体匹配
                 quote_boost = self._calculate_quote_boost(doc)
-                final_score = base_score * quote_boost
+                
+                # 动态调整：高相似度时降低quote_boost影响
+                if base_score > 0.85:
+                    quote_boost = 1.0 + (quote_boost - 1.0) * 0.5  # 减弱quote影响
+                    logger.debug(f"🔥 高相似度({base_score:.3f})：降低对话标记权重影响")
+                
+                # 应用时间衰减
+                recency_bias = self._calculate_recency_bias(
+                    chapter_num, total_chapters, recency_bias_weight
+                )
+                
+                final_score = base_score * quote_boost * entity_match_score * recency_bias
             elif query_type == QueryType.ANALYSIS:
-                # 分析类查询：提升重要章节权重（使用图谱章节重要性）
+                # 分析类查询：提升重要章节权重（使用图谱章节重要性）+ 实体匹配
                 importance_boost = chapter_importance + 0.5
-                final_score = base_score * importance_boost
+                
+                # 动态调整：低相似度时增强章节重要性影响
+                if base_score < 0.60:
+                    importance_boost = importance_boost * 1.3  # 增强30%
+                    logger.debug(f"⚠️ 低相似度({base_score:.3f})：增强章节重要性权重")
+                
+                # 应用时间衰减
+                recency_bias = self._calculate_recency_bias(
+                    chapter_num, total_chapters, recency_bias_weight
+                )
+                
+                final_score = base_score * importance_boost * entity_match_score * recency_bias
             else:
-                # 事实类查询：混合权重
-                # 语义相似度60% + 章节重要性15% (GraphRAG增强) + 实体匹配25%
-                semantic_weight = base_score * 0.60
-                temporal_weight = chapter_importance * 0.15
-                entity_weight = 0.25 if metadata.get('entities') else 0.0
+                # 事实类查询 - 动态权重调整
+                # 基础权重配比
+                w_semantic = 0.50
+                w_temporal = 0.10
+                w_entity = 0.40
+                
+                # 🚀 动态调整策略
+                if base_score > 0.85:
+                    # 高相似度（>0.85）：显著增强语义权重
+                    w_semantic = 0.60  # +0.10
+                    w_entity = 0.30    # -0.10
+                    logger.debug(f"🔥 高相似度检测({base_score:.3f})：增强语义权重")
+                
+                elif base_score < 0.50:
+                    # 低相似度（<0.50）：大幅增强实体匹配权重
+                    w_semantic = 0.30  # -0.20
+                    w_entity = 0.60    # +0.20
+                    logger.debug(f"⚠️ 低相似度检测({base_score:.3f})：增强实体权重")
+                
+                # 实体匹配情况动态调整
+                if entity_match_score > 1.3:
+                    # 实体匹配优秀：进一步提升实体权重
+                    w_entity = min(w_entity + 0.10, 0.70)  # 最高不超过70%
+                    w_semantic = max(w_semantic - 0.10, 0.20)
+                    logger.debug(f"✨ 实体匹配优秀({entity_match_score:.2f})：进一步提升实体权重")
+                
+                elif entity_match_score < 0.5:
+                    # 实体匹配差：降低实体权重，提升语义权重
+                    w_entity = max(w_entity - 0.15, 0.15)
+                    w_semantic = min(w_semantic + 0.15, 0.75)
+                    logger.debug(f"🔻 实体匹配不佳({entity_match_score:.2f})：降低实体权重")
+                
+                # 计算最终得分（确保权重和为1.0）
+                total_weight = w_semantic + w_temporal + w_entity
+                semantic_weight = (base_score * w_semantic) / total_weight
+                temporal_weight = (chapter_importance * w_temporal) / total_weight
+                entity_weight = (entity_match_score * w_entity) / total_weight
                 
                 final_score = semantic_weight + temporal_weight + entity_weight
+                
+                # 应用时间衰减
+                recency_bias = self._calculate_recency_bias(
+                    chapter_num, total_chapters, recency_bias_weight
+                )
+                final_score = final_score * recency_bias
             
             candidates.append({
                 'content': doc,
                 'metadata': metadata,
                 'score': final_score,
                 'base_score': base_score,
+                'entity_match_score': entity_match_score,  # 新增：实体匹配分数
                 'rank': i + 1,
                 'query_type': query_type.value
             })
@@ -228,6 +594,67 @@ class RAGEngine:
         # 返回Top-K
         reranked = candidates[:top_k]
         logger.info(f"✅ Rerank完成 ({query_type.value}): 返回 {len(reranked)} 个结果")
+        
+        # 📊 记录权重使用情况（仅记录前5个候选）
+        if len(candidates) > 0:
+            logger.info(f"📊 Top-5候选权重分布:")
+            for idx, cand in enumerate(candidates[:5]):
+                recency_info = ""
+                if recency_bias_weight > 0:
+                    ch_num = cand['metadata'].get('chapter_num', 0)
+                    if ch_num and total_chapters:
+                        bias = self._calculate_recency_bias(ch_num, total_chapters, recency_bias_weight)
+                        recency_info = f" | 时间:{bias:.2f}"
+                
+                logger.info(
+                    f"  [{idx+1}] 最终得分:{cand['score']:.3f} | "
+                    f"语义:{cand['base_score']:.3f} | "
+                    f"实体:{cand.get('entity_match_score', 1.0):.2f} | "
+                    f"章节:{cand['metadata'].get('chapter_num', '?')}{recency_info}"
+                )
+        
+        # 详细日志
+        if query_id:
+            # 为日志结果添加实体匹配信息
+            reranked_with_entity_info = []
+            for result in reranked:
+                result_copy = result.copy()
+                result_copy['entity_match'] = f"{result.get('entity_match_score', 1.0):.2f}"
+                reranked_with_entity_info.append(result_copy)
+            
+            trace_logger.trace_rerank(
+                query_id=query_id,
+                query=query,
+                candidates_count=len(candidates),
+                reranked_results=reranked_with_entity_info,
+                top_k=top_k
+            )
+            
+            # 额外记录实体匹配详情
+            if query_entities:
+                trace_logger.trace_step(
+                    query_id=query_id,
+                    step_name="实体匹配分析",
+                    emoji="🎯",
+                    input_data={
+                        "查询实体": query_entities,
+                        "候选文档数": len(candidates)
+                    },
+                    output_data={
+                        "Top-10实体匹配情况": [
+                            {
+                                "排名": i+1,
+                                "章节": f"第{r.get('metadata', {}).get('chapter_num', '?')}章",
+                                "实体匹配分": f"{r.get('entity_match_score', 1.0):.2f}",
+                                "语义相似度": f"{r.get('base_score', 0):.2f}",
+                                "最终得分": f"{r.get('score', 0):.2f}",
+                                "匹配的实体": [e for e in query_entities if e in r.get('content', '')]
+                            }
+                            for i, r in enumerate(reranked[:10])
+                        ]
+                    },
+                    status="success"
+                )
         
         return reranked
     
@@ -471,56 +898,81 @@ class RAGEngine:
         db: Session,
         novel_id: int,
         query: str,
-        model: str = "glm-4"
-    ) -> Tuple[str, List[Citation], Dict]:
+        model: str = "glm-4",
+        enable_query_rewrite: bool = True,
+        query_id: Optional[int] = None,
+        recency_bias_weight: float = 0.15
+    ) -> Tuple[str, List[Citation], Dict, Optional[str]]:
         """
-        完整RAG查询流程
+        完整RAG查询流程（含查询优化）
         
         Args:
             db: 数据库会话
             novel_id: 小说ID
             query: 查询文本
             model: 使用的模型
+            enable_query_rewrite: 是否启用查询改写
+            query_id: 查询ID（用于日志记录）
         
         Returns:
-            Tuple[str, List[Citation], Dict]: (答案, 引用列表, 统计信息)
+            Tuple[str, List[Citation], Dict, Optional[str]]: (答案, 引用列表, 统计信息, 改写后的查询)
         """
         logger.info(f"📝 开始RAG查询: {query}")
         
-        # 1. 查询向量化
-        query_embedding = self.query_embedding(query)
+        # 0. 查询改写（可选）
+        rewrite_result = self.query_rewriter.rewrite_query(
+            query, 
+            enable=enable_query_rewrite,
+            query_id=query_id
+        )
+        query_for_retrieval = rewrite_result["rewritten"]
+        query_type = rewrite_result.get("query_type")
+        rewritten_query = query_for_retrieval if rewrite_result["rewrite_applied"] else None
+        
+        # 1. 查询向量化（使用改写后的查询）
+        query_embedding = self.query_embedding(query_for_retrieval, query_id=query_id)
         
         # 2. 语义检索
-        vector_results = self.vector_search(novel_id, query_embedding)
+        vector_results = self.vector_search(novel_id, query_embedding, query_id=query_id)
         
         # 3. 关键词检索（可选）
-        keyword_results = self.keyword_search(db, novel_id, query)
+        keyword_results = self.keyword_search(db, novel_id, query_for_retrieval)
         
         # 4. 混合Rerank
-        reranked_chunks = self.rerank(query, vector_results, keyword_results)
+        reranked_chunks = self.rerank(
+            query_for_retrieval, 
+            vector_results, 
+            keyword_results,
+            novel_id=novel_id,
+            db=db,
+            query_id=query_id,
+            recency_bias_weight=recency_bias_weight
+        )
         
         if not reranked_chunks:
             logger.warning("⚠️ 未找到相关内容")
-            return "抱歉，在小说中未找到相关内容。", [], {}
+            return "抱歉，在小说中未找到相关内容。", [], {}, rewritten_query
         
-        # 5. 构建Prompt
-        prompt = self.build_prompt(db, novel_id, query, reranked_chunks)
+        # 5. 构建自适应Prompt（使用原始查询）
+        prompt = self.prompt_builder.build_prompt(
+            db, novel_id, query, reranked_chunks,
+            query_type=QueryType(query_type) if query_type else None,
+            query_id=query_id
+        )
         
         # 6. 生成答案
         answer = self.generate_answer(prompt, model, stream=False)
         
         # 7. 构建引用列表
         citations = []
-        seen_chapters = set()
         
-        for chunk in reranked_chunks:
+        # 返回前10条引用（或所有chunk，取较小值）
+        # 不进行章节去重，因为同一章节可能有多个相关片段
+        max_citations = min(10, len(reranked_chunks))
+        
+        for chunk in reranked_chunks[:max_citations]:
             metadata = chunk['metadata']
             chapter_num = metadata.get('chapter_num')
-            
-            # 去重（每章最多一条引用）
-            if chapter_num in seen_chapters:
-                continue
-            seen_chapters.add(chapter_num)
             
             citations.append(Citation(
                 chapter_num=chapter_num,
@@ -533,12 +985,13 @@ class RAGEngine:
         stats = {
             'retrieved_chunks': len(vector_results.get('ids', [[]])[0]),
             'reranked_chunks': len(reranked_chunks),
-            'citations': len(citations)
+            'citations': len(citations),
+            'query_rewrite_applied': rewrite_result["rewrite_applied"]
         }
         
         logger.info(f"✅ RAG查询完成: {len(citations)} 条引用")
         
-        return answer, citations, stats
+        return answer, citations, stats, rewritten_query
 
 
 # 全局RAG引擎实例

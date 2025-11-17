@@ -179,12 +179,16 @@ export interface QueryRequest {
   novel_id: number;
   query: string;
   model: ModelType;
+  enable_query_rewrite?: boolean;
+  recency_bias_weight?: number;
 }
 
 export interface QueryConfig {
   top_k_retrieval: number;
   top_k_rerank: number;
   max_context_chunks: number;
+  enable_query_rewrite: boolean;
+  recency_bias_weight: number;
 }
 
 export interface Citation {
@@ -250,6 +254,7 @@ export interface QueryResponse {
   confidence: Confidence;
   model: string;
   timestamp: string;
+  rewritten_query?: string;
 }
 
 // ========================================

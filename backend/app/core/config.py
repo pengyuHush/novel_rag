@@ -155,6 +155,8 @@ class Settings(BaseSettings):
     chunk_overlap: int = Field(default=125, description="文本块重叠")
     top_k_retrieval: int = Field(default=30, description="初始检索Top-K")
     top_k_rerank: int = Field(default=10, description="Rerank后Top-K")
+    min_similarity_threshold: float = Field(default=1.2, description="向量检索最大L2距离阈值(越小越相似)")
+    recency_bias_weight: float = Field(default=0.15, description="时间衰减权重(0.0-0.5,越大越偏向后期)")
     
     # 智谱AI Embedding配置
     embedding_model: str = Field(default="embedding-3", description="Embedding模型")

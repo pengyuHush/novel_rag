@@ -314,13 +314,17 @@ class IndexingService:
                 logger.info(f"🔀 实体去重与合并中...")
                 merged_entities = {}
                 merged_chapter_ranges = {}
+                alias_mapping = {}  # ✅ 新增：同时保存别名映射
                 
                 for entity_type in ['characters', 'locations', 'organizations']:
                     # 获取该类型的所有实体
                     entity_list = list(entity_counters.get(entity_type, {}).keys())
                     
-                    # 合并相似实体
+                    # ✅ 只调用一次 merge_entities
                     merge_mapping = self.entity_merger.merge_entities(entity_list)
+                    
+                    # ✅ 立即保存别名映射（供后续使用）
+                    alias_mapping[entity_type] = merge_mapping
                     
                     # 更新计数和章节范围
                     from collections import Counter
@@ -343,6 +347,13 @@ class IndexingService:
                     db, novel_id, merged_entities, merged_chapter_ranges
                 )
                 logger.info(f"✅ 保存了 {entity_count} 个实体")
+                
+                # 4.3.5 存储实体别名映射 - ✅ 使用已有的 alias_mapping
+                logger.info(f"🔗 保存实体别名映射...")
+                alias_count = self.entity_service.save_entity_aliases(
+                    db, novel_id, alias_mapping  # 直接使用缓存的结果
+                )
+                logger.info(f"✅ 保存了 {alias_count} 个实体别名")
                 
                 # 4.4 构建知识图谱
                 logger.info(f"🕸️ 构建知识图谱...")

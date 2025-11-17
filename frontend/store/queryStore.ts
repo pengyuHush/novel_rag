@@ -32,6 +32,7 @@ interface QueryState {
   confidence: Confidence | null;
   responseTime: number | null;
   error: string | null;
+  rewrittenQuery: string | null; // 改写后的查询
 
   // 查询配置
   queryConfig: QueryConfig;
@@ -49,12 +50,15 @@ interface QueryState {
   reset: () => void;
   setQueryConfig: (config: Partial<QueryConfig>) => void;
   resetQueryConfig: () => void;
+  setRewrittenQuery: (query: string | null) => void;
 }
 
 const defaultQueryConfig: QueryConfig = {
   top_k_retrieval: 30,
   top_k_rerank: 10,
   max_context_chunks: 10,
+  enable_query_rewrite: true,
+  recency_bias_weight: 0.15,
 };
 
 const initialState = {
@@ -70,6 +74,7 @@ const initialState = {
   confidence: null,
   responseTime: null,
   error: null,
+  rewrittenQuery: null,
   queryConfig: defaultQueryConfig,
 };
 
@@ -139,6 +144,8 @@ export const useQueryStore = create<QueryState>()(
         set({
           queryConfig: defaultQueryConfig,
         }),
+
+      setRewrittenQuery: (query) => set({ rewrittenQuery: query }),
     }),
     {
       name: 'query-config-storage', // localStorage key

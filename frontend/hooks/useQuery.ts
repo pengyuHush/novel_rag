@@ -24,6 +24,7 @@ export function useQueryWebSocket() {
     completeQuery,
     setError,
     queryConfig,
+    setRewrittenQuery,
   } = useQueryStore();
 
   const executeQuery = useCallback(
@@ -58,6 +59,10 @@ export function useQueryWebSocket() {
           setTokenStats(stats);
         },
 
+        onRewrittenQuery: (rewrittenQuery) => {
+          setRewrittenQuery(rewrittenQuery);
+        },
+
         onComplete: (queryId) => {
           completeQuery(queryId);
           toast.success('查询完成');
@@ -80,6 +85,7 @@ export function useQueryWebSocket() {
       completeQuery,
       setError,
       queryConfig,
+      setRewrittenQuery,
     ]
   );
 

@@ -196,6 +196,8 @@ class QueryRequest(BaseModel):
     novel_id: int = Field(..., gt=0, description="小说ID")
     query: str = Field(..., min_length=1, max_length=1000, description="查询文本")
     model: ModelType = Field(default=ModelType.GLM_4_5, description="使用的模型")
+    enable_query_rewrite: bool = Field(default=True, description="是否启用查询改写")
+    recency_bias_weight: float = Field(default=0.15, ge=0.0, le=0.5, description="时间衰减权重")
 
 
 class Citation(BaseModel):
@@ -259,6 +261,7 @@ class QueryResponse(BaseModel):
     confidence: Confidence
     model: str
     timestamp: str
+    rewritten_query: Optional[str] = Field(None, description="改写后的查询（如有）")
 
 
 class QueryStage(str, Enum):

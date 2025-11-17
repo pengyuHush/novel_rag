@@ -22,6 +22,7 @@ import { api } from '@/lib/api';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
+import { QueryDetailModal } from './QueryDetailModal';
 
 interface QueryHistoryModalProps {
   open: boolean;
@@ -48,6 +49,10 @@ export function QueryHistoryModal({ open, onOpenChange, novelId }: QueryHistoryM
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const pageSize = 10;
+  
+  // 详情弹窗状态
+  const [selectedQueryId, setSelectedQueryId] = useState<number | null>(null);
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
 
   const fetchHistory = async () => {
     try {
@@ -168,8 +173,8 @@ export function QueryHistoryModal({ open, onOpenChange, novelId }: QueryHistoryM
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          // TODO: 实现查看详情功能
-                          toast.info('查看详情功能即将上线');
+                          setSelectedQueryId(item.id);
+                          setDetailModalOpen(true);
                         }}
                       >
                         查看详情
@@ -211,6 +216,14 @@ export function QueryHistoryModal({ open, onOpenChange, novelId }: QueryHistoryM
           </div>
         )}
       </DialogContent>
+
+      {/* 查询详情弹窗 */}
+      <QueryDetailModal
+        open={detailModalOpen}
+        onOpenChange={setDetailModalOpen}
+        queryId={selectedQueryId}
+        novelId={novelId}
+      />
     </Dialog>
   );
 }

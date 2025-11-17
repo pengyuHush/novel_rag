@@ -50,6 +50,7 @@ class Novel(Base):
     # 关系
     chapters = relationship("Chapter", back_populates="novel", cascade="all, delete-orphan")
     entities = relationship("Entity", back_populates="novel", cascade="all, delete-orphan")
+    entity_aliases = relationship("EntityAlias", back_populates="novel", cascade="all, delete-orphan")
     queries = relationship("Query", back_populates="novel", cascade="all, delete-orphan")
     
     __table_args__ = (
@@ -137,6 +138,31 @@ class Entity(Base):
     
     def __repr__(self):
         return f"<Entity(id={self.id}, name='{self.entity_name}', type='{self.entity_type}')>"
+
+
+class EntityAlias(Base):
+    """实体别名表"""
+    __tablename__ = "entity_aliases"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    novel_id = Column(Integer, ForeignKey('novels.id', ondelete='CASCADE'), nullable=False)
+    canonical_name = Column(String(100), nullable=False)  # 规范名称
+    alias = Column(String(100), nullable=False)  # 别名
+    entity_type = Column(String(20), nullable=False)
+    confidence = Column(Float, default=1.0)  # 映射置信度（0-1），支持后期调整
+    created_at = Column(String, default=lambda: datetime.utcnow().isoformat())
+    
+    # 关系
+    novel = relationship("Novel", back_populates="entity_aliases")
+    
+    __table_args__ = (
+        UniqueConstraint('novel_id', 'alias', 'entity_type', name='uq_novel_alias'),
+        Index('idx_entity_aliases_novel', 'novel_id'),
+        Index('idx_entity_aliases_lookup', 'novel_id', 'alias', 'entity_type'),
+    )
+    
+    def __repr__(self):
+        return f"<EntityAlias(id={self.id}, alias='{self.alias}', canonical='{self.canonical_name}')>"
 
 
 class Query(Base):

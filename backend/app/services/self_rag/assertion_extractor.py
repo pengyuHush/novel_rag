@@ -7,8 +7,10 @@
 import logging
 import re
 from typing import List, Dict, Optional
+from app.core.trace_logger import get_trace_logger
 
 logger = logging.getLogger(__name__)
+trace_logger = get_trace_logger()
 
 
 class AssertionExtractor:
@@ -33,7 +35,8 @@ class AssertionExtractor:
     def extract_assertions(
         self,
         answer: str,
-        min_confidence: float = 0.5
+        min_confidence: float = 0.5,
+        query_id: Optional[int] = None
     ) -> List[Dict]:
         """
         从答案中提取断言
@@ -92,6 +95,32 @@ class AssertionExtractor:
                 })
         
         logger.info(f"✅ 提取断言: {len(assertions)} 个")
+        
+        # 详细日志
+        if query_id:
+            trace_logger.trace_step(
+                query_id=query_id,
+                step_name="Self-RAG: 断言提取",
+                emoji="🔬",
+                input_data={
+                    "答案长度": len(answer),
+                    "句子数量": len(sentences),
+                    "最小置信度": min_confidence
+                },
+                output_data={
+                    "提取的断言数量": len(assertions),
+                    "断言列表": [
+                        {
+                            "断言": a["assertion"],
+                            "类型": a["type"],
+                            "置信度": f"{a['confidence']:.2f}",
+                            "实体": a["entities"],
+                            "章节": a.get("chapter_ref")
+                        } for a in assertions
+                    ]
+                },
+                status="success"
+            )
         
         return assertions
     

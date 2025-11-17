@@ -2,18 +2,19 @@
 ChromaDB向量数据库客户端封装
 """
 
+import os
+# 必须在导入chromadb之前设置，否则不生效
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+os.environ["CHROMA_TELEMETRY_DISABLED"] = "1"
+
 import chromadb
 from chromadb.config import Settings
 from chromadb.utils import embedding_functions
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 import logging
-import os
 
 from app.core.config import settings
-
-# 禁用ChromaDB遥测
-os.environ["ANONYMIZED_TELEMETRY"] = "False"
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +47,10 @@ class ChromaDBClient:
     ):
         """获取或创建Collection"""
         default_metadata = {
-            "hnsw:space": "cosine",          # 余弦相似度
+            "hnsw:space": "l2",              # L2距离（欧氏距离）
             "hnsw:construction_ef": 200,     # 构建时的ef参数
             "hnsw:M": 16,                    # 每个节点的邻居数
-            "hnsw:search_ef": 100,           # 搜索时的ef参数
+            "hnsw:search_ef": 200,           # 搜索时的ef参数（提升精度）
         }
         
         if metadata:

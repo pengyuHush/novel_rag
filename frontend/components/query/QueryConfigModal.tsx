@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Switch } from '@/components/ui/switch';
 import { useQueryStore } from '@/store/queryStore';
 import { QueryConfig } from '@/types/api';
 
@@ -28,6 +29,8 @@ const PRESET_CONFIGS = {
       top_k_retrieval: 30,
       top_k_rerank: 10,
       max_context_chunks: 10,
+      enable_query_rewrite: true,
+      recency_bias_weight: 0.15,
     },
   },
   highPrecision: {
@@ -37,6 +40,8 @@ const PRESET_CONFIGS = {
       top_k_retrieval: 100,
       top_k_rerank: 30,
       max_context_chunks: 20,
+      enable_query_rewrite: true,
+      recency_bias_weight: 0.15,
     },
   },
 };
@@ -45,13 +50,20 @@ export function QueryConfigModal({ open, onOpenChange }: QueryConfigModalProps) 
   const { queryConfig, setQueryConfig, resetQueryConfig } = useQueryStore();
   
   // 本地状态
-  const [localConfig, setLocalConfig] = useState<QueryConfig>(queryConfig);
+  const [localConfig, setLocalConfig] = useState<QueryConfig>({
+    ...queryConfig,
+    recency_bias_weight: queryConfig.recency_bias_weight ?? 0.15,
+  });
   const [preset, setPreset] = useState<'normal' | 'highPrecision' | 'custom'>('normal');
 
   // 同步store配置到本地状态
   useEffect(() => {
     if (open) {
-      setLocalConfig(queryConfig);
+      // 确保所有字段都有默认值
+      setLocalConfig({
+        ...queryConfig,
+        recency_bias_weight: queryConfig.recency_bias_weight ?? 0.15,
+      });
       // 检测当前配置匹配哪个预设
       detectPreset(queryConfig);
     }
@@ -59,16 +71,21 @@ export function QueryConfigModal({ open, onOpenChange }: QueryConfigModalProps) 
 
   // 检测当前配置是否匹配预设
   const detectPreset = (config: QueryConfig) => {
+    const recencyWeight = config.recency_bias_weight ?? 0.15;
     if (
       config.top_k_retrieval === PRESET_CONFIGS.normal.config.top_k_retrieval &&
       config.top_k_rerank === PRESET_CONFIGS.normal.config.top_k_rerank &&
-      config.max_context_chunks === PRESET_CONFIGS.normal.config.max_context_chunks
+      config.max_context_chunks === PRESET_CONFIGS.normal.config.max_context_chunks &&
+      config.enable_query_rewrite === PRESET_CONFIGS.normal.config.enable_query_rewrite &&
+      recencyWeight === PRESET_CONFIGS.normal.config.recency_bias_weight
     ) {
       setPreset('normal');
     } else if (
       config.top_k_retrieval === PRESET_CONFIGS.highPrecision.config.top_k_retrieval &&
       config.top_k_rerank === PRESET_CONFIGS.highPrecision.config.top_k_rerank &&
-      config.max_context_chunks === PRESET_CONFIGS.highPrecision.config.max_context_chunks
+      config.max_context_chunks === PRESET_CONFIGS.highPrecision.config.max_context_chunks &&
+      config.enable_query_rewrite === PRESET_CONFIGS.highPrecision.config.enable_query_rewrite &&
+      recencyWeight === PRESET_CONFIGS.highPrecision.config.recency_bias_weight
     ) {
       setPreset('highPrecision');
     } else {
@@ -212,6 +229,70 @@ export function QueryConfigModal({ open, onOpenChange }: QueryConfigModalProps) 
               <p className="text-xs text-muted-foreground">
                 构建Prompt时使用的最大文本块数量。数值越大答案越全面，但可能引入噪音。
               </p>
+            </div>
+
+            {/* enable_query_rewrite */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="enable_query_rewrite">启用查询改写</Label>
+                  <p className="text-xs text-muted-foreground">
+                    使用AI优化查询语句，提升检索召回率和答案精度（推荐开启）
+                  </p>
+                </div>
+                <Switch
+                  id="enable_query_rewrite"
+                  checked={localConfig.enable_query_rewrite}
+                  onCheckedChange={(checked) => {
+                    const newConfig = { ...localConfig, enable_query_rewrite: checked };
+                    setLocalConfig(newConfig);
+                    detectPreset(newConfig);
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* 时间衰减权重 */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="recency-bias-weight" className="text-sm font-medium">
+                    时间衰减权重
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    后期章节权重偏向 (0.0=无偏向, 0.5=强偏向)
+                  </p>
+                </div>
+                <span className="text-sm font-mono text-muted-foreground min-w-[3rem] text-right">
+                  {(localConfig.recency_bias_weight ?? 0.15).toFixed(2)}
+                </span>
+              </div>
+              
+              <Slider
+                id="recency-bias-weight"
+                min={0}
+                max={0.5}
+                step={0.05}
+                value={[localConfig.recency_bias_weight ?? 0.15]}
+                onValueChange={([value]) => {
+                  const newConfig = { ...localConfig, recency_bias_weight: value };
+                  setLocalConfig(newConfig);
+                  detectPreset(newConfig);
+                }}
+                className="w-full"
+              />
+              
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>无偏向</span>
+                <span>温和 (0.15)</span>
+                <span>强烈</span>
+              </div>
+              
+              {(localConfig.recency_bias_weight ?? 0.15) > 0 && (
+                <p className="text-xs text-amber-600 dark:text-amber-500">
+                  ⚠️ 启用后，后期章节的内容将获得更高权重
+                </p>
+              )}
             </div>
           </div>
         </div>

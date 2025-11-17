@@ -24,6 +24,94 @@ class HanLPClient:
         self._hanlp = None
         self._initialized = False
     
+    @staticmethod
+    def _clean_entity_name(entity_name: str, strict: bool = True) -> Optional[str]:
+        """
+        清洗实体名称，去除特殊字符并过滤无效实体
+        
+        Args:
+            entity_name: 原始实体名
+            strict: True=严格模式(索引用), False=宽松模式(查询用)
+        
+        Returns:
+            清洗后的实体名，如果无效则返回 None
+        """
+        if not entity_name:
+            return None
+        
+        import re
+        
+        # 1-5. 基本清洗（换行、引号、空格等）- 两种模式都执行
+        entity_name = entity_name.strip()
+        
+        # 去除前后的引号
+        quote_chars = "'\"\u2018\u2019\u201c\u201d`´"  # '  "  '  '  "  "  `  ´
+        entity_name = entity_name.strip(quote_chars).strip()
+        
+        # 替换换行符、制表符等为空格
+        entity_name = entity_name.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+        
+        # 压缩连续空格为单个空格
+        entity_name = re.sub(r'\s+', ' ', entity_name).strip()
+        
+        # 再次去除引号
+        entity_name = entity_name.strip(quote_chars)
+        
+        # 基本验证
+        if not entity_name or len(entity_name) < 2:
+            return None
+        
+        if re.match(r'^[\d\W]+$', entity_name):
+            return None
+        
+        # 6-9. 严格过滤 - 仅在 strict=True 时执行
+        if strict:
+            # 过滤章节标题模式
+            chapter_patterns = [
+                r'第[零一二三四五六七八九十百千万\d]+章',
+                r'第[零一二三四五六七八九十百千万\d]+回',
+                r'[Cc]hapter\s*\d+',
+                r'^\d+[\.、\s]*章',
+                r'卷[零一二三四五六七八九十百千万\d]+',
+            ]
+            
+            for pattern in chapter_patterns:
+                if re.search(pattern, entity_name):
+                    logger.debug(f"过滤章节标题: {entity_name}")
+                    return None
+            
+            # 过滤常见噪音词
+            noise_words = [
+                '作者', '本书', '本章', '正文', '番外', '序章', '楔子', '引子',
+                '前言', '后记', '附录', '目录', '简介', '完本', '完结',
+                'PS', 'VIP', '月票', '推荐票', '打赏'
+            ]
+            
+            for noise in noise_words:
+                if noise in entity_name:
+                    logger.debug(f"过滤噪音词: {entity_name}")
+                    return None
+            
+            # 过滤过长的实体
+            if len(entity_name) > 10:
+                logger.debug(f"过滤过长实体: {entity_name}")
+                return None
+            
+            # 过滤包含引号的实体
+            quote_chars_check = ["'", '"', '\u2018', '\u2019', '\u201c', '\u201d', '`', '´']
+            has_quote = any(q in entity_name for q in quote_chars_check)
+            if has_quote:
+                logger.debug(f"过滤包含引号的实体: {entity_name}")
+                return None
+        else:
+            # 宽松模式：只过滤明显的引号问题
+            quote_chars_check = ["'", '"', '\u2018', '\u2019', '\u201c', '\u201d', '`', '´']
+            has_quote = any(q in entity_name for q in quote_chars_check)
+            if has_quote:
+                return None
+        
+        return entity_name
+    
     def _lazy_init(self):
         """延迟初始化HanLP(避免启动时加载大模型)"""
         if self._initialized:
@@ -50,13 +138,14 @@ class HanLPClient:
             logger.error(f"HanLP模型加载失败: {e}")
             raise
     
-    def extract_entities(self, text: str, max_length: int = 512) -> dict:
+    def extract_entities(self, text: str, max_length: int = 512, strict: bool = True) -> dict:
         """
         提取命名实体
         
         Args:
             text: 输入文本
             max_length: 最大文本长度(HanLP限制),超过会截断
+            strict: 严格清洗模式（索引时=True，查询时=False）
         
         Returns:
             {
@@ -126,6 +215,11 @@ class HanLPClient:
                             continue
                     else:
                         logger.warning(f"未识别的实体格式: {type(item)}")
+                        continue
+                    
+                    # 清洗实体名称
+                    entity_name = self._clean_entity_name(entity_name, strict=strict)
+                    if not entity_name:
                         continue
                     
                     # 根据 MSRA/PKU/OntoNotes 标注规范分类

@@ -41,6 +41,7 @@ export default function HomePage() {
     citations = [],
     tokenStats,
     queryId,
+    rewrittenQuery,
   } = useQueryStore();
 
   const { executeQuery } = useQueryWebSocket();
@@ -93,6 +94,12 @@ export default function HomePage() {
         {/* 查询阶段（压缩高度） */}
         <div className="flex-shrink-0 px-3 py-2 border-b bg-muted/30">
           <QueryStages currentStage={currentStage} progress={stageProgress} />
+          {rewrittenQuery && (
+            <div className="mt-2 text-xs text-muted-foreground bg-background/50 px-3 py-1.5 rounded border border-dashed">
+              <span className="font-medium">查询已优化：</span>
+              <span className="ml-1 text-foreground/80">{rewrittenQuery}</span>
+            </div>
+          )}
         </div>
 
         {/* 思考内容 + 引用列表（固定高度，可独立滚动） */}

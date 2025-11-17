@@ -19,7 +19,7 @@ langchain-community==0.0.10
 chromadb==0.4.22
 
 # NLP
-hanlp==2.1.0b55
+hanlp==2.1.0b55  # 中文NLP工具包，用于实体识别和分词
 
 # Graph
 networkx==3.2.1

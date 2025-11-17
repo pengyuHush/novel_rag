@@ -18,9 +18,11 @@ from app.models.schemas import (
 from app.services.rag_engine import get_rag_engine
 from app.core.error_handlers import NovelNotFoundError
 from app.models.database import Novel, Query
+from app.core.trace_logger import get_trace_logger
 
 router = APIRouter(prefix="/api/query", tags=["智能问答"])
 logger = logging.getLogger(__name__)
+trace_logger = get_trace_logger()
 
 
 # ==================== 数据模型 ====================
@@ -69,11 +71,36 @@ async def query_novel(
     """
     start_time = time.time()
     
+    # 生成临时查询ID用于日志追踪（在保存到数据库前使用时间戳）
+    temp_query_id = int(time.time() * 1000000)  # 微秒级时间戳
+    
+    # 记录查询开始
+    trace_logger.trace_section(
+        query_id=temp_query_id,
+        section_name="非流式查询开始",
+        emoji="🚀"
+    )
+    
     try:
         # 验证小说是否存在
         novel = db.query(Novel).filter(Novel.id == request.novel_id).first()
         if not novel:
             raise NovelNotFoundError(request.novel_id)
+        
+        trace_logger.trace_step(
+            query_id=temp_query_id,
+            step_name="查询初始化",
+            emoji="📋",
+            input_data={
+                "小说ID": request.novel_id,
+                "小说名称": novel.title,
+                "查询内容": request.query,
+                "模型": request.model.value,
+                "启用查询改写": request.enable_query_rewrite
+            },
+            output_data="初始化完成",
+            status="success"
+        )
         
         # Token计数器
         from app.utils.token_counter import get_token_counter
@@ -84,11 +111,14 @@ async def query_novel(
         
         # 执行RAG查询
         rag_engine = get_rag_engine()
-        answer, citations, stats = rag_engine.query(
+        answer, citations, stats, rewritten_query = rag_engine.query(
             db=db,
             novel_id=request.novel_id,
             query=request.query,
-            model=request.model.value
+            model=request.model.value,
+            enable_query_rewrite=request.enable_query_rewrite,
+            query_id=temp_query_id,
+            recency_bias_weight=request.recency_bias_weight
         )
         
         # 统计Prompt和Completion tokens
@@ -96,7 +126,14 @@ async def query_novel(
         # 可以通过重新构建prompt来计算，或者估算
         query_embedding = rag_engine.query_embedding(request.query)
         vector_results = rag_engine.vector_search(request.novel_id, query_embedding)
-        reranked_chunks = rag_engine.rerank(request.query, vector_results, None)
+        reranked_chunks = rag_engine.rerank(
+            request.query, 
+            vector_results, 
+            None,
+            novel_id=request.novel_id,
+            db=db,
+            recency_bias_weight=request.recency_bias_weight
+        )
         
         # 构建prompt用于计算tokens
         prompt = rag_engine.build_prompt(db, request.novel_id, request.query, reranked_chunks)
@@ -107,6 +144,30 @@ async def query_novel(
         
         response_time = time.time() - start_time
         
+        # 计算置信度
+        from app.services.confidence_calculator import get_confidence_calculator
+        confidence_calculator = get_confidence_calculator()
+        confidence_level = confidence_calculator.calculate_confidence(
+            answer=answer,
+            citations=[{'score': c.score} for c in citations],
+            reranked_chunks=reranked_chunks,
+            retrieved_count=stats.get('retrieved_chunks', 0)
+        )
+        
+        # 获取置信度详情（用于日志）
+        confidence_details = confidence_calculator.get_confidence_details(
+            answer=answer,
+            citations=[{'score': c.score} for c in citations],
+            reranked_chunks=reranked_chunks,
+            retrieved_count=stats.get('retrieved_chunks', 0)
+        )
+        logger.info(f"📊 置信度计算: {confidence_level.value} "
+                   f"(得分: {confidence_details['confidence_percentage']:.1f}%)")
+        logger.debug(f"   - 引用质量: {confidence_details['citation_score']:.2f}")
+        logger.debug(f"   - 答案质量: {confidence_details['answer_quality_score']:.2f}")
+        logger.debug(f"   - 检索效果: {confidence_details['retrieval_score']:.2f}")
+        logger.debug(f"   - 语言确定性: {confidence_details['certainty_score']:.2f}")
+        
         # 保存查询历史
         query_record = Query(
             novel_id=request.novel_id,
@@ -114,7 +175,8 @@ async def query_novel(
             answer_text=answer,
             model_used=request.model.value,
             response_time=response_time,
-            total_tokens=total_tokens
+            total_tokens=total_tokens,
+            confidence=confidence_level.value
         )
         db.add(query_record)
         db.commit()
@@ -185,6 +247,29 @@ async def query_novel(
             by_stage=by_stage
         )
         
+        # 记录查询完成
+        trace_logger.trace_section(
+            query_id=temp_query_id,
+            section_name="非流式查询完成",
+            emoji="✅"
+        )
+        trace_logger.trace_step(
+            query_id=temp_query_id,
+            step_name="查询结果",
+            emoji="📊",
+            input_data="查询处理完成",
+            output_data={
+                "答案长度": len(answer),
+                "引用数量": len(citations),
+                "总Token数": total_tokens,
+                "响应时间": f"{response_time:.2f}秒",
+                "置信度": confidence_level.value,
+                "置信度得分": f"{confidence_details['confidence_percentage']:.1f}%",
+                "查询ID": query_record.id
+            },
+            status="success"
+        )
+        
         # 构建响应
         return QueryResponse(
             query_id=query_record.id,
@@ -192,15 +277,24 @@ async def query_novel(
             citations=citations,
             token_stats=token_stats_obj,
             response_time=response_time,
-            confidence=Confidence.MEDIUM,  # TODO: 计算置信度
+            confidence=confidence_level,
             model=request.model.value,
-            timestamp=datetime.now().isoformat()
+            timestamp=datetime.now().isoformat(),
+            rewritten_query=rewritten_query
         )
         
     except NovelNotFoundError:
         raise
     except Exception as e:
         logger.error(f"❌ 查询失败: {e}")
+        trace_logger.trace_step(
+            query_id=temp_query_id,
+            step_name="查询失败",
+            emoji="❌",
+            input_data=request.query,
+            output_data=f"错误: {str(e)}",
+            status="failed"
+        )
         raise HTTPException(status_code=500, detail=f"查询失败: {str(e)}")
 
 
@@ -215,6 +309,10 @@ async def query_stream(websocket: WebSocket):
     await websocket.accept()
     logger.info("🔌 WebSocket连接已建立")
     
+    # 生成临时查询ID用于日志追踪
+    temp_query_id = int(time.time() * 1000000)  # 微秒级时间戳
+    start_time = time.time()  # 记录开始时间
+    
     try:
         # 接收查询请求
         data = await websocket.receive_json()
@@ -223,15 +321,25 @@ async def query_stream(websocket: WebSocket):
         model = data.get('model', 'glm-4')
         config = data.get('config', {})
         
+        # 记录流式查询开始
+        trace_logger.trace_section(
+            query_id=temp_query_id,
+            section_name="流式查询开始",
+            emoji="🚀"
+        )
+        
         # 提取配置参数，使用默认值
         top_k_retrieval = config.get('top_k_retrieval', 30)
         top_k_rerank = config.get('top_k_rerank', 10)
         max_context_chunks = config.get('max_context_chunks', 10)
+        enable_query_rewrite = config.get('enable_query_rewrite', True)
+        recency_bias_weight = config.get('recency_bias_weight', 0.15)
         
         # 验证参数范围
         top_k_retrieval = max(10, min(100, top_k_retrieval))
         top_k_rerank = max(5, min(30, top_k_rerank))
         max_context_chunks = max(5, min(20, max_context_chunks))
+        recency_bias_weight = max(0.0, min(0.5, recency_bias_weight))
         
         logger.info(f"📊 查询配置: top_k_retrieval={top_k_retrieval}, top_k_rerank={top_k_rerank}, max_context_chunks={max_context_chunks}")
         
@@ -261,7 +369,26 @@ async def query_stream(websocket: WebSocket):
                 await websocket.close()
                 return
             
-            # 阶段1: 查询理解
+            # 记录查询初始化
+            trace_logger.trace_step(
+                query_id=temp_query_id,
+                step_name="查询初始化",
+                emoji="📋",
+                input_data={
+                    "小说ID": novel_id,
+                    "小说名称": novel.title,
+                    "查询内容": query,
+                    "模型": model,
+                    "top_k_retrieval": top_k_retrieval,
+                    "top_k_rerank": top_k_rerank,
+                    "max_context_chunks": max_context_chunks,
+                    "启用查询改写": enable_query_rewrite
+                },
+                output_data="初始化完成",
+                status="success"
+            )
+            
+            # 阶段1: 查询理解（含查询改写）
             await websocket.send_json(StreamMessage(
                 stage=QueryStage.UNDERSTANDING,
                 content="正在理解您的问题...",
@@ -269,6 +396,24 @@ async def query_stream(websocket: WebSocket):
             ).model_dump())
             
             rag_engine = get_rag_engine()
+            
+            # 查询改写
+            rewrite_result = rag_engine.query_rewriter.rewrite_query(
+                query, 
+                enable=enable_query_rewrite,
+                query_id=temp_query_id
+            )
+            query_for_retrieval = rewrite_result["rewritten"]
+            rewritten_query = query_for_retrieval if rewrite_result["rewrite_applied"] else None
+            
+            # 如果查询被改写，发送改写结果
+            if rewritten_query:
+                await websocket.send_json(StreamMessage(
+                    stage=QueryStage.UNDERSTANDING,
+                    content=f"查询已优化: {rewritten_query}",
+                    progress=0.15,
+                    metadata={"rewritten_query": rewritten_query}
+                ).model_dump())
             
             # 阶段2: 检索上下文
             await websocket.send_json(StreamMessage(
@@ -285,27 +430,30 @@ async def query_stream(websocket: WebSocket):
             prompt_tokens = 0
             completion_tokens = 0
             
-            # 查询向量化（统计Embedding tokens）
+            # 查询向量化（统计Embedding tokens，使用改写后的查询）
             from app.utils.token_counter import get_token_counter
             token_counter = get_token_counter()
-            embedding_tokens += token_counter.count_tokens(query)
+            embedding_tokens += token_counter.count_tokens(query_for_retrieval)
             
-            query_embedding = rag_engine.query_embedding(query)
+            query_embedding = rag_engine.query_embedding(query_for_retrieval, query_id=temp_query_id)
             
             # 语义检索（使用配置的top_k_retrieval）
             vector_results = rag_engine.vector_search(
                 novel_id, 
                 query_embedding,
-                top_k=top_k_retrieval
+                top_k=top_k_retrieval,
+                query_id=temp_query_id
             )
             
             # Rerank（带GraphRAG增强，使用配置的top_k_rerank）
             reranked_chunks = rag_engine.rerank(
-                query=query,
+                query=query_for_retrieval,
                 vector_results=vector_results,
                 novel_id=novel_id,
                 db=db,
-                top_k=top_k_rerank
+                top_k=top_k_rerank,
+                query_id=temp_query_id,
+                recency_bias_weight=recency_bias_weight
             )
             
             if not reranked_chunks:
@@ -321,15 +469,14 @@ async def query_stream(websocket: WebSocket):
             # ✨ 检索完成后立即构建并发送引用列表
             logger.info("📚 检索完成，构建引用列表...")
             citations = []
-            seen_chapters = set()
             
-            for chunk in reranked_chunks[:5]:  # 只返回前5条引用
+            # 返回前10条引用（或所有chunk，取较小值）
+            # 不进行章节去重，因为同一章节可能有多个相关片段
+            max_citations = min(10, len(reranked_chunks))
+            
+            for chunk in reranked_chunks[:max_citations]:
                 metadata = chunk['metadata']
                 chapter_num = metadata.get('chapter_num')
-                
-                if chapter_num in seen_chapters:
-                    continue
-                seen_chapters.add(chapter_num)
                 
                 # 获取章节标题，如果metadata中没有，从数据库查询
                 chapter_title = metadata.get('chapter_title')
@@ -338,16 +485,16 @@ async def query_stream(websocket: WebSocket):
                         from app.models.database import Chapter
                         chapter = db.query(Chapter).filter(
                             Chapter.novel_id == novel_id,
-                            Chapter.num == chapter_num
+                            Chapter.chapter_num == chapter_num
                         ).first()
                         if chapter:
-                            chapter_title = chapter.title
+                            chapter_title = chapter.chapter_title
                     except Exception as e:
                         logger.warning(f"获取章节标题失败: {e}")
                 
                 citations.append({
-                    'chapter_num': chapter_num,
-                    'chapter_title': chapter_title,
+                    'chapterNum': chapter_num,      # 使用camelCase匹配前端
+                    'chapterTitle': chapter_title,  # 使用camelCase匹配前端
                     'text': chunk['content'][:200] + "...",
                     'score': chunk.get('score')
                 })
@@ -368,13 +515,14 @@ async def query_stream(websocket: WebSocket):
                 progress=0.5
             ).model_dump())
             
-            # 构建Prompt（使用配置的max_context_chunks）
-            prompt = rag_engine.build_prompt(
+            # 构建自适应Prompt（使用配置的max_context_chunks，使用原始查询）
+            prompt = rag_engine.prompt_builder.build_prompt(
                 db, 
                 novel_id, 
                 query, 
                 reranked_chunks,
-                max_chunks=max_context_chunks
+                max_chunks=max_context_chunks,
+                query_id=temp_query_id
             )
             
             # 流式生成答案
@@ -464,7 +612,7 @@ async def query_stream(websocket: WebSocket):
             try:
                 # 1. 提取断言
                 assertion_extractor = get_assertion_extractor()
-                assertions = assertion_extractor.extract_assertions(full_answer)
+                assertions = assertion_extractor.extract_assertions(full_answer, query_id=temp_query_id)
                 logger.info(f"✅ 提取断言: {len(assertions)} 个")
                 
                 if assertions:
@@ -479,6 +627,19 @@ async def query_stream(websocket: WebSocket):
                         evidence_map[idx] = evidence_list
                     
                     logger.info(f"✅ 收集证据完成")
+                    
+                    # 详细日志：证据收集
+                    trace_logger.trace_step(
+                        query_id=temp_query_id,
+                        step_name="Self-RAG: 证据收集",
+                        emoji="📚",
+                        input_data=f"为{len(assertions)}个断言收集证据",
+                        output_data={
+                            "证据总数": sum(len(v) for v in evidence_map.values()),
+                            "每个断言的证据数": {f"断言{k}": len(v) for k, v in evidence_map.items()}
+                        },
+                        status="success"
+                    )
                     
                     # 3. 评分证据
                     evidence_scorer = get_evidence_scorer()
@@ -520,6 +681,23 @@ async def query_stream(websocket: WebSocket):
                     
                     logger.info(f"✅ 一致性检查完成: {consistency_report['total_issues']} 个问题")
                     
+                    # 详细日志：一致性检查
+                    trace_logger.trace_step(
+                        query_id=temp_query_id,
+                        step_name="Self-RAG: 一致性检查",
+                        emoji="🔗",
+                        input_data={
+                            "断言数量": len(assertions),
+                            "证据总数": sum(len(v) for v in evidence_map.values())
+                        },
+                        output_data={
+                            "时序问题": len(temporal_issues),
+                            "角色一致性问题": len(character_issues),
+                            "总问题数": consistency_report['total_issues']
+                        },
+                        status="success"
+                    )
+                    
                     # 5. 检测矛盾
                     contradiction_detector = get_contradiction_detector()
                     contradictions = contradiction_detector.detect_contradictions(
@@ -542,6 +720,19 @@ async def query_stream(websocket: WebSocket):
                     
                     logger.info(f"✅ 检测到矛盾: {len(contradictions_list)} 个")
                     
+                    # 详细日志：矛盾检测
+                    trace_logger.trace_step(
+                        query_id=temp_query_id,
+                        step_name="Self-RAG: 矛盾检测",
+                        emoji="⚠️",
+                        input_data="基于断言、证据和一致性检查结果",
+                        output_data={
+                            "矛盾数量": len(contradictions_list),
+                            "矛盾列表": contradictions_list
+                        },
+                        status="success"
+                    )
+                    
                     # 6. 修正答案
                     if contradictions:
                         answer_corrector = get_answer_corrector()
@@ -552,6 +743,23 @@ async def query_stream(websocket: WebSocket):
                         confidence_level = correction_result.get('final_confidence', 'high')
                         
                         logger.info(f"✅ 答案修正完成，置信度: {confidence_level}")
+                        
+                        # 详细日志：答案修正
+                        trace_logger.trace_step(
+                            query_id=temp_query_id,
+                            step_name="Self-RAG: 答案修正",
+                            emoji="🔧",
+                            input_data={
+                                "原始答案长度": len(full_answer),
+                                "矛盾数量": len(contradictions)
+                            },
+                            output_data={
+                                "修正后答案长度": len(corrected_answer),
+                                "最终置信度": confidence_level,
+                                "是否修改": corrected_answer != full_answer
+                            },
+                            status="success"
+                        )
                 
             except Exception as e:
                 logger.error(f"⚠️ Self-RAG验证失败: {e}")
@@ -609,13 +817,16 @@ async def query_stream(websocket: WebSocket):
             logger.info(f"✅ Token统计: 总计 {total_tokens} tokens")
             logger.info(f"💾 保存查询记录到数据库...")
             
+            # 计算总响应时间
+            total_response_time = time.time() - start_time
+            
             # 保存查询历史（使用修正后的答案）
             query_record = Query(
                 novel_id=novel_id,
                 query_text=query,
                 answer_text=corrected_answer,
                 model_used=model,
-                response_time=0.0,  # WebSocket不统计总时间
+                response_time=total_response_time,  # 记录总响应时间
                 confidence=confidence_level,  # 保存置信度
                 total_tokens=total_tokens  # 保存Token消耗
             )
@@ -670,6 +881,28 @@ async def query_stream(websocket: WebSocket):
             await websocket.send_json(final_message)
             logger.info(f"✅ 流式查询完成，最终消息已发送")
             
+            # 记录流式查询完成
+            trace_logger.trace_section(
+                query_id=temp_query_id,
+                section_name="流式查询完成",
+                emoji="✅"
+            )
+            trace_logger.trace_step(
+                query_id=temp_query_id,
+                step_name="查询结果",
+                emoji="📊",
+                input_data="查询处理完成",
+                output_data={
+                    "答案长度": len(corrected_answer),
+                    "引用数量": len(citations),
+                    "总Token数": total_tokens,
+                    "矛盾数量": len(contradictions_list),
+                    "置信度": confidence_level,
+                    "查询ID": query_record.id
+                },
+                status="success"
+            )
+            
         finally:
             db.close()
         
@@ -677,6 +910,14 @@ async def query_stream(websocket: WebSocket):
         logger.info("🔌 WebSocket连接已断开")
     except Exception as e:
         logger.error(f"❌ 流式查询失败: {e}")
+        trace_logger.trace_step(
+            query_id=temp_query_id,
+            step_name="流式查询失败",
+            emoji="❌",
+            input_data=query if 'query' in locals() else "未知查询",
+            output_data=f"错误: {str(e)}",
+            status="failed"
+        )
         try:
             await websocket.send_json({
                 'error': f'查询失败: {str(e)}'
@@ -840,7 +1081,7 @@ async def get_query_detail(
             response_time=query_record.response_time or 0.0,
             confidence=Confidence(query_record.confidence) if query_record.confidence else Confidence.MEDIUM,
             model=query_record.model_used or "unknown",
-            timestamp=query_record.created_at.isoformat() if query_record.created_at else datetime.now().isoformat()
+            timestamp=query_record.created_at if query_record.created_at else datetime.now().isoformat()
         )
         
         logger.info(f"✅ 获取查询详情成功: query_id={query_id}")
