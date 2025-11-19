@@ -584,6 +584,14 @@ class RAGEngine:
                 'query_type': query_type.value
             })
         
+        # 演变节点优先rerank：提升演变章节的权重
+        if graph and query_entities and len(query_entities) >= 2:
+            for candidate in candidates:
+                chapter_num = candidate['metadata'].get('chapter_num')
+                if chapter_num and self._is_relation_evolution_chapter(graph, chapter_num, query_entities):
+                    candidate['score'] *= 1.5  # 演变节点权重提升50%
+                    logger.info(f"🔄 检测到关系演变章节{chapter_num}，提升权重")
+        
         # 排序
         candidates.sort(key=lambda x: -x['score'])
         
@@ -992,6 +1000,93 @@ class RAGEngine:
         logger.info(f"✅ RAG查询完成: {len(citations)} 条引用")
         
         return answer, citations, stats, rewritten_query
+    
+    def _is_relationship_query(self, query: str) -> bool:
+        """
+        判断是否为关系查询
+        
+        Args:
+            query: 查询文本
+        
+        Returns:
+            bool: 是否为关系查询
+        """
+        relation_keywords = ['关系', '什么样', '如何', '是不是', '变化', '演变', '对待', '看待']
+        return any(kw in query for kw in relation_keywords)
+    
+    def _is_relation_evolution_chapter(
+        self,
+        graph,
+        chapter_num: int,
+        query_entities: List[str]
+    ) -> bool:
+        """
+        检查章节是否为演变节点
+        
+        Args:
+            graph: 知识图谱
+            chapter_num: 章节号
+            query_entities: 查询实体列表
+        
+        Returns:
+            bool: 是否为演变节点
+        """
+        if len(query_entities) < 2 or not graph:
+            return False
+        
+        try:
+            # 获取两实体间的关系演变
+            evolution = self.graph_query.get_relationship_evolution(
+                graph, query_entities[0], query_entities[1]
+            )
+            
+            # 检查该章节是否在演变列表中
+            evolution_chapters = [evt['chapter'] for evt in evolution]
+            return chapter_num in evolution_chapters
+        except Exception as e:
+            logger.debug(f"检查演变节点失败: {e}")
+            return False
+    
+    def _filter_by_entity_attributes(
+        self,
+        candidates: List[Dict],
+        graph,
+        query_constraints: Dict
+    ) -> List[Dict]:
+        """
+        基于实体属性过滤候选文档
+        
+        Args:
+            candidates: 候选文档列表
+            graph: 知识图谱
+            query_constraints: 属性约束，如{"性别": "男", "阵营": "反派"}
+        
+        Returns:
+            List[Dict]: 过滤后的候选文档
+        """
+        if not graph or not query_constraints:
+            return candidates
+        
+        filtered = []
+        for candidate in candidates:
+            entities_in_doc = candidate['metadata'].get('entities', [])
+            
+            # 如果没有实体信息，保留（避免过度过滤）
+            if not entities_in_doc:
+                filtered.append(candidate)
+                continue
+            
+            # 检查文档中的实体是否满足约束
+            for entity in entities_in_doc:
+                if entity in graph:
+                    attributes = graph.nodes[entity].get('attributes', {})
+                    
+                    # 检查是否满足所有约束
+                    if all(attributes.get(k) == v for k, v in query_constraints.items()):
+                        filtered.append(candidate)
+                        break
+        
+        return filtered
 
 
 # 全局RAG引擎实例

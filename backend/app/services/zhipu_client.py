@@ -16,7 +16,7 @@ from app.core.error_handlers import ZhipuAPIError
 logger = logging.getLogger(__name__)
 
 
-def retry_on_failure(max_retries: int = 3, delay: float = 1.0):
+def retry_on_failure(max_retries: int = 3, delay: float = 2.0):
     """
     API调用失败重试装饰器（指数退避）
     
@@ -39,7 +39,13 @@ def retry_on_failure(max_retries: int = 3, delay: float = 1.0):
                         logger.error(f"❌ API调用失败，已达最大重试次数: {e}")
                         raise
                     
-                    logger.warning(f"⚠️ API调用失败，{current_delay}秒后重试 ({retries}/{max_retries}): {e}")
+                    # 429错误（并发限制）时增加等待时间
+                    if "429" in str(e) or "1302" in str(e):
+                        current_delay = max(current_delay, 5.0)  # 至少等5秒
+                        logger.warning(f"⚠️ 并发限制错误，{current_delay}秒后重试 ({retries}/{max_retries}): {e}")
+                    else:
+                        logger.warning(f"⚠️ API调用失败，{current_delay}秒后重试 ({retries}/{max_retries}): {e}")
+                    
                     time.sleep(current_delay)
                     current_delay *= 2  # 指数退避
             
@@ -154,8 +160,18 @@ class ZhipuAIClient:
             )
             
             # 提取响应数据
+            message = response.choices[0].message
+            
+            # GLM-4.5-Flash思考模式：内容可能在reasoning_content中
+            content = message.content or ""
+            if hasattr(message, 'reasoning_content') and message.reasoning_content:
+                # 如果有推理内容但没有普通内容，使用推理内容
+                if not content:
+                    content = message.reasoning_content
+                    logger.debug(f"使用reasoning_content作为响应内容（长度: {len(content)}）")
+            
             result = {
-                "content": response.choices[0].message.content,
+                "content": content,
                 "model": response.model,
                 "usage": {
                     "prompt_tokens": response.usage.prompt_tokens,
@@ -165,7 +181,7 @@ class ZhipuAIClient:
                 "finish_reason": response.choices[0].finish_reason
             }
             
-            logger.info(f"✅ {model} 调用成功 (tokens: {result['usage']['total_tokens']})")
+            logger.info(f"✅ {model} 调用成功 (tokens: {result['usage']['total_tokens']}, 内容长度: {len(content)})")
             return result
             
         except Exception as e:

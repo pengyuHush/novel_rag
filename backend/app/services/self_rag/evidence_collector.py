@@ -247,6 +247,164 @@ class EvidenceCollector:
         deduplicated.sort(key=lambda x: -x['score'])
         
         return deduplicated[:top_k]
+    
+    def collect_contradiction_evidence_with_graph(
+        self,
+        db: Session,
+        novel_id: int,
+        entity: str,
+        attribute: str = "立场"
+    ) -> List[Dict]:
+        """
+        基于图谱演变信息收集矛盾证据
+        
+        场景：检测"角色A的立场是否矛盾？"
+        
+        Args:
+            db: 数据库会话
+            novel_id: 小说ID
+            entity: 实体名称
+            attribute: 要检测的属性（默认"立场"）
+        
+        Returns:
+            List[Dict]: 证据对列表，包含early和late描述
+        """
+        from app.services.graph.graph_builder import GraphBuilder
+        from app.services.graph.graph_query import GraphQuery
+        from app.models.database import Novel, Chapter
+        from pathlib import Path
+        
+        graph_builder = GraphBuilder()
+        graph_query = GraphQuery()
+        
+        try:
+            # 加载图谱
+            graph = graph_builder.load_graph(novel_id)
+            if not graph:
+                logger.warning(f"图谱不存在，无法使用图谱增强")
+                return []
+            
+            # 获取实体的关系演变
+            evolutions = []
+            if entity not in graph:
+                logger.warning(f"实体 {entity} 不在图谱中")
+                return []
+            
+            for neighbor in graph.neighbors(entity):
+                relation_evolution = graph_query.get_relationship_evolution(
+                    graph, entity, neighbor
+                )
+                if len(relation_evolution) > 1:  # 有演变
+                    evolutions.append({
+                        'target': neighbor,
+                        'evolution': relation_evolution
+                    })
+            
+            if not evolutions:
+                logger.info(f"实体 {entity} 无关系演变")
+                return []
+            
+            # 针对每个演变节点，检索前后的原文描述
+            evidence_pairs = []
+            novel = db.query(Novel).filter(Novel.id == novel_id).first()
+            
+            if not novel:
+                return []
+            
+            for evo in evolutions:
+                for i in range(len(evo['evolution']) - 1):
+                    early = evo['evolution'][i]
+                    late = evo['evolution'][i+1]
+                    
+                    # 仅检索关系类型变化的节点（避免无效检索）
+                    if early['type'] != late['type']:
+                        # 检索两个时期的原文描述
+                        early_text = self._retrieve_at_chapter(
+                            entity, early['chapter'], novel, db
+                        )
+                        late_text = self._retrieve_at_chapter(
+                            entity, late['chapter'], novel, db
+                        )
+                        
+                        if early_text and late_text:
+                            evidence_pairs.append({
+                                'early_chapter': early['chapter'],
+                                'late_chapter': late['chapter'],
+                                'early_relation': early['type'],
+                                'late_relation': late['type'],
+                                'early_text': early_text,
+                                'late_text': late_text,
+                                'target': evo['target']
+                            })
+            
+            logger.info(f"✅ 基于图谱收集了 {len(evidence_pairs)} 对矛盾证据")
+            return evidence_pairs
+            
+        except Exception as e:
+            logger.error(f"图谱增强证据收集失败: {e}")
+            return []
+    
+    def _retrieve_at_chapter(
+        self,
+        entity: str,
+        chapter_num: int,
+        novel,
+        db: Session
+    ) -> Optional[str]:
+        """
+        在指定章节检索包含实体的段落
+        
+        Args:
+            entity: 实体名称
+            chapter_num: 章节号
+            novel: 小说对象
+            db: 数据库会话
+        
+        Returns:
+            Optional[str]: 段落内容
+        """
+        from app.models.database import Chapter
+        from pathlib import Path
+        
+        try:
+            chapter = db.query(Chapter).filter(
+                Chapter.novel_id == novel.id,
+                Chapter.chapter_num == chapter_num
+            ).first()
+            
+            if not chapter:
+                return None
+            
+            file_path = Path(novel.file_path)
+            if not file_path.exists():
+                return None
+            
+            # 尝试多种编码
+            content = None
+            for encoding in ['utf-8', 'gbk', 'gb2312', 'gb18030']:
+                try:
+                    with open(file_path, 'r', encoding=encoding) as f:
+                        f.seek(chapter.start_pos)
+                        content = f.read(min(2000, chapter.end_pos - chapter.start_pos))
+                    break
+                except UnicodeDecodeError:
+                    continue
+            
+            if not content:
+                return None
+            
+            # 查找包含实体的段落
+            if entity in content:
+                idx = content.find(entity)
+                start = max(0, idx - 150)
+                end = min(len(content), idx + 350)
+                return content[start:end]
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"检索章节{chapter_num}失败: {e}")
+            return None
 
 
 # 全局实例

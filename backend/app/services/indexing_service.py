@@ -5,7 +5,7 @@
 
 import logging
 import asyncio
-from typing import Dict, Optional, Callable
+from typing import Dict, Optional, Callable, List
 from pathlib import Path
 from sqlalchemy.orm import Session
 
@@ -19,8 +19,12 @@ from app.services.nlp.entity_merger import EntityMerger
 from app.services.entity_service import EntityService
 from app.services.graph.graph_builder import GraphBuilder
 from app.services.graph.graph_analyzer import GraphAnalyzer
+from app.services.graph.relation_classifier import RelationshipClassifier
+from app.services.graph.evolution_tracker import RelationshipEvolutionTracker
+from app.services.graph.attribute_extractor import EntityAttributeExtractor
 from app.models.database import Novel, Chapter
 from app.models.schemas import IndexStatus, FileFormat
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -119,13 +123,17 @@ class IndexingService:
             tracker.update_step(novel_id, 1, 'completed', 1.0, f'检测到{len(chapters_data)}个章节')
             tracker.update_step(novel_id, 2, 'processing', 0.0, '准备处理章节...')
             
+            # 更新总进度：文件解析和章节检测完成（0%-5%）
+            novel.index_progress = clamp_progress(0.05)
+            db.commit()
+            
             if progress_callback:
-                await progress_callback(novel_id, 0.1, f"文件解析完成，检测到{len(chapters_data)}章")
+                await progress_callback(novel_id, 0.05, f"文件解析完成，检测到{len(chapters_data)}章")
             
             # 2. 创建ChromaDB集合
             collection_name = self.embedding_service.create_collection(novel_id)
             
-            # 3. 处理每个章节
+            # 3. 处理每个章节（向量化并存储）
             total_chapters = len(chapters_data)
             total_chunks = 0
             total_embedding_tokens = 0  # 初始化token计数器
@@ -136,85 +144,161 @@ class IndexingService:
             tracker.update_step(novel_id, 2, 'completed', 1.0, f'准备处理{total_chapters}个章节')
             tracker.update_step(novel_id, 3, 'processing', 0.0, '开始处理章节...')
             
-            for i, chapter_data in enumerate(chapters_data):
-                chapter_num = chapter_data['chapter_num']
-                chapter_title = chapter_data.get('title', f"第{chapter_num}章")
+            # 检查是否使用 Batch API 进行向量化
+            use_batch_api_for_embedding = settings.use_batch_api_for_embedding
+            
+            if use_batch_api_for_embedding:
+                logger.info(f"🚀 启用向量化 Batch API 模式（实验性）")
                 
-                logger.info(f"📝 处理章节 {chapter_num}/{total_chapters}: {chapter_title}")
+                # 收集所有章节的分块数据
+                all_chapters_chunks = []
                 
-                # 提取章节内容
-                chapter_content = self.chapter_detector.extract_chapter_content(
-                    content,
-                    chapter_data['start_pos'],
-                    chapter_data['end_pos'],
-                    include_title=True
-                )
+                for i, chapter_data in enumerate(chapters_data):
+                    chapter_num = chapter_data['chapter_num']
+                    chapter_title = chapter_data.get('title', f"第{chapter_num}章")
+                    
+                    # 提取章节内容
+                    chapter_content = self.chapter_detector.extract_chapter_content(
+                        content,
+                        chapter_data['start_pos'],
+                        chapter_data['end_pos'],
+                        include_title=True
+                    )
+                    
+                    # 保存章节到数据库
+                    chapter = Chapter(
+                        novel_id=novel_id,
+                        chapter_num=chapter_num,
+                        chapter_title=chapter_title,
+                        char_count=len(chapter_content),
+                        start_pos=chapter_data['start_pos'],
+                        end_pos=chapter_data['end_pos']
+                    )
+                    db.add(chapter)
+                    db.commit()
+                    
+                    # 文本分块
+                    chunks = self.text_splitter.split_chapter(
+                        chapter_content,
+                        novel_id,
+                        chapter_num,
+                        chapter_title
+                    )
+                    
+                    chapter.chunk_count = len(chunks)
+                    total_chunks += len(chunks)
+                    
+                    all_chapters_chunks.append({
+                        'chapter_num': chapter_num,
+                        'chapter_title': chapter_title,
+                        'chunks': chunks
+                    })
                 
-                # 保存章节到数据库
-                chapter = Chapter(
-                    novel_id=novel_id,
-                    chapter_num=chapter_num,
-                    chapter_title=chapter_title,
-                    char_count=len(chapter_content),
-                    start_pos=chapter_data['start_pos'],
-                    end_pos=chapter_data['end_pos']
-                )
-                db.add(chapter)
                 db.commit()
                 
-                # 文本分块
-                chunks = self.text_splitter.split_chapter(
-                    chapter_content,
-                    novel_id,
-                    chapter_num,
-                    chapter_title
+                # 使用 Batch API 批量处理向量化
+                success, total_embedding_tokens, failed_chapters = await self.embedding_service.process_novel_with_batch_api(
+                    novel_id, all_chapters_chunks
                 )
                 
-                chapter.chunk_count = len(chunks)
-                total_chunks += len(chunks)
+                if failed_chapters:
+                    logger.warning(f"⚠️ {len(failed_chapters)} 个章节向量化失败: {failed_chapters}")
+                    for failed_ch in failed_chapters:
+                        tracker.add_failed_chapter(novel_id, failed_ch, f"第{failed_ch}章", "向量化处理失败")
                 
-                # 向量化并存储（获取token消耗）
-                success, chapter_tokens = self.embedding_service.process_chapter(
-                    novel_id,
-                    chapter_num,
-                    chapter_title,
-                    chunks
-                )
-                
-                # 累加token消耗
-                total_embedding_tokens += chapter_tokens
-                
-                if not success:
-                    logger.warning(f"⚠️ 章节 {chapter_num} 处理失败")
-                    # 记录失败章节
-                    from app.services.indexing_progress_tracker import get_progress_tracker
-                    tracker = get_progress_tracker()
-                    tracker.add_failed_chapter(novel_id, chapter_num, chapter_title, "向量化处理失败")
-                
-                # 更新进度（确保不超过1.0）
-                progress = clamp_progress(0.1 + 0.9 * (i + 1) / total_chapters)
-                novel.index_progress = progress
+                # 更新进度到80%
+                novel.index_progress = clamp_progress(0.80)
                 db.commit()
-                
-                # 更新步骤3的进度
-                from app.services.indexing_progress_tracker import get_progress_tracker
-                tracker = get_progress_tracker()
-                step_progress = clamp_progress((i + 1) / total_chapters)
-                tracker.update_step(novel_id, 3, 'processing', step_progress, f'已完成 {i+1}/{total_chapters} 章')
-                
-                # 构建token统计信息
-                token_stats = {
-                    "embeddingTokens": total_embedding_tokens,
-                    "totalTokens": total_embedding_tokens
-                }
                 
                 if progress_callback:
-                    await progress_callback(
-                        novel_id,
-                        progress,
-                        f"已完成 {i+1}/{total_chapters} 章",
-                        token_stats
+                    token_stats = {
+                        "embeddingTokens": total_embedding_tokens,
+                        "totalTokens": total_embedding_tokens
+                    }
+                    await progress_callback(novel_id, 0.80, f"所有章节向量化完成", token_stats)
+            else:
+                # 原有的逐章节处理逻辑
+                logger.info(f"⚡ 使用实时 API 模式处理向量化")
+                
+                for i, chapter_data in enumerate(chapters_data):
+                    chapter_num = chapter_data['chapter_num']
+                    chapter_title = chapter_data.get('title', f"第{chapter_num}章")
+                    
+                    logger.info(f"📝 处理章节 {chapter_num}/{total_chapters}: {chapter_title}")
+                    
+                    # 提取章节内容
+                    chapter_content = self.chapter_detector.extract_chapter_content(
+                        content,
+                        chapter_data['start_pos'],
+                        chapter_data['end_pos'],
+                        include_title=True
                     )
+                    
+                    # 保存章节到数据库
+                    chapter = Chapter(
+                        novel_id=novel_id,
+                        chapter_num=chapter_num,
+                        chapter_title=chapter_title,
+                        char_count=len(chapter_content),
+                        start_pos=chapter_data['start_pos'],
+                        end_pos=chapter_data['end_pos']
+                    )
+                    db.add(chapter)
+                    db.commit()
+                    
+                    # 文本分块
+                    chunks = self.text_splitter.split_chapter(
+                        chapter_content,
+                        novel_id,
+                        chapter_num,
+                        chapter_title
+                    )
+                    
+                    chapter.chunk_count = len(chunks)
+                    total_chunks += len(chunks)
+                    
+                    # 向量化并存储（获取token消耗）
+                    success, chapter_tokens = self.embedding_service.process_chapter(
+                        novel_id,
+                        chapter_num,
+                        chapter_title,
+                        chunks
+                    )
+                    
+                    # 累加token消耗
+                    total_embedding_tokens += chapter_tokens
+                    
+                    if not success:
+                        logger.warning(f"⚠️ 章节 {chapter_num} 处理失败")
+                        # 记录失败章节
+                        from app.services.indexing_progress_tracker import get_progress_tracker
+                        tracker = get_progress_tracker()
+                        tracker.add_failed_chapter(novel_id, chapter_num, chapter_title, "向量化处理失败")
+                    
+                    # 更新进度（章节处理占5%-80%，共75%）
+                    progress = clamp_progress(0.05 + 0.75 * (i + 1) / total_chapters)
+                    novel.index_progress = progress
+                    db.commit()
+                    
+                    # 更新步骤3的进度
+                    from app.services.indexing_progress_tracker import get_progress_tracker
+                    tracker = get_progress_tracker()
+                    step_progress = clamp_progress((i + 1) / total_chapters)
+                    tracker.update_step(novel_id, 3, 'processing', step_progress, f'已完成 {i+1}/{total_chapters} 章')
+                    
+                    # 构建token统计信息
+                    token_stats = {
+                        "embeddingTokens": total_embedding_tokens,
+                        "totalTokens": total_embedding_tokens
+                    }
+                    
+                    if progress_callback:
+                        await progress_callback(
+                            novel_id,
+                            progress,
+                            f"已完成 {i+1}/{total_chapters} 章",
+                            token_stats
+                        )
             
             # 标记步骤3为完成，并记录总Token消耗
             from app.services.indexing_progress_tracker import get_progress_tracker
@@ -235,14 +319,21 @@ class IndexingService:
                     cost=cost
                 )
             
-            # 4. Phase 5: 构建知识图谱
+            # 4. Phase 5: 构建知识图谱（占80%-100%，共20%）
             logger.info(f"🕸️ 开始构建知识图谱...")
             
-            # 更新步骤4为processing
+            # 初始化图谱token统计变量
+            graph_attribute_tokens = 0
+            graph_relation_tokens = 0
+            graph_evolution_tokens = 0
+            
+            # 更新步骤4为processing，并更新总进度到80%
             tracker.update_step(novel_id, 4, 'processing', 0.0, '开始构建知识图谱...')
+            novel.index_progress = clamp_progress(0.80)
+            db.commit()
             
             if progress_callback:
-                await progress_callback(novel_id, 0.95, "开始构建知识图谱...")
+                await progress_callback(novel_id, 0.80, "开始构建知识图谱...")
             
             try:
                 # 4.1 提取实体
@@ -310,6 +401,13 @@ class IndexingService:
                            f"地点{len(entity_counters['locations'])} "
                            f"组织{len(entity_counters['organizations'])}")
                 
+                # 更新进度：实体提取完成（80%-85%）
+                novel.index_progress = clamp_progress(0.85)
+                db.commit()
+                tracker.update_step(novel_id, 4, 'processing', 0.25, f'实体提取完成')
+                if progress_callback:
+                    await progress_callback(novel_id, 0.85, "实体提取完成")
+                
                 # 4.2 实体去重与合并
                 logger.info(f"🔀 实体去重与合并中...")
                 merged_entities = {}
@@ -348,6 +446,13 @@ class IndexingService:
                 )
                 logger.info(f"✅ 保存了 {entity_count} 个实体")
                 
+                # 更新进度：实体保存完成（85%-87%）
+                novel.index_progress = clamp_progress(0.87)
+                db.commit()
+                tracker.update_step(novel_id, 4, 'processing', 0.35, f'保存了{entity_count}个实体')
+                if progress_callback:
+                    await progress_callback(novel_id, 0.87, f"保存了{entity_count}个实体")
+                
                 # 4.3.5 存储实体别名映射 - ✅ 使用已有的 alias_mapping
                 logger.info(f"🔗 保存实体别名映射...")
                 alias_count = self.entity_service.save_entity_aliases(
@@ -357,21 +462,130 @@ class IndexingService:
                 
                 # 4.4 构建知识图谱
                 logger.info(f"🕸️ 构建知识图谱...")
+                
+                # 更新进度：开始构建图谱（87%-89%）
+                novel.index_progress = clamp_progress(0.89)
+                db.commit()
+                tracker.update_step(novel_id, 4, 'processing', 0.45, '构建图谱结构中...')
+                if progress_callback:
+                    await progress_callback(novel_id, 0.89, "构建图谱结构中...")
+                
                 graph = self.graph_builder.create_graph(novel_id)
                 
-                # 添加实体节点
+                # 准备属性提取任务（仅对主要角色，出现≥10次）
+                attribute_extractor = EntityAttributeExtractor()
+                attribute_tasks = []
+                entity_list = []  # 记录实体信息，用于后续添加
+                
+                # 根据章节数动态调整属性提取阈值
+                # 短篇（<20章）：出现3次以上
+                # 中篇（20-50章）：出现5次以上
+                # 长篇（>50章）：出现10次以上
+                if total_chapters < 20:
+                    attribute_threshold = 3
+                elif total_chapters < 50:
+                    attribute_threshold = 5
+                else:
+                    attribute_threshold = 10
+                
+                logger.info(f"📊 属性提取阈值: {attribute_threshold}次（基于{total_chapters}章）")
+                
                 for entity_type in ['characters', 'locations', 'organizations']:
                     for entity_name, count in merged_entities.get(entity_type, {}).items():
-                        # 使用合并后的章节范围
                         first_ch, last_ch = merged_chapter_ranges.get(entity_name, (1, total_chapters))
-                        self.graph_builder.add_entity(
-                            graph,
-                            entity_name=entity_name,
-                            entity_type=entity_type,
-                            first_chapter=first_ch,
-                            last_chapter=last_ch,
-                            mention_count=count
-                        )
+                        entity_list.append((entity_name, entity_type, first_ch, last_ch, count))
+                        
+                        # 主要角色需要提取属性（使用动态阈值）
+                        if entity_type == 'characters' and count >= attribute_threshold:
+                            attribute_tasks.append((entity_name, entity_type))
+                
+                # 批量提取属性
+                logger.info(f"📊 提取 {len(attribute_tasks)} 个主要角色的属性...")
+                attributes_map = {}
+                tasks_with_contexts = []  # 初始化，避免后续访问时变量未定义
+                
+                if attribute_tasks:
+                    # 为每个实体提取上下文
+                    # 注意：这里使用已经读取的content变量（来自向量化阶段）
+                    for entity_name, entity_type in attribute_tasks:
+                        # 获取实体出现的前3个章节的上下文
+                        entity_chapters = []
+                        for chapter_num, entities in chapter_entity_map.items():
+                            if entity_name in entities:
+                                entity_chapters.append(chapter_num)
+                        
+                        if entity_chapters:
+                            # 取前3个章节
+                            sampled_chapters = sorted(entity_chapters)[:3]
+                            contexts = []
+                            
+                            for ch_num in sampled_chapters:
+                                try:
+                                    chapter = db.query(Chapter).filter(
+                                        Chapter.novel_id == novel.id,
+                                        Chapter.chapter_num == ch_num
+                                    ).first()
+                                    
+                                    if chapter:
+                                        # 使用字符位置切片（与向量化阶段一致，避免编码问题）
+                                        # content变量在index_novel开头已读取
+                                        chapter_content = content[chapter.start_pos:chapter.end_pos]
+                                        
+                                        if not chapter_content:
+                                            continue
+                                        
+                                        # 只取前1000字符（避免过长）
+                                        chapter_content = chapter_content[:1000]
+                                        
+                                        # 查找包含实体的段落
+                                        if entity_name in chapter_content:
+                                            idx = chapter_content.find(entity_name)
+                                            start = max(0, idx - 100)
+                                            end = min(len(chapter_content), idx + 200)
+                                            context_snippet = chapter_content[start:end]
+                                            contexts.append(f"[第{ch_num}章] {context_snippet}")
+                                except Exception as e:
+                                    logger.warning(f"提取{entity_name}上下文失败: {e}")
+                            
+                            if contexts:
+                                tasks_with_contexts.append((entity_name, entity_type, contexts))
+                    
+                # 批量提取属性（根据配置选择Batch API或实时API）
+                graph_attribute_tokens = 0
+                if tasks_with_contexts:
+                    use_batch = settings.use_batch_api_for_graph
+                    if use_batch:
+                        logger.info(f"🚀 启用Batch API模式：无并发限制，完全免费，需等待处理完成")
+                    else:
+                        logger.info(f"⚡ 使用实时API模式：并发限制3，立即返回")
+                    
+                    attributes_list, attr_token_stats = await attribute_extractor.extract_batch(
+                        tasks_with_contexts,
+                        use_batch_api=use_batch
+                    )
+                    
+                    # 记录属性提取的token消耗
+                    graph_attribute_tokens = attr_token_stats.get('total_tokens', 0)
+                    
+                    # 构建属性映射
+                    for i, (entity_name, _, _) in enumerate(tasks_with_contexts):
+                        if attributes_list[i]:
+                            attributes_map[entity_name] = attributes_list[i]
+                
+                # 添加实体节点（带属性）
+                logger.info(f"📝 添加 {len(entity_list)} 个实体节点...")
+                for entity_name, entity_type, first_ch, last_ch, count in entity_list:
+                    attributes = attributes_map.get(entity_name, {})
+                    
+                    self.graph_builder.add_entity(
+                        graph,
+                        entity_name=entity_name,
+                        entity_type=entity_type,
+                        first_chapter=first_ch,
+                        last_chapter=last_ch,
+                        mention_count=count,
+                        attributes=attributes  # 添加属性
+                    )
                 
                 # 添加角色间的共现关系边
                 logger.info(f"🔗 构建角色关系...")
@@ -393,51 +607,199 @@ class IndexingService:
                             cooccurrence_count[pair] += 1
                             cooccurrence_chapters[pair].append(chapter_num)
                 
-                # 添加共现关系边（过滤掉共现次数少于3次的弱关系）
-                min_cooccurrence = 3
-                relation_count = 0
-                for (entity1, entity2), count in cooccurrence_count.items():
-                    if count >= min_cooccurrence:
-                        chapters = cooccurrence_chapters[(entity1, entity2)]
-                        start_chapter = min(chapters)
-                        end_chapter = max(chapters)
-                        
-                        # 根据共现频率计算关系强度（归一化到0-1）
-                        strength = min(count / 20.0, 1.0)  # 共现20次以上视为强关系
-                        
-                        # 添加双向边（共现关系是对称的）
-                        self.graph_builder.add_relation(
-                            graph,
-                            source=entity1,
-                            target=entity2,
-                            relation_type='共现',
-                            start_chapter=start_chapter,
-                            end_chapter=end_chapter,
-                            strength=strength,
-                            cooccurrence_count=count
-                        )
-                        
-                        # 添加反向边
-                        self.graph_builder.add_relation(
-                            graph,
-                            source=entity2,
-                            target=entity1,
-                            relation_type='共现',
-                            start_chapter=start_chapter,
-                            end_chapter=end_chapter,
-                            strength=strength,
-                            cooccurrence_count=count
-                        )
-                        
-                        relation_count += 1
+                # 根据章节数动态调整关系分类阈值
+                # 短篇（<20章）：共现2次即分类，1次为弱关系
+                # 中篇（20-50章）：共现3次即分类，2次为弱关系
+                # 长篇（>50章）：共现5次即分类，3次为弱关系
+                if total_chapters < 20:
+                    min_cooccurrence_for_classification = 2
+                    min_cooccurrence_for_weak = 1
+                elif total_chapters < 50:
+                    min_cooccurrence_for_classification = 3
+                    min_cooccurrence_for_weak = 2
+                else:
+                    min_cooccurrence_for_classification = 5
+                    min_cooccurrence_for_weak = 3
                 
-                logger.info(f"✅ 添加了 {relation_count} 对双向共现关系（共 {relation_count * 2} 条边）")
+                logger.info(f"📊 关系分类阈值: {min_cooccurrence_for_classification}次（基于{total_chapters}章）")
+                
+                classification_tasks = []
+                weak_relations = []  # 低频关系，不分类直接标记为"共现"
+                
+                for (entity1, entity2), count in cooccurrence_count.items():
+                    chapters = cooccurrence_chapters[(entity1, entity2)]
+                    
+                    if count >= min_cooccurrence_for_classification:
+                        # 高频关系，需要LLM分类
+                        classification_tasks.append((entity1, entity2, chapters, count))
+                    elif count >= min_cooccurrence_for_weak:
+                        # 低频关系，直接标记为"共现"
+                        weak_relations.append((entity1, entity2, chapters, count))
+                
+                logger.info(f"📊 发现 {len(classification_tasks)} 对高频关系需要分类，{len(weak_relations)} 对低频关系")
+                
+                # 并发分类高频关系
+                relation_classifier = RelationshipClassifier()
+                classifications = []
+                tasks_with_contexts = []  # 初始化，避免后续访问时变量未定义
+                
+                if classification_tasks:
+                    # 提取上下文并准备分类任务
+                    logger.info(f"🔍 提取上下文片段...")
+                    
+                    for entity1, entity2, chapters, count in classification_tasks:
+                        # 智能采样章节（早期+中期+后期+均匀分布）
+                        sampled_chapters = relation_classifier._smart_chapter_sampling(chapters, max_samples=5)
+                        
+                        # 提取上下文
+                        contexts = await self._extract_cooccurrence_contexts(
+                            entity1, entity2, sampled_chapters, novel, db
+                        )
+                        
+                        if contexts:
+                            tasks_with_contexts.append((entity1, entity2, contexts, count, chapters))
+                        else:
+                            # 如果无法提取上下文，降级为"共现"
+                            weak_relations.append((entity1, entity2, chapters, count))
+                    
+                    logger.info(f"✅ 成功提取 {len(tasks_with_contexts)} 对关系的上下文")
+                    
+                # 批量分类（根据配置选择Batch API或实时API）
+                graph_relation_tokens = 0
+                if tasks_with_contexts:
+                    use_batch = settings.use_batch_api_for_graph
+                    if use_batch:
+                        logger.info(f"🚀 启用Batch API模式：无并发限制，完全免费，需等待处理完成")
+                    else:
+                        logger.info(f"⚡ 使用实时API模式：并发限制5，立即返回")
+                    
+                    classifications, rel_token_stats = await relation_classifier.classify_batch(
+                        tasks_with_contexts,
+                        use_batch_api=use_batch
+                    )
+                    
+                    # 记录关系分类的token消耗
+                    graph_relation_tokens = rel_token_stats.get('total_tokens', 0)
+                
+                # 根据章节数动态调整演变追踪阈值
+                # 短篇（<20章）：共现4次以上
+                # 中篇（20-50章）：共现6次以上
+                # 长篇（>50章）：共现10次以上
+                if total_chapters < 20:
+                    evolution_threshold = 4
+                elif total_chapters < 50:
+                    evolution_threshold = 6
+                else:
+                    evolution_threshold = 10
+                
+                evolution_tracker = RelationshipEvolutionTracker()
+                evolution_tasks = []
+                
+                for i, (entity1, entity2, contexts, count, chapters) in enumerate(tasks_with_contexts):
+                    if count >= evolution_threshold:  # 高频关系才追踪演变
+                        evolution_tasks.append((entity1, entity2, chapters))
+                
+                logger.info(f"🔄 追踪 {len(evolution_tasks)} 对高频关系的演变（阈值: {evolution_threshold}次）...")
+                evolutions = {}
+                graph_evolution_tokens = 0
+                
+                if evolution_tasks:
+                    evolutions, evo_token_stats = await evolution_tracker.track_batch(
+                        evolution_tasks, novel, db
+                    )
+                    # 演变追踪的token已在关系分类中统计，这里不重复计数
+                    graph_evolution_tokens = evo_token_stats.get('total_tokens', 0)
+                
+                # 添加分类后的关系边
+                relation_count = 0
+                
+                for i, (entity1, entity2, contexts, count, chapters) in enumerate(tasks_with_contexts):
+                    classification = classifications[i]
+                    start_chapter = min(chapters)
+                    end_chapter = max(chapters)
+                    strength = min(count / 20.0, 1.0)
+                    
+                    # 获取演变轨迹（如果有）
+                    evolution = evolutions.get((entity1, entity2), [])
+                    
+                    # 如果有演变，使用最后一个时期的关系类型
+                    final_relation_type = evolution[-1]['type'] if evolution else classification['relation_type']
+                    
+                    # 添加双向边
+                    self.graph_builder.add_relation(
+                        graph,
+                        source=entity1,
+                        target=entity2,
+                        relation_type=final_relation_type,
+                        start_chapter=start_chapter,
+                        end_chapter=end_chapter,
+                        strength=strength,
+                        confidence=classification['confidence'],
+                        cooccurrence_count=count,
+                        evolution=evolution  # 添加演变轨迹
+                    )
+                    
+                    self.graph_builder.add_relation(
+                        graph,
+                        source=entity2,
+                        target=entity1,
+                        relation_type=final_relation_type,
+                        start_chapter=start_chapter,
+                        end_chapter=end_chapter,
+                        strength=strength,
+                        confidence=classification['confidence'],
+                        cooccurrence_count=count,
+                        evolution=evolution  # 添加演变轨迹
+                    )
+                    
+                    relation_count += 1
+                
+                # 添加低频"共现"关系边
+                for entity1, entity2, chapters, count in weak_relations:
+                    start_chapter = min(chapters)
+                    end_chapter = max(chapters)
+                    strength = min(count / 20.0, 1.0)
+                    
+                    self.graph_builder.add_relation(
+                        graph,
+                        source=entity1,
+                        target=entity2,
+                        relation_type='共现',
+                        start_chapter=start_chapter,
+                        end_chapter=end_chapter,
+                        strength=strength,
+                        confidence=0.5,
+                        cooccurrence_count=count
+                    )
+                    
+                    self.graph_builder.add_relation(
+                        graph,
+                        source=entity2,
+                        target=entity1,
+                        relation_type='共现',
+                        start_chapter=start_chapter,
+                        end_chapter=end_chapter,
+                        strength=strength,
+                        confidence=0.5,
+                        cooccurrence_count=count
+                    )
+                    
+                    relation_count += 1
+                
+                logger.info(f"✅ 添加了 {relation_count} 对双向关系（共 {relation_count * 2} 条边）")
                 
                 # 4.5 计算 PageRank 重要性
                 logger.info(f"📊 计算 PageRank 重要性...")
                 if graph.number_of_nodes() > 0:
                     pagerank = self.graph_analyzer.compute_pagerank(graph)
                     self.graph_analyzer.update_node_importance(graph, pagerank)
+                
+                # 更新进度：PageRank计算完成（89%-93%）
+                novel.index_progress = clamp_progress(0.93)
+                db.commit()
+                tracker.update_step(novel_id, 4, 'processing', 0.65, 'PageRank计算完成')
+                if progress_callback:
+                    await progress_callback(novel_id, 0.93, "PageRank计算完成")
                 
                 # 4.6 计算章节重要性
                 logger.info(f"📈 计算章节重要性...")
@@ -451,27 +813,78 @@ class IndexingService:
                 else:
                     logger.warning(f"⚠️ 图谱为空，跳过章节重要性计算")
                 
+                # 更新进度：章节重要性计算完成（93%-96%）
+                novel.index_progress = clamp_progress(0.96)
+                db.commit()
+                tracker.update_step(novel_id, 4, 'processing', 0.80, '章节重要性计算完成')
+                if progress_callback:
+                    await progress_callback(novel_id, 0.96, "章节重要性计算完成")
+                
                 # 4.7 保存知识图谱
                 logger.info(f"💾 保存知识图谱...")
                 self.graph_builder.save_graph(graph, novel_id)
                 
                 logger.info(f"✅ 知识图谱构建完成: {graph.number_of_nodes()}节点, {graph.number_of_edges()}边")
                 
-                # 更新步骤4
+                # 更新进度：知识图谱保存完成（96%-98%）
+                novel.index_progress = clamp_progress(0.98)
+                db.commit()
+                
+                # 更新步骤4为完成
                 from app.services.indexing_progress_tracker import get_progress_tracker
                 tracker = get_progress_tracker()
                 tracker.update_step(novel_id, 4, 'completed', 1.0, f"知识图谱构建完成({graph.number_of_nodes()}节点)")
+                
+                if progress_callback:
+                    await progress_callback(novel_id, 0.98, f"知识图谱构建完成({graph.number_of_nodes()}节点)")
                 
             except Exception as e:
                 logger.error(f"⚠️ 知识图谱构建失败: {e}")
                 logger.exception(e)
                 # 知识图谱构建失败不影响整体索引流程
                 
-                # 更新步骤4为失败
+                # 更新步骤4为失败，并将进度设置为98%（跳过图谱构建）
                 from app.services.indexing_progress_tracker import get_progress_tracker
                 tracker = get_progress_tracker()
                 tracker.update_step(novel_id, 4, 'failed', 0.0, "知识图谱构建失败", error=str(e))
                 tracker.add_warning(novel_id, f"知识图谱构建失败: {str(e)}")
+                
+                # 即使图谱失败，也将进度推进到98%
+                novel.index_progress = clamp_progress(0.98)
+                db.commit()
+                
+                if progress_callback:
+                    await progress_callback(novel_id, 0.98, "知识图谱构建失败，继续完成索引")
+            
+            # 记录图谱构建阶段的Token消耗（无论成功还是失败都记录）
+            from app.services.indexing_progress_tracker import get_progress_tracker
+            from app.utils.token_counter import get_token_counter
+            tracker = get_progress_tracker()
+            token_counter = get_token_counter()
+            
+            # 记录属性提取的token（即使为0也记录，显示完整流程）
+            attr_cost = token_counter.calculate_cost(graph_attribute_tokens, 0, 'glm-4-flash')
+            tracker.add_token_usage(
+                novel_id=novel_id,
+                step_name='图谱-属性提取',
+                model_name='glm-4-flash',
+                input_tokens=graph_attribute_tokens,
+                output_tokens=0,
+                cost=attr_cost
+            )
+            logger.info(f"📊 属性提取Token: {graph_attribute_tokens}")
+            
+            # 记录关系分类的token（即使为0也记录，显示完整流程）
+            rel_cost = token_counter.calculate_cost(graph_relation_tokens, 0, 'glm-4-flash')
+            tracker.add_token_usage(
+                novel_id=novel_id,
+                step_name='图谱-关系分类',
+                model_name='glm-4-flash',
+                input_tokens=graph_relation_tokens,
+                output_tokens=0,
+                cost=rel_cost
+            )
+            logger.info(f"📊 关系分类Token: {graph_relation_tokens}")
             
             # 5. 更新小说统计信息并保存token统计
             novel.total_chunks = total_chunks
@@ -480,6 +893,9 @@ class IndexingService:
             novel.index_progress = clamp_progress(1.0)  # 确保精确为1.0
             novel.indexed_date = novel.updated_at
             db.commit()
+            
+            # 计算图谱构建总token
+            total_graph_tokens = graph_attribute_tokens + graph_relation_tokens + graph_evolution_tokens
             
             # 保存token统计到token_stats表
             try:
@@ -495,15 +911,33 @@ class IndexingService:
                     input_tokens=total_embedding_tokens,
                     output_tokens=0
                 )
-                logger.info(f"✅ Token统计已保存: {total_embedding_tokens} tokens")
+                
+                # 记录GLM-4-Flash图谱构建的token使用
+                if total_graph_tokens > 0:
+                    token_stats_service.record_token_usage(
+                        db=db,
+                        operation_type='index',
+                        operation_id=novel_id,
+                        model_name='glm-4-flash',
+                        input_tokens=total_graph_tokens,
+                        output_tokens=0
+                    )
+                
+                logger.info(f"✅ Token统计已保存: embedding={total_embedding_tokens}, graph={total_graph_tokens} tokens")
             except Exception as e:
                 logger.warning(f"⚠️ Token统计保存失败（不影响索引）: {e}")
             
             # 发送最终进度（包含完整的token统计）
             final_token_stats = {
                 "embeddingTokens": total_embedding_tokens,
-                "totalTokens": total_embedding_tokens
+                "graphAttributeTokens": graph_attribute_tokens,
+                "graphRelationTokens": graph_relation_tokens,
+                "graphEvolutionTokens": graph_evolution_tokens,
+                "graphTotalTokens": total_graph_tokens,
+                "totalTokens": total_embedding_tokens + total_graph_tokens
             }
+            
+            logger.info(f"📊 最终Token统计: embedding={total_embedding_tokens}, graph={total_graph_tokens}, total={final_token_stats['totalTokens']}")
             
             if progress_callback:
                 await progress_callback(novel_id, 1.0, "索引完成!", final_token_stats)
@@ -569,6 +1003,85 @@ class IndexingService:
             'message': self._get_status_message(novel.index_status, novel.index_progress),
             'detail': detail  # 添加详细信息
         }
+    
+    async def _extract_cooccurrence_contexts(
+        self,
+        entity1: str,
+        entity2: str,
+        chapter_nums: List[int],
+        novel: Novel,
+        db: Session
+    ) -> List[str]:
+        """
+        提取两个实体共现的上下文片段
+        
+        Args:
+            entity1: 实体1名称
+            entity2: 实体2名称
+            chapter_nums: 章节号列表
+            novel: 小说对象
+            db: 数据库会话
+        
+        Returns:
+            上下文片段列表
+        """
+        contexts = []
+        relation_classifier = RelationshipClassifier()
+        
+        # 读取完整文件内容（使用parser，避免编码问题）
+        file_path = Path(novel.file_path)
+        if not file_path.exists():
+            logger.warning(f"小说文件不存在: {file_path}")
+            return contexts
+        
+        try:
+            # 使用与向量化阶段相同的parser读取文件
+            if novel.file_format == 'txt':
+                full_content, _ = self.txt_parser.parse_file(str(file_path))
+            elif novel.file_format == 'epub':
+                full_content, _ = self.epub_parser.parse_file(str(file_path))
+            else:
+                logger.error(f"不支持的文件格式: {novel.file_format}")
+                return contexts
+        except Exception as e:
+            logger.error(f"读取文件失败: {e}")
+            return contexts
+        
+        for chapter_num in chapter_nums:
+            try:
+                # 查询章节记录
+                chapter = db.query(Chapter).filter(
+                    Chapter.novel_id == novel.id,
+                    Chapter.chapter_num == chapter_num
+                ).first()
+                
+                if not chapter:
+                    continue
+                
+                # 使用字符位置切片（与向量化阶段一致，避免编码问题）
+                content = full_content[chapter.start_pos:chapter.end_pos]
+                
+                if not content:
+                    logger.warning(f"章节{chapter_num}内容为空")
+                    continue
+                
+                # 提取包含两个实体的段落
+                paragraph = relation_classifier._extract_paragraph_with_entities(
+                    content, entity1, entity2, chapter_num
+                )
+                
+                if paragraph:
+                    contexts.append(paragraph)
+                
+                # 最多提取5个上下文
+                if len(contexts) >= 5:
+                    break
+                    
+            except Exception as e:
+                logger.warning(f"提取章节{chapter_num}上下文失败: {e}")
+                continue
+        
+        return contexts
     
     @staticmethod
     def _get_status_message(status: str, progress: float) -> str:

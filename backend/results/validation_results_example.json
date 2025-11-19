@@ -1,0 +1,132 @@
+{
+  "novel_id": 1,
+  "novel_title": "示例小说",
+  "sample_size": 5,
+  "min_cooccurrence": 5,
+  "total_validated": 5,
+  "results": [
+    {
+      "entity1": "萧炎",
+      "entity2": "药老",
+      "cooccurrence_count": 45,
+      "contexts": [
+        "[第3章] ...萧炎恭敬地对着戒指行礼：弟子拜见老师。药老微笑道...",
+        "[第5章] ...在药老的指导下，萧炎的炼药术突飞猛进...",
+        "[第8章] ...药老传授萧炎焚决功法..."
+      ],
+      "predicted_type": "师徒",
+      "ground_truth": "师徒",
+      "confidence": 0.92,
+      "reasoning": "上下文多次出现师徒关系词汇，如弟子、老师、指导、传授",
+      "is_correct": true,
+      "timestamp": "2025-11-18T10:30:00.123456"
+    },
+    {
+      "entity1": "萧炎",
+      "entity2": "萧薰儿",
+      "cooccurrence_count": 38,
+      "contexts": [
+        "[第1章] ...萧炎和萧薰儿是青梅竹马...",
+        "[第10章] ...萧薰儿温柔地看着萧炎...",
+        "[第15章] ...两人的感情日益深厚..."
+      ],
+      "predicted_type": "恋人",
+      "ground_truth": "恋人",
+      "confidence": 0.88,
+      "reasoning": "上下文表现出青梅竹马、感情深厚等特征",
+      "is_correct": true,
+      "timestamp": "2025-11-18T10:31:15.234567"
+    },
+    {
+      "entity1": "萧炎",
+      "entity2": "云韵",
+      "cooccurrence_count": 28,
+      "contexts": [
+        "[第20章] ...萧炎与云韵在云岚宗相遇...",
+        "[第25章] ...云韵对萧炎说：我们的立场不同...",
+        "[第30章] ...经过多次交手，两人关系复杂..."
+      ],
+      "predicted_type": "中立",
+      "ground_truth": "敌对",
+      "confidence": 0.65,
+      "reasoning": "上下文显示立场不同，但没有明确敌对表述",
+      "is_correct": false,
+      "timestamp": "2025-11-18T10:32:30.345678"
+    },
+    {
+      "entity1": "萧炎",
+      "entity2": "海波东",
+      "cooccurrence_count": 22,
+      "contexts": [
+        "[第40章] ...萧炎帮助海波东解除封印...",
+        "[第42章] ...海波东感激萧炎，决定追随...",
+        "[第45章] ...两人并肩作战，配合默契..."
+      ],
+      "predicted_type": "盟友",
+      "ground_truth": "盟友",
+      "confidence": 0.85,
+      "reasoning": "上下文显示互相帮助、并肩作战的盟友关系",
+      "is_correct": true,
+      "timestamp": "2025-11-18T10:33:45.456789"
+    },
+    {
+      "entity1": "萧炎",
+      "entity2": "萧厉",
+      "cooccurrence_count": 18,
+      "contexts": [
+        "[第2章] ...萧炎和萧厉是兄弟...",
+        "[第6章] ...萧厉是萧炎的二哥...",
+        "[第12章] ...兄弟二人共同守护家族..."
+      ],
+      "predicted_type": "亲属",
+      "ground_truth": "亲属",
+      "confidence": 0.95,
+      "reasoning": "明确的兄弟关系",
+      "is_correct": true,
+      "timestamp": "2025-11-18T10:35:00.567890"
+    }
+  ],
+  "updated_at": "2025-11-18T10:35:00.567890",
+  "statistics": {
+    "accuracy": 0.8,
+    "correct_count": 4,
+    "incorrect_count": 1,
+    "by_type": {
+      "师徒": {
+        "predicted": 1,
+        "correct": 1,
+        "accuracy": 1.0
+      },
+      "盟友": {
+        "predicted": 1,
+        "correct": 1,
+        "accuracy": 1.0
+      },
+      "敌对": {
+        "predicted": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      },
+      "亲属": {
+        "predicted": 1,
+        "correct": 1,
+        "accuracy": 1.0
+      },
+      "恋人": {
+        "predicted": 1,
+        "correct": 1,
+        "accuracy": 1.0
+      },
+      "中立": {
+        "predicted": 1,
+        "correct": 0,
+        "accuracy": 0.0
+      }
+    },
+    "confidence_analysis": {
+      "correct_avg": 0.9,
+      "incorrect_avg": 0.65
+    }
+  }
+}
+
