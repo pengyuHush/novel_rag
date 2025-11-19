@@ -7,8 +7,8 @@
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { RelationGraph } from './RelationGraph';
-import { Timeline } from './Timeline';
+import { RelationGraphEcharts } from './RelationGraphEcharts';
+import { TimelineEcharts } from './TimelineEcharts';
 
 interface GraphModalProps {
   open: boolean;
@@ -39,11 +39,11 @@ export function GraphModal({ open, onOpenChange, novelId }: GraphModalProps) {
           </TabsList>
 
           <TabsContent value="relations" className="flex-1 min-h-0 mt-3">
-            <RelationGraph novelId={novelId} />
+            <RelationGraphEcharts novelId={novelId} />
           </TabsContent>
 
           <TabsContent value="timeline" className="flex-1 min-h-0 mt-3">
-            <Timeline novelId={novelId} />
+            <TimelineEcharts novelId={novelId} />
           </TabsContent>
         </Tabs>
       </DialogContent>

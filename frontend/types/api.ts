@@ -314,28 +314,75 @@ export interface GraphNode {
   name: string;
   importance: number;
   type?: string;
+  firstChapter?: number;
+  lastChapter?: number;
+  degree?: number;
+  communityId?: number;
+  x?: number;
+  y?: number;
+  isProtagonist?: boolean;
+  isAntagonist?: boolean;
+  attributes?: Record<string, any>;
 }
 
 export interface GraphEdge {
   source: string;
   target: string;
   relationType: string;
+  strength: number;
   startChapter: number;
   endChapter?: number;
+  isPublic?: boolean;
+  revealChapter?: number;
+  evolution?: Array<{
+    chapter: number;
+    type: string;
+  }>;
 }
 
 export interface RelationGraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
-  metadata: Record<string, any>;
+  metadata: {
+    totalNodes: number;
+    totalEdges: number;
+    chapterFilter?: [number, number] | null;
+    relationTypes: string[];
+    communities?: number;
+    layoutAlgorithm?: string;
+    [key: string]: any;
+  };
+}
+
+export interface GraphStatistics {
+  total_nodes: number;
+  total_edges: number;
+  density: number;
+  average_degree: number;
+  max_degree: number;
+  chapter_range: [number, number];
+  node_types: Record<string, number>;
+  relation_types: Record<string, number>;
+  num_communities: number;
+  top_nodes: Array<{
+    name: string;
+    degree: number;
+    importance: number;
+    type: string;
+  }>;
+  relation_summary: Array<{
+    type: string;
+    count: number;
+    avgStrength: number;
+  }>;
 }
 
 export interface TimelineEvent {
   chapterNum: number;
   narrativeOrder: number;
   description: string;
-  eventType?: string;
-  importance?: number;
+  eventType: 'entity_appear' | 'relation_start' | 'relation_evolve' | string;
+  importance: number;
   entity?: string;
   source?: string;
   target?: string;
@@ -344,7 +391,15 @@ export interface TimelineEvent {
 
 export interface TimelineData {
   events: TimelineEvent[];
-  metadata: Record<string, any>;
+  metadata: {
+    total_events: number;
+    entity_filter?: string;
+    event_types_filter?: string;
+    min_importance?: number;
+    chapter_range: [number, number];
+    available_event_types?: string[];
+    [key: string]: any;
+  };
 }
 
 // ========================================

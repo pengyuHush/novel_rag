@@ -24,6 +24,7 @@ hanlp==2.1.0b55  # 中文NLP工具包，用于实体识别和分词
 # Graph
 networkx==3.2.1
 scipy==1.11.4
+# fa2==0.3.5  # 可选：ForceAtlas2 布局算法（Windows 上可能安装失败，可跳过）
 
 # Data Processing
 pandas==2.1.4

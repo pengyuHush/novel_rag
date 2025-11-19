@@ -5,8 +5,9 @@
 """
 
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 import networkx as nx
+from collections import Counter
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,9 @@ class GraphExporter:
         graph: nx.MultiDiGraph,
         chapter_filter: Optional[tuple] = None,
         max_nodes: int = 50,
-        min_importance: float = 0.3
+        min_importance: float = 0.3,
+        include_layout: bool = False,
+        layout_algorithm: str = 'spring'
     ) -> Dict:
         """
         导出图谱为JSON格式
@@ -33,6 +36,8 @@ class GraphExporter:
             chapter_filter: 章节范围过滤 (start_chapter, end_chapter)
             max_nodes: 最多返回节点数
             min_importance: 最小重要性阈值
+            include_layout: 是否包含布局坐标
+            layout_algorithm: 布局算法
         
         Returns:
             Dict: 包含nodes和edges的JSON数据
@@ -47,7 +52,34 @@ class GraphExporter:
             graph, filtered_nodes, chapter_filter
         )
         
-        # 3. 转换为JSON格式
+        # 3. 添加布局坐标（如果需要）
+        if include_layout and filtered_nodes:
+            from .layout_calculator import get_layout_calculator
+            
+            # 创建子图用于布局计算
+            node_ids = [n['id'] for n in filtered_nodes]
+            subgraph = graph.subgraph(node_ids).copy()
+            
+            # 计算布局
+            layout_calc = get_layout_calculator()
+            positions = layout_calc.calculate_layout(
+                subgraph,
+                algorithm=layout_algorithm,
+                width=1000,
+                height=1000
+            )
+            
+            # 添加坐标到节点
+            for node in filtered_nodes:
+                if node['id'] in positions:
+                    x, y = positions[node['id']]
+                    node['x'] = x
+                    node['y'] = y
+        
+        # 4. 收集关系类型
+        relation_types = list(set(edge['relationType'] for edge in filtered_edges))
+        
+        # 5. 转换为JSON格式
         json_data = {
             'nodes': filtered_nodes,
             'edges': filtered_edges,
@@ -55,6 +87,8 @@ class GraphExporter:
                 'total_nodes': len(filtered_nodes),
                 'total_edges': len(filtered_edges),
                 'chapter_filter': chapter_filter,
+                'relation_types': relation_types,
+                'layout_algorithm': layout_algorithm if include_layout else None,
             }
         }
         
@@ -104,6 +138,11 @@ class GraphExporter:
                 if last_chapter and last_chapter < start_ch:
                     continue
             
+            # 计算节点度数
+            in_degree = graph.in_degree(node_id)
+            out_degree = graph.out_degree(node_id)
+            total_degree = in_degree + out_degree
+            
             # 转换节点数据
             node_json = {
                 'id': node_id,
@@ -114,6 +153,7 @@ class GraphExporter:
                 'last_chapter': data.get('last_chapter'),
                 'is_protagonist': data.get('is_protagonist', False),
                 'is_antagonist': data.get('is_antagonist', False),
+                'degree': total_degree,  # 新增：节点度数
                 # 额外属性
                 'attributes': {
                     k: v for k, v in data.items()
@@ -181,12 +221,12 @@ class GraphExporter:
             edge_json = {
                 'source': source,
                 'target': target,
-                'relation_type': data.get('relation_type', '未知'),
+                'relationType': data.get('relation_type', '未知'),  # 使用驼峰命名
                 'strength': data.get('strength', 0.5),
-                'start_chapter': data.get('start_chapter', 1),
-                'end_chapter': data.get('end_chapter'),
-                'is_public': data.get('is_public', True),
-                'reveal_chapter': data.get('reveal_chapter'),
+                'startChapter': data.get('start_chapter', 1),  # 使用驼峰命名
+                'endChapter': data.get('end_chapter'),  # 使用驼峰命名
+                'isPublic': data.get('is_public', True),
+                'revealChapter': data.get('reveal_chapter'),
                 # 演变信息
                 'evolution': data.get('evolution', []),
             }
@@ -261,6 +301,165 @@ class GraphExporter:
         }
         
         return details
+    
+    def export_with_layout(
+        self,
+        graph: nx.MultiDiGraph,
+        layout_type: str = 'force',
+        chapter_filter: Optional[tuple] = None,
+        max_nodes: int = 50,
+        min_importance: float = 0.3
+    ) -> Dict:
+        """
+        导出带布局坐标的图谱数据
+        
+        Args:
+            graph: 图谱对象
+            layout_type: 布局类型
+            chapter_filter: 章节范围
+            max_nodes: 最大节点数
+            min_importance: 最小重要性
+        
+        Returns:
+            图谱数据（包含坐标）
+        """
+        return self.export_to_json(
+            graph=graph,
+            chapter_filter=chapter_filter,
+            max_nodes=max_nodes,
+            min_importance=min_importance,
+            include_layout=True,
+            layout_algorithm=layout_type
+        )
+    
+    def export_statistics(self, graph: nx.MultiDiGraph) -> Dict:
+        """
+        导出图谱统计信息
+        
+        Args:
+            graph: 图谱对象
+        
+        Returns:
+            统计信息字典
+        """
+        # 基本统计
+        num_nodes = graph.number_of_nodes()
+        num_edges = graph.number_of_edges()
+        
+        # 节点类型统计
+        node_types = Counter()
+        for _, data in graph.nodes(data=True):
+            node_type = data.get('type', 'unknown')
+            node_types[node_type] += 1
+        
+        # 关系类型统计
+        relation_types = Counter()
+        for _, _, _, data in graph.edges(keys=True, data=True):
+            rel_type = data.get('relation_type', '未知')
+            relation_types[rel_type] += 1
+        
+        # 度数统计
+        degrees = [graph.in_degree(n) + graph.out_degree(n) for n in graph.nodes()]
+        avg_degree = sum(degrees) / len(degrees) if degrees else 0
+        max_degree = max(degrees) if degrees else 0
+        
+        # 密度
+        density = nx.density(graph)
+        
+        # 章节范围
+        chapter_ranges = []
+        for _, data in graph.nodes(data=True):
+            first = data.get('first_chapter', 0)
+            last = data.get('last_chapter', 0)
+            if first:
+                chapter_ranges.append(first)
+            if last:
+                chapter_ranges.append(last)
+        
+        min_chapter = min(chapter_ranges) if chapter_ranges else 0
+        max_chapter = max(chapter_ranges) if chapter_ranges else 0
+        
+        # 社区检测
+        try:
+            from .layout_calculator import get_layout_calculator
+            layout_calc = get_layout_calculator()
+            communities = layout_calc.detect_communities(graph)
+            num_communities = len(set(communities.values()))
+        except Exception as e:
+            logger.warning(f"社区检测失败: {e}")
+            num_communities = 0
+        
+        # Top节点（按度数）
+        top_nodes = []
+        nodes_with_degree = [(n, graph.in_degree(n) + graph.out_degree(n), 
+                             graph.nodes[n].get('importance', 0.5)) 
+                            for n in graph.nodes()]
+        nodes_with_degree.sort(key=lambda x: (-x[2], -x[1]))  # 按重要性和度数排序
+        
+        for node, degree, importance in nodes_with_degree[:10]:
+            top_nodes.append({
+                'name': node,
+                'degree': degree,
+                'importance': importance,
+                'type': graph.nodes[node].get('type', 'unknown')
+            })
+        
+        return {
+            'total_nodes': num_nodes,
+            'total_edges': num_edges,
+            'density': density,
+            'average_degree': avg_degree,
+            'max_degree': max_degree,
+            'chapter_range': [min_chapter, max_chapter],
+            'node_types': dict(node_types),
+            'relation_types': dict(relation_types),
+            'num_communities': num_communities,
+            'top_nodes': top_nodes,
+        }
+    
+    def export_relation_types_summary(self, graph: nx.MultiDiGraph) -> List[Dict]:
+        """
+        导出关系类型汇总
+        
+        Args:
+            graph: 图谱对象
+        
+        Returns:
+            关系类型列表
+        """
+        relation_stats = {}
+        
+        for _, _, _, data in graph.edges(keys=True, data=True):
+            rel_type = data.get('relation_type', '未知')
+            
+            if rel_type not in relation_stats:
+                relation_stats[rel_type] = {
+                    'type': rel_type,
+                    'count': 0,
+                    'avg_strength': 0.0,
+                    'strengths': []
+                }
+            
+            relation_stats[rel_type]['count'] += 1
+            strength = data.get('strength', 0.5)
+            relation_stats[rel_type]['strengths'].append(strength)
+        
+        # 计算平均强度
+        result = []
+        for rel_type, stats in relation_stats.items():
+            strengths = stats['strengths']
+            avg_strength = sum(strengths) / len(strengths) if strengths else 0.5
+            
+            result.append({
+                'type': rel_type,
+                'count': stats['count'],
+                'avgStrength': avg_strength,
+            })
+        
+        # 按数量排序
+        result.sort(key=lambda x: -x['count'])
+        
+        return result
 
 
 # 全局实例
