@@ -348,6 +348,13 @@ class RelationshipClassifier:
         """
         logger.info(f"🚀 使用Batch API分类 {len(tasks)} 对关系（无并发限制，免费）...")
         
+        # 检查是否超过智谱AI Batch API限制（Chat模型：50,000个请求/批次）
+        if len(tasks) > 50000:
+            logger.error(f"❌ 关系对数({len(tasks)})超过Batch API限制(50,000)，这种情况极其罕见")
+            # 理论上不会发生（需要数千个实体才可能），但添加防护
+            logger.error(f"   建议：联系开发者或手动关闭Batch API模式")
+            raise ValueError(f"关系对数超过Batch API限制: {len(tasks)} > 50,000")
+        
         # 1. 构建Batch API任务
         batch_tasks = []
         task_mapping = {}  # custom_id -> task_index

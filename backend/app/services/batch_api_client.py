@@ -58,7 +58,13 @@ class BatchAPIClient:
             for task in tasks:
                 f.write(json.dumps(task, ensure_ascii=False) + '\n')
         
-        logger.info(f"✅ 创建批处理文件: {file_path}, {len(tasks)} 个任务")
+        # 检查文件大小是否超过智谱AI Batch API限制（100MB）
+        file_size_mb = Path(file_path).stat().st_size / (1024 * 1024)
+        if file_size_mb > 100:
+            logger.error(f"❌ Batch文件大小({file_size_mb:.2f}MB)超过限制(100MB)")
+            raise ValueError(f"Batch文件过大: {file_size_mb:.2f}MB > 100MB")
+        
+        logger.info(f"✅ 创建批处理文件: {file_path}, {len(tasks)} 个任务, 大小: {file_size_mb:.2f}MB")
         return str(file_path)
     
     def upload_file(self, file_path: str) -> str:

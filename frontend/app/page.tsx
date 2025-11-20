@@ -17,18 +17,21 @@ import { CitationList } from '@/components/query/CitationList';
 import { QueryHistoryModal } from '@/components/query/QueryHistoryModal';
 import { Separator } from '@/components/ui/separator';
 import { UploadModal } from '@/components/novel/UploadModal';
+import { AppendChaptersModal } from '@/components/novel/AppendChaptersModal';
 import { GraphModal } from '@/components/graph/GraphModal';
 import { useQueryStore } from '@/store/queryStore';
 import { useNovelStore } from '@/store/novelStore';
 import { toast } from 'sonner';
-import type { ModelType } from '@/types/api';
+import type { ModelType, NovelListItem } from '@/types/api';
 import { useQueryWebSocket } from '@/hooks/useQuery';
 
 export default function HomePage() {
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [appendModalOpen, setAppendModalOpen] = useState(false);
   const [graphModalOpen, setGraphModalOpen] = useState(false);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [selectedGraphNovelId, setSelectedGraphNovelId] = useState<number | null>(null);
+  const [selectedAppendNovel, setSelectedAppendNovel] = useState<NovelListItem | null>(null);
   const [queryText, setQueryText] = useState('');
 
   const { selectedNovelId } = useNovelStore();
@@ -65,6 +68,11 @@ export default function HomePage() {
     setGraphModalOpen(true);
   };
 
+  const handleAppendChapters = (novel: NovelListItem) => {
+    setSelectedAppendNovel(novel);
+    setAppendModalOpen(true);
+  };
+
   return (
     <div className="flex h-full">
       {/* 左侧：小说列表 */}
@@ -72,6 +80,7 @@ export default function HomePage() {
         onUploadClick={() => setUploadModalOpen(true)}
         onViewGraphClick={handleViewGraph}
         onHistoryClick={() => setHistoryModalOpen(true)}
+        onAppendClick={handleAppendChapters}
       />
 
       {/* 中间：主界面 */}
@@ -132,6 +141,11 @@ export default function HomePage() {
       <UploadModal
         open={uploadModalOpen}
         onOpenChange={setUploadModalOpen}
+      />
+      <AppendChaptersModal
+        open={appendModalOpen}
+        onOpenChange={setAppendModalOpen}
+        novel={selectedAppendNovel}
       />
       <GraphModal
         open={graphModalOpen}

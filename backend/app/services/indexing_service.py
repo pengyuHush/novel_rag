@@ -22,7 +22,7 @@ from app.services.graph.graph_analyzer import GraphAnalyzer
 from app.services.graph.relation_classifier import RelationshipClassifier
 from app.services.graph.evolution_tracker import RelationshipEvolutionTracker
 from app.services.graph.attribute_extractor import EntityAttributeExtractor
-from app.models.database import Novel, Chapter
+from app.models.database import Novel, Chapter, Entity
 from app.models.schemas import IndexStatus, FileFormat
 from app.core.config import settings
 
@@ -1082,6 +1082,550 @@ class IndexingService:
                 continue
         
         return contexts
+    
+    async def append_chapters(
+        self,
+        db: Session,
+        novel_id: int,
+        file_path: str,
+        file_format: FileFormat,
+        progress_callback: Optional[Callable] = None
+    ) -> bool:
+        """
+        追加章节到已索引的小说
+        
+        Args:
+            db: 数据库会话
+            novel_id: 小说ID
+            file_path: 新文件路径（包含所有章节）
+            file_format: 文件格式
+            progress_callback: 进度回调函数
+        
+        Returns:
+            bool: 是否成功
+        """
+        try:
+            # 获取小说信息
+            novel = db.query(Novel).filter(Novel.id == novel_id).first()
+            if not novel:
+                raise ValueError(f"小说 ID={novel_id} 不存在")
+            
+            logger.info(f"📚 开始追加章节: novel_id={novel_id}")
+            
+            # 初始化进度追踪
+            from app.services.indexing_progress_tracker import get_progress_tracker
+            tracker = get_progress_tracker()
+            tracker.init_progress(novel_id, 0)
+            tracker.update_step(novel_id, 0, 'processing', 0.0, '开始解析文件...')
+            
+            if progress_callback:
+                await progress_callback(novel_id, 0.0, "开始解析文件...")
+            
+            # 1. 解析文件并检测章节（0%-5%）
+            logger.info(f"📖 解析文件: {file_path}")
+            if file_format == FileFormat.TXT:
+                content, metadata = self.txt_parser.parse_file(file_path)
+                chapters_data = self.chapter_detector.detect(content)
+            elif file_format == FileFormat.EPUB:
+                content, metadata = self.epub_parser.parse_file(file_path)
+                chapters_data = self.epub_parser.detect_chapters(file_path)
+            else:
+                raise ValueError(f"不支持的文件格式: {file_format}")
+            
+            total_detected_chapters = len(chapters_data)
+            logger.info(f"✅ 检测到 {total_detected_chapters} 个章节")
+            
+            novel.index_progress = clamp_progress(0.05)
+            db.commit()
+            
+            tracker.update_step(novel_id, 0, 'completed', 1.0, f'文件解析完成')
+            tracker.update_step(novel_id, 1, 'processing', 0.0, '检测新章节...')
+            
+            if progress_callback:
+                await progress_callback(novel_id, 0.05, f"检测到 {total_detected_chapters} 个章节")
+            
+            # 2. 过滤新章节（5%-10%）
+            # 查询已有的章节号
+            existing_chapters = db.query(Chapter.chapter_num).filter(
+                Chapter.novel_id == novel_id
+            ).all()
+            existing_chapter_nums = set(ch.chapter_num for ch in existing_chapters)
+            
+            logger.info(f"📊 已有章节: {len(existing_chapter_nums)} 个")
+            
+            # 过滤出新章节
+            new_chapters_data = [
+                ch for ch in chapters_data 
+                if ch['chapter_num'] not in existing_chapter_nums
+            ]
+            
+            new_chapter_count = len(new_chapters_data)
+            logger.info(f"🆕 发现新章节: {new_chapter_count} 个")
+            
+            # 如果没有新章节，直接返回成功
+            if new_chapter_count == 0:
+                logger.info("✅ 没有新章节需要处理")
+                novel.index_status = IndexStatus.COMPLETED.value
+                novel.index_progress = clamp_progress(1.0)
+                novel.total_chars = metadata.get('total_chars', len(content))
+                db.commit()
+                
+                tracker.update_step(novel_id, 1, 'completed', 1.0, '没有新章节')
+                
+                if progress_callback:
+                    await progress_callback(novel_id, 1.0, "没有新章节，追加完成")
+                
+                return True
+            
+            novel.index_progress = clamp_progress(0.10)
+            db.commit()
+            
+            tracker.update_step(novel_id, 1, 'completed', 1.0, f'发现{new_chapter_count}个新章节')
+            tracker.update_step(novel_id, 2, 'processing', 0.0, '开始处理新章节...')
+            
+            if progress_callback:
+                await progress_callback(novel_id, 0.10, f"发现 {new_chapter_count} 个新章节")
+            
+            # 3. 向量化新章节（10%-60%）
+            total_new_chunks = 0
+            total_new_embedding_tokens = 0
+            
+            # 获取或创建ChromaDB集合
+            collection_name = f"novel_{novel_id}"
+            try:
+                self.embedding_service.chroma_client.get_collection(collection_name)
+            except:
+                # 集合不存在，创建它
+                self.embedding_service.create_collection(novel_id)
+            
+            logger.info(f"📝 开始处理 {new_chapter_count} 个新章节...")
+            
+            for i, chapter_data in enumerate(new_chapters_data):
+                chapter_num = chapter_data['chapter_num']
+                chapter_title = chapter_data.get('title', f"第{chapter_num}章")
+                
+                logger.info(f"📝 处理新章节 {i+1}/{new_chapter_count}: 第{chapter_num}章 {chapter_title}")
+                
+                # 提取章节内容
+                chapter_content = self.chapter_detector.extract_chapter_content(
+                    content,
+                    chapter_data['start_pos'],
+                    chapter_data['end_pos'],
+                    include_title=True
+                )
+                
+                # 保存章节到数据库（unique约束防止重复）
+                try:
+                    chapter = Chapter(
+                        novel_id=novel_id,
+                        chapter_num=chapter_num,
+                        chapter_title=chapter_title,
+                        char_count=len(chapter_content),
+                        start_pos=chapter_data['start_pos'],
+                        end_pos=chapter_data['end_pos']
+                    )
+                    db.add(chapter)
+                    db.commit()
+                except Exception as e:
+                    logger.warning(f"⚠️ 章节 {chapter_num} 可能已存在，跳过: {e}")
+                    db.rollback()
+                    continue
+                
+                # 文本分块
+                chunks = self.text_splitter.split_chapter(
+                    chapter_content,
+                    novel_id,
+                    chapter_num,
+                    chapter_title
+                )
+                
+                chapter.chunk_count = len(chunks)
+                total_new_chunks += len(chunks)
+                
+                # 向量化并存储
+                success, chapter_tokens = self.embedding_service.process_chapter(
+                    novel_id,
+                    chapter_num,
+                    chapter_title,
+                    chunks
+                )
+                
+                total_new_embedding_tokens += chapter_tokens
+                
+                if not success:
+                    logger.warning(f"⚠️ 章节 {chapter_num} 向量化失败")
+                    tracker.add_failed_chapter(novel_id, chapter_num, chapter_title, "向量化处理失败")
+                
+                # 更新进度（10%-60%）
+                progress = clamp_progress(0.10 + 0.50 * (i + 1) / new_chapter_count)
+                novel.index_progress = progress
+                db.commit()
+                
+                step_progress = clamp_progress((i + 1) / new_chapter_count)
+                tracker.update_step(novel_id, 2, 'processing', step_progress, f'已完成 {i+1}/{new_chapter_count} 章')
+                
+                if progress_callback:
+                    token_stats = {
+                        "embeddingTokens": total_new_embedding_tokens,
+                        "totalTokens": total_new_embedding_tokens
+                    }
+                    await progress_callback(
+                        novel_id,
+                        progress,
+                        f"已完成 {i+1}/{new_chapter_count} 章",
+                        token_stats
+                    )
+            
+            logger.info(f"✅ 新章节向量化完成: {new_chapter_count}章, {total_new_chunks}块, {total_new_embedding_tokens} tokens")
+            
+            tracker.update_step(novel_id, 2, 'completed', 1.0, f'新章节处理完成({new_chapter_count}章)')
+            tracker.update_step(novel_id, 3, 'processing', 0.0, '更新知识图谱...')
+            
+            novel.index_progress = clamp_progress(0.60)
+            db.commit()
+            
+            if progress_callback:
+                await progress_callback(novel_id, 0.60, "开始更新知识图谱...")
+            
+            # 4. 增量更新知识图谱（60%-90%）
+            graph_tokens = 0
+            
+            try:
+                graph_tokens = await self._append_to_knowledge_graph(
+                    db, novel_id, content, new_chapters_data, tracker, progress_callback
+                )
+            except Exception as e:
+                logger.error(f"⚠️ 知识图谱更新失败: {e}")
+                logger.exception(e)
+                tracker.update_step(novel_id, 3, 'failed', 0.0, "知识图谱更新失败", error=str(e))
+                tracker.add_warning(novel_id, f"知识图谱更新失败: {str(e)}")
+            
+            # 5. 更新小说统计信息（90%-100%）
+            novel.total_chapters = total_detected_chapters
+            novel.total_chars = metadata.get('total_chars', len(content))
+            novel.total_chunks = novel.total_chunks + total_new_chunks
+            novel.embedding_tokens = novel.embedding_tokens + total_new_embedding_tokens
+            novel.index_status = IndexStatus.COMPLETED.value
+            novel.index_progress = clamp_progress(1.0)
+            novel.indexed_date = novel.updated_at
+            db.commit()
+            
+            # 保存token统计
+            try:
+                from app.services.token_stats_service import get_token_stats_service
+                token_stats_service = get_token_stats_service()
+                
+                if total_new_embedding_tokens > 0:
+                    token_stats_service.record_token_usage(
+                        db=db,
+                        operation_type='append',
+                        operation_id=novel_id,
+                        model_name='embedding-3',
+                        input_tokens=total_new_embedding_tokens,
+                        output_tokens=0
+                    )
+                
+                if graph_tokens > 0:
+                    token_stats_service.record_token_usage(
+                        db=db,
+                        operation_type='append',
+                        operation_id=novel_id,
+                        model_name='glm-4-flash',
+                        input_tokens=graph_tokens,
+                        output_tokens=0
+                    )
+            except Exception as e:
+                logger.warning(f"⚠️ Token统计保存失败: {e}")
+            
+            final_token_stats = {
+                "embeddingTokens": total_new_embedding_tokens,
+                "graphTokens": graph_tokens,
+                "totalTokens": total_new_embedding_tokens + graph_tokens
+            }
+            
+            if progress_callback:
+                await progress_callback(novel_id, 1.0, "追加章节完成!", final_token_stats)
+            
+            logger.info(f"✅ 追加章节完成: novel_id={novel_id}, 新增{new_chapter_count}章, {total_new_chunks}块, {total_new_embedding_tokens} tokens")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ 追加章节失败: {e}")
+            logger.exception(e)
+            
+            # 更新状态为失败（但不回滚已处理的章节）
+            novel = db.query(Novel).filter(Novel.id == novel_id).first()
+            if novel:
+                novel.index_status = IndexStatus.FAILED.value
+                db.commit()
+            
+            if progress_callback:
+                await progress_callback(novel_id, 0.0, f"追加章节失败: {str(e)}")
+            
+            return False
+    
+    async def _append_to_knowledge_graph(
+        self,
+        db: Session,
+        novel_id: int,
+        content: str,
+        new_chapters_data: List[Dict],
+        tracker,
+        progress_callback: Optional[Callable] = None
+    ) -> int:
+        """
+        增量更新知识图谱
+        
+        Returns:
+            消耗的token数
+        """
+        total_graph_tokens = 0
+        
+        try:
+            # 加载现有图谱
+            graph = self.graph_builder.load_graph(novel_id)
+            if graph is None:
+                logger.warning("⚠️ 现有图谱不存在，跳过图谱更新")
+                return 0
+            
+            logger.info(f"✅ 加载现有图谱: {graph.number_of_nodes()}节点, {graph.number_of_edges()}边")
+            
+            # 从新章节提取实体
+            logger.info(f"📝 从新章节提取实体...")
+            from collections import Counter
+            
+            entity_counters = {
+                'characters': Counter(),
+                'locations': Counter(),
+                'organizations': Counter()
+            }
+            chapter_ranges = {}
+            chapter_entity_map = {}
+            
+            for chapter_data in new_chapters_data:
+                chapter_num = chapter_data['chapter_num']
+                
+                # 提取章节内容
+                chapter_content = self.chapter_detector.extract_chapter_content(
+                    content,
+                    chapter_data['start_pos'],
+                    chapter_data['end_pos'],
+                    include_title=True
+                )
+                
+                # 提取实体
+                chapter_entities = self.entity_extractor.extract_from_chapter(chapter_content, chapter_num)
+                
+                # 记录本章的角色实体
+                chapter_entity_map[chapter_num] = set(chapter_entities.get('characters', []))
+                
+                # 统计频率和章节范围
+                for entity_type in ['characters', 'locations', 'organizations']:
+                    for entity_name in chapter_entities.get(entity_type, []):
+                        entity_counters[entity_type][entity_name] += 1
+                        
+                        if entity_name not in chapter_ranges:
+                            chapter_ranges[entity_name] = [chapter_num, chapter_num]
+                        else:
+                            chapter_ranges[entity_name][1] = chapter_num
+            
+            chapter_ranges = {name: tuple(range_list) for name, range_list in chapter_ranges.items()}
+            
+            total_new_entities = sum(len(counter) for counter in entity_counters.values())
+            logger.info(f"✅ 从新章节提取: 角色{len(entity_counters['characters'])} "
+                       f"地点{len(entity_counters['locations'])} "
+                       f"组织{len(entity_counters['organizations'])}")
+            
+            # 实体去重合并
+            logger.info(f"🔀 实体去重与合并...")
+            merged_entities = {}
+            merged_chapter_ranges = {}
+            
+            for entity_type in ['characters', 'locations', 'organizations']:
+                entity_list = list(entity_counters.get(entity_type, {}).keys())
+                merge_mapping = self.entity_merger.merge_entities(entity_list)
+                
+                merged_counter = Counter()
+                for main_name, aliases in merge_mapping.items():
+                    total_count = sum(entity_counters[entity_type].get(alias, 0) for alias in aliases)
+                    merged_counter[main_name] = total_count
+                    
+                    min_chapter = min(chapter_ranges.get(alias, (9999, 9999))[0] for alias in aliases)
+                    max_chapter = max(chapter_ranges.get(alias, (0, 0))[1] for alias in aliases)
+                    merged_chapter_ranges[main_name] = (min_chapter, max_chapter)
+                
+                merged_entities[entity_type] = merged_counter
+            
+            # 与数据库中已有实体合并更新
+            entity_count = await self._merge_and_update_entities(
+                db, novel_id, merged_entities, merged_chapter_ranges, graph
+            )
+            
+            logger.info(f"✅ 实体合并完成，共{entity_count}个实体")
+            
+            tracker.update_step(novel_id, 3, 'processing', 0.5, f'实体合并完成')
+            
+            if progress_callback:
+                await progress_callback(novel_id, 0.75, f"实体合并完成")
+            
+            # 添加新关系
+            logger.info(f"🔗 分析新章节中的实体关系...")
+            
+            # 构建共现关系
+            cooccurrence_count = {}
+            cooccurrence_chapters = {}
+            
+            for chapter_num, entities in chapter_entity_map.items():
+                entity_list = list(entities)
+                for i in range(len(entity_list)):
+                    for j in range(i + 1, len(entity_list)):
+                        entity1, entity2 = sorted([entity_list[i], entity_list[j]])
+                        pair = (entity1, entity2)
+                        
+                        if pair not in cooccurrence_count:
+                            cooccurrence_count[pair] = 0
+                            cooccurrence_chapters[pair] = []
+                        
+                        cooccurrence_count[pair] += 1
+                        cooccurrence_chapters[pair].append(chapter_num)
+            
+            # 添加关系边（只添加共现2次以上的关系）
+            new_relations = 0
+            for (entity1, entity2), count in cooccurrence_count.items():
+                if count >= 2:
+                    chapters = cooccurrence_chapters[(entity1, entity2)]
+                    start_chapter = min(chapters)
+                    end_chapter = max(chapters)
+                    strength = min(count / 20.0, 1.0)
+                    
+                    # 添加双向边
+                    if graph.has_node(entity1) and graph.has_node(entity2):
+                        self.graph_builder.add_relation(
+                            graph,
+                            source=entity1,
+                            target=entity2,
+                            relation_type='共现',
+                            start_chapter=start_chapter,
+                            end_chapter=end_chapter,
+                            strength=strength,
+                            confidence=0.5,
+                            cooccurrence_count=count
+                        )
+                        
+                        self.graph_builder.add_relation(
+                            graph,
+                            source=entity2,
+                            target=entity1,
+                            relation_type='共现',
+                            start_chapter=start_chapter,
+                            end_chapter=end_chapter,
+                            strength=strength,
+                            confidence=0.5,
+                            cooccurrence_count=count
+                        )
+                        
+                        new_relations += 1
+            
+            logger.info(f"✅ 添加了 {new_relations} 对新关系")
+            
+            # 重新计算PageRank
+            if graph.number_of_nodes() > 0:
+                logger.info(f"📊 重新计算PageRank...")
+                pagerank = self.graph_analyzer.compute_pagerank(graph)
+                self.graph_analyzer.update_node_importance(graph, pagerank)
+            
+            # 保存更新后的图谱
+            self.graph_builder.save_graph(graph, novel_id)
+            
+            logger.info(f"✅ 知识图谱更新完成: {graph.number_of_nodes()}节点, {graph.number_of_edges()}边")
+            
+            tracker.update_step(novel_id, 3, 'completed', 1.0, '知识图谱更新完成')
+            
+            if progress_callback:
+                await progress_callback(novel_id, 0.90, "知识图谱更新完成")
+            
+        except Exception as e:
+            logger.error(f"⚠️ 知识图谱更新失败: {e}")
+            raise
+        
+        return total_graph_tokens
+    
+    async def _merge_and_update_entities(
+        self,
+        db: Session,
+        novel_id: int,
+        new_entities: Dict,
+        new_chapter_ranges: Dict,
+        graph
+    ) -> int:
+        """
+        合并并更新实体
+        
+        Returns:
+            实体总数
+        """
+        total_count = 0
+        
+        # 查询已有实体
+        existing_entities = db.query(Entity).filter(Entity.novel_id == novel_id).all()
+        existing_map = {
+            (e.entity_name, e.entity_type): e 
+            for e in existing_entities
+        }
+        
+        for entity_type in ['characters', 'locations', 'organizations']:
+            db_entity_type = entity_type.rstrip('s')  # characters -> character
+            
+            for entity_name, new_count in new_entities.get(entity_type, {}).items():
+                first_ch, last_ch = new_chapter_ranges.get(entity_name, (1, None))
+                
+                # 检查是否已存在
+                existing = existing_map.get((entity_name, db_entity_type))
+                
+                if existing:
+                    # 更新已有实体
+                    existing.mention_count += new_count
+                    existing.last_chapter = max(existing.last_chapter or 0, last_ch)
+                    
+                    # 更新图谱节点
+                    if graph.has_node(entity_name):
+                        graph.nodes[entity_name]['last_chapter'] = existing.last_chapter
+                        graph.nodes[entity_name]['mention_count'] = existing.mention_count
+                else:
+                    # 创建新实体
+                    entity = Entity(
+                        novel_id=novel_id,
+                        entity_name=entity_name,
+                        entity_type=db_entity_type,
+                        first_chapter=first_ch,
+                        last_chapter=last_ch,
+                        mention_count=new_count,
+                        importance=0.5
+                    )
+                    db.add(entity)
+                    existing_map[(entity_name, db_entity_type)] = entity
+                    
+                    # 添加到图谱
+                    self.graph_builder.add_entity(
+                        graph,
+                        entity_name=entity_name,
+                        entity_type=db_entity_type,
+                        first_chapter=first_ch,
+                        last_chapter=last_ch,
+                        mention_count=new_count
+                    )
+                
+                total_count += 1
+        
+        # 更新小说的实体统计
+        novel = db.query(Novel).filter(Novel.id == novel_id).first()
+        if novel:
+            novel.total_entities = len(existing_map)
+            novel.total_relations = graph.number_of_edges() // 2  # 双向边，除以2
+        
+        db.commit()
+        
+        return total_count
     
     @staticmethod
     def _get_status_message(status: str, progress: float) -> str:

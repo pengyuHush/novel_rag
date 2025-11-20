@@ -208,6 +208,100 @@ async def get_indexing_progress(
     )
 
 
+@router.post("/{novel_id}/append-chapters", response_model=NovelResponse, summary="追加章节")
+async def append_chapters(
+    novel_id: int,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(..., description="包含所有章节的完整小说文件"),
+    db: Session = Depends(get_db_session)
+):
+    """
+    追加章节到已索引的小说
+    
+    - 用户上传包含所有章节（旧+新）的完整文件
+    - 系统自动跳过已索引的章节，只处理新章节
+    - 支持TXT和EPUB格式
+    - 后台异步处理
+    """
+    try:
+        # 验证小说是否存在
+        novel = db.query(Novel).filter(Novel.id == novel_id).first()
+        if not novel:
+            raise NovelNotFoundError(novel_id)
+        
+        # 验证小说状态（必须是completed状态才能追加）
+        if novel.index_status != IndexStatus.COMPLETED.value:
+            raise HTTPException(
+                status_code=409,
+                detail=f"小说当前状态为 {novel.index_status}，只能对已完成索引的小说追加章节"
+            )
+        
+        # 验证文件格式
+        file_ext = Path(file.filename).suffix.lower()
+        if file_ext not in ['.txt', '.epub']:
+            raise FileUploadError(f"不支持的文件格式: {file_ext}")
+        
+        file_format = FileFormat.TXT if file_ext == '.txt' else FileFormat.EPUB
+        
+        # 验证文件格式是否与原文件一致
+        if file_format.value != novel.file_format:
+            raise HTTPException(
+                status_code=400,
+                detail=f"文件格式不匹配：原文件为 {novel.file_format}，上传文件为 {file_format.value}"
+            )
+        
+        logger.info(f"📤 接收追加章节文件: {file.filename} for novel_id={novel_id}")
+        
+        # 保存文件（替换原文件）
+        file_storage = get_file_storage()
+        
+        # 使用相同的文件名保存，覆盖原文件
+        old_file_path = novel.file_path
+        new_file_path = file_storage.save_upload_file(
+            file.file,
+            f"novel_{novel_id}_{Path(file.filename).name}",
+            novel_id=novel_id
+        )
+        
+        # 更新文件路径
+        novel.file_path = new_file_path
+        
+        # 删除旧文件（如果路径不同）
+        if old_file_path != new_file_path and Path(old_file_path).exists():
+            try:
+                Path(old_file_path).unlink()
+                logger.info(f"✅ 旧文件已删除: {old_file_path}")
+            except Exception as e:
+                logger.warning(f"⚠️ 删除旧文件失败: {e}")
+        
+        # 将状态设为processing
+        novel.index_status = IndexStatus.PROCESSING.value
+        novel.index_progress = 0.0
+        db.commit()
+        
+        logger.info(f"✅ 文件已更新，准备追加章节: novel_id={novel_id}")
+        
+        # 启动后台追加任务
+        background_tasks.add_task(
+            start_appending,
+            novel_id,
+            new_file_path,
+            file_format
+        )
+        
+        return NovelResponse.model_validate(novel)
+        
+    except NovelNotFoundError:
+        raise
+    except FileUploadError:
+        raise
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ 追加章节失败: {e}")
+        raise HTTPException(status_code=500, detail=f"追加章节失败: {str(e)}")
+
+
 @router.get("/{novel_id}/token-stats", summary="获取小说Token统计")
 async def get_novel_token_stats(
     novel_id: int,
@@ -358,6 +452,74 @@ def start_indexing(novel_id: int, file_path: str, file_format: FileFormat):
             
     except Exception as e:
         logger.error(f"❌ 索引任务失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        # 更新小说状态为失败
+        try:
+            from app.db.init_db import get_database_url
+            from sqlalchemy import create_engine
+            from sqlalchemy.orm import sessionmaker
+            
+            engine = create_engine(get_database_url())
+            SessionLocal = sessionmaker(bind=engine)
+            db = SessionLocal()
+            try:
+                novel = db.query(Novel).filter(Novel.id == novel_id).first()
+                if novel:
+                    novel.index_status = IndexStatus.FAILED.value
+                    db.commit()
+            finally:
+                db.close()
+        except Exception as inner_e:
+            logger.error(f"❌ 更新失败状态失败: {inner_e}")
+
+
+def start_appending(novel_id: int, file_path: str, file_format: FileFormat):
+    """
+    启动追加章节任务（后台任务）
+    
+    Args:
+        novel_id: 小说ID
+        file_path: 新文件路径
+        file_format: 文件格式
+    """
+    try:
+        logger.info(f"🔄 开始追加章节: novel_id={novel_id}")
+        
+        # 创建新的事件循环
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        from app.db.init_db import get_database_url
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        
+        # 创建独立的数据库会话
+        engine = create_engine(get_database_url())
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        
+        try:
+            indexing_service = get_indexing_service()
+            
+            # 执行追加章节
+            loop.run_until_complete(
+                indexing_service.append_chapters(
+                    db=db,
+                    novel_id=novel_id,
+                    file_path=file_path,
+                    file_format=file_format,
+                    progress_callback=None
+                )
+            )
+            logger.info(f"✅ 追加章节任务完成: novel_id={novel_id}")
+        finally:
+            db.close()
+            loop.close()
+            
+    except Exception as e:
+        logger.error(f"❌ 追加章节任务失败: {e}")
         import traceback
         logger.error(traceback.format_exc())
         

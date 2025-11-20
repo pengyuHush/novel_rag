@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS token_stats (
     
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
-    CONSTRAINT check_operation_type CHECK (operation_type IN ('index', 'query'))
+    CONSTRAINT check_operation_type CHECK (operation_type IN ('index', 'query', 'append'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_token_stats_date ON token_stats(created_at DESC);

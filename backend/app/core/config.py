@@ -163,15 +163,16 @@ class Settings(BaseSettings):
     embedding_dimension: int = Field(default=1024, description="向量维度")
     
     # 图谱构建配置
-    use_batch_api_for_graph: bool = Field(default=False, description="图谱构建是否使用Batch API", env="USE_BATCH_API_FOR_GRAPH")
-    use_batch_api_for_embedding: bool = Field(default=False, description="向量化是否使用Batch API", env="USE_BATCH_API_FOR_EMBEDDING")
+    use_batch_api_for_graph: bool = Field(default=True, description="图谱构建是否使用Batch API（默认开启，完全免费）", env="USE_BATCH_API_FOR_GRAPH")
+    use_batch_api_for_embedding: bool = Field(default=True, description="向量化是否使用Batch API（默认开启，价格便宜50%）", env="USE_BATCH_API_FOR_EMBEDDING")
     
     # 并发控制配置（根据智谱AI速率限制调整）
     # 参考：https://bigmodel.cn/usercenter/proj-mgmt/rate-limits
     # 测试显示最大并发10，建议8，但实际项目中使用2-3更安全（考虑多阶段并发）
-    graph_attribute_concurrency: int = Field(default=2, description="图谱属性提取最大并发数", env="GRAPH_ATTRIBUTE_CONCURRENCY")
-    graph_relation_concurrency: int = Field(default=2, description="图谱关系分类最大并发数", env="GRAPH_RELATION_CONCURRENCY")
-    embedding_batch_size: int = Field(default=5, description="向量化批处理大小", env="EMBEDDING_BATCH_SIZE")
+    # 注意：启用Batch API后，这些并发限制不再适用（Batch API无并发限制）
+    graph_attribute_concurrency: int = Field(default=3, description="图谱属性提取最大并发数（非Batch模式）", env="GRAPH_ATTRIBUTE_CONCURRENCY")
+    graph_relation_concurrency: int = Field(default=5, description="图谱关系分类最大并发数（非Batch模式）", env="GRAPH_RELATION_CONCURRENCY")
+    embedding_batch_size: int = Field(default=20, description="向量化批处理大小（非Batch API模式时的每批次文本数）", env="EMBEDDING_BATCH_SIZE")
     
     class Config:
         env_file = ".env"
