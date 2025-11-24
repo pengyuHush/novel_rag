@@ -19,6 +19,7 @@ from app.services.rag_engine import get_rag_engine
 from app.core.error_handlers import NovelNotFoundError
 from app.models.database import Novel, Query
 from app.core.trace_logger import get_trace_logger
+from app.core.config import settings
 
 router = APIRouter(prefix="/api/query", tags=["智能问答"])
 logger = logging.getLogger(__name__)
@@ -82,6 +83,16 @@ async def query_novel(
     )
     
     try:
+        # 验证模型提供商是否已配置
+        model_str = request.model.value
+        provider = model_str.split("/")[0] if "/" in model_str else "zhipu"
+        
+        if not settings.is_provider_available(provider):
+            raise HTTPException(
+                status_code=400,
+                detail=f"提供商 '{provider}' 的API密钥未配置，请在.env文件中设置对应的API_KEY"
+            )
+        
         # 验证小说是否存在
         novel = db.query(Novel).filter(Novel.id == request.novel_id).first()
         if not novel:
@@ -317,9 +328,30 @@ async def query_stream(websocket: WebSocket):
         # 接收查询请求
         data = await websocket.receive_json()
         novel_id = data.get('novel_id')
+        novel_ids = data.get('novel_ids', [])
         query = data.get('query')
-        model = data.get('model', 'glm-4')
+        model = data.get('model', 'zhipu/GLM-4.5-Flash')
         config = data.get('config', {})
+        
+        # 验证模型提供商是否已配置
+        provider = model.split("/")[0] if "/" in model else "zhipu"
+        if not settings.is_provider_available(provider):
+            await websocket.send_json({
+                'error': f'提供商 "{provider}" 的API密钥未配置，请在.env文件中设置对应的API_KEY'
+            })
+            await websocket.close()
+            return
+        
+        # 处理多小说ID：如果提供了novel_ids，使用它；否则使用novel_id
+        if not novel_ids:
+            if novel_id:
+                novel_ids = [novel_id]
+            else:
+                await websocket.send_json({
+                    'error': '缺少必要参数: novel_id 或 novel_ids'
+                })
+                await websocket.close()
+                return
         
         # 记录流式查询开始
         trace_logger.trace_section(
@@ -333,6 +365,7 @@ async def query_stream(websocket: WebSocket):
         top_k_rerank = config.get('top_k_rerank', 10)
         max_context_chunks = config.get('max_context_chunks', 10)
         enable_query_rewrite = config.get('enable_query_rewrite', True)
+        use_rewritten_in_prompt = config.get('use_rewritten_in_prompt', False)
         recency_bias_weight = config.get('recency_bias_weight', 0.15)
         
         # 验证参数范围
@@ -342,10 +375,11 @@ async def query_stream(websocket: WebSocket):
         recency_bias_weight = max(0.0, min(0.5, recency_bias_weight))
         
         logger.info(f"📊 查询配置: top_k_retrieval={top_k_retrieval}, top_k_rerank={top_k_rerank}, max_context_chunks={max_context_chunks}")
+        logger.info(f"📚 查询小说: {len(novel_ids)} 本 - IDs: {novel_ids}")
         
-        if not novel_id or not query:
+        if not query:
             await websocket.send_json({
-                'error': '缺少必要参数: novel_id 或 query'
+                'error': '缺少必要参数: query'
             })
             await websocket.close()
             return
@@ -360,14 +394,33 @@ async def query_stream(websocket: WebSocket):
         db = SessionLocal()
         
         try:
-            # 验证小说存在
-            novel = db.query(Novel).filter(Novel.id == novel_id).first()
-            if not novel:
+            # 验证所有小说存在
+            novels = db.query(Novel).filter(Novel.id.in_(novel_ids)).all()
+            if len(novels) != len(novel_ids):
+                found_ids = {n.id for n in novels}
+                missing_ids = set(novel_ids) - found_ids
                 await websocket.send_json({
-                    'error': f'小说 ID={novel_id} 不存在'
+                    'error': f'部分小说不存在: {missing_ids}'
                 })
                 await websocket.close()
                 return
+            
+            # 过滤未完成索引的小说
+            completed_novels = [n for n in novels if n.index_status == 'completed']
+            if not completed_novels:
+                await websocket.send_json({
+                    'error': '选中的小说均未完成索引，请等待索引完成后再查询'
+                })
+                await websocket.close()
+                return
+            
+            # 更新novel_ids为已完成索引的小说ID
+            novel_ids = [n.id for n in completed_novels]
+            novel_titles = [n.title for n in completed_novels]
+            
+            # 如果过滤后小说数量减少，记录日志
+            if len(completed_novels) < len(novels):
+                logger.warning(f"⚠️ 过滤掉 {len(novels) - len(completed_novels)} 本未完成索引的小说")
             
             # 记录查询初始化
             trace_logger.trace_step(
@@ -375,14 +428,16 @@ async def query_stream(websocket: WebSocket):
                 step_name="查询初始化",
                 emoji="📋",
                 input_data={
-                    "小说ID": novel_id,
-                    "小说名称": novel.title,
+                    "小说数量": len(novel_ids),
+                    "小说ID列表": novel_ids,
+                    "小说名称": novel_titles,
                     "查询内容": query,
                     "模型": model,
                     "top_k_retrieval": top_k_retrieval,
                     "top_k_rerank": top_k_rerank,
                     "max_context_chunks": max_context_chunks,
-                    "启用查询改写": enable_query_rewrite
+                    "启用查询改写": enable_query_rewrite,
+                    "Prompt使用改写查询": use_rewritten_in_prompt
                 },
                 output_data="初始化完成",
                 status="success"
@@ -437,19 +492,29 @@ async def query_stream(websocket: WebSocket):
             
             query_embedding = rag_engine.query_embedding(query_for_retrieval, query_id=temp_query_id)
             
-            # 语义检索（使用配置的top_k_retrieval）
-            vector_results = rag_engine.vector_search(
-                novel_id, 
-                query_embedding,
-                top_k=top_k_retrieval,
-                query_id=temp_query_id
-            )
+            # 语义检索（支持多小说）
+            if len(novel_ids) > 1:
+                logger.info(f"🔍 执行多小说检索: {len(novel_ids)} 本小说")
+                vector_results = rag_engine.vector_search_multi(
+                    novel_ids, 
+                    query_embedding,
+                    top_k=top_k_retrieval,
+                    query_id=temp_query_id
+                )
+            else:
+                vector_results = rag_engine.vector_search(
+                    novel_ids[0], 
+                    query_embedding,
+                    top_k=top_k_retrieval,
+                    query_id=temp_query_id
+                )
             
             # Rerank（带GraphRAG增强，使用配置的top_k_rerank）
+            # 注意：对于多小说查询，使用第一本小说的ID进行GraphRAG增强
             reranked_chunks = rag_engine.rerank(
                 query=query_for_retrieval,
                 vector_results=vector_results,
-                novel_id=novel_id,
+                novel_id=novel_ids[0],
                 db=db,
                 top_k=top_k_rerank,
                 query_id=temp_query_id,
@@ -477,6 +542,10 @@ async def query_stream(websocket: WebSocket):
             for chunk in reranked_chunks[:max_citations]:
                 metadata = chunk['metadata']
                 chapter_num = metadata.get('chapter_num')
+                source_novel_id = metadata.get('source_novel_id', novel_ids[0])  # 获取来源小说ID
+                
+                # 获取来源小说信息
+                source_novel = next((n for n in completed_novels if n.id == source_novel_id), completed_novels[0])
                 
                 # 获取章节标题，如果metadata中没有，从数据库查询
                 chapter_title = metadata.get('chapter_title')
@@ -484,7 +553,7 @@ async def query_stream(websocket: WebSocket):
                     try:
                         from app.models.database import Chapter
                         chapter = db.query(Chapter).filter(
-                            Chapter.novel_id == novel_id,
+                            Chapter.novel_id == source_novel_id,
                             Chapter.chapter_num == chapter_num
                         ).first()
                         if chapter:
@@ -493,8 +562,10 @@ async def query_stream(websocket: WebSocket):
                         logger.warning(f"获取章节标题失败: {e}")
                 
                 citations.append({
-                    'chapterNum': chapter_num,      # 使用camelCase匹配前端
-                    'chapterTitle': chapter_title,  # 使用camelCase匹配前端
+                    'novelId': source_novel_id,          # 来源小说ID
+                    'novelTitle': source_novel.title,    # 来源小说标题
+                    'chapterNum': chapter_num,           # 使用camelCase匹配前端
+                    'chapterTitle': chapter_title,       # 使用camelCase匹配前端
                     'text': chunk['content'][:200] + "...",
                     'score': chunk.get('score')
                 })
@@ -515,14 +586,23 @@ async def query_stream(websocket: WebSocket):
                 progress=0.5
             ).model_dump())
             
-            # 构建自适应Prompt（使用配置的max_context_chunks，使用原始查询）
+            # 构建自适应Prompt（使用配置的max_context_chunks）
+            # 根据配置决定使用原始查询还是改写后的查询
+            query_for_prompt = query_for_retrieval if (use_rewritten_in_prompt and rewritten_query) else query
+            
+            if use_rewritten_in_prompt and rewritten_query:
+                logger.info(f"💡 Prompt使用改写后的查询: {query_for_prompt}")
+            else:
+                logger.info(f"💡 Prompt使用原始查询: {query_for_prompt}")
+            
             prompt = rag_engine.prompt_builder.build_prompt(
                 db, 
-                novel_id, 
-                query, 
+                novel_ids[0],  # 主小说ID
+                query_for_prompt,  # 根据配置选择使用原始或改写后的查询
                 reranked_chunks,
                 max_chunks=max_context_chunks,
-                query_id=temp_query_id
+                query_id=temp_query_id,
+                novel_ids=novel_ids if len(novel_ids) > 1 else None  # 多小说时传递所有ID
             )
             
             # 流式生成答案
@@ -548,6 +628,14 @@ async def query_stream(websocket: WebSocket):
                     if finish_reason_value:
                         finish_reason = finish_reason_value
                         logger.info(f"🏁 [WebSocket] 收到finish_reason: {finish_reason}")
+                        
+                        # 检测到敏感内容，立即终止
+                        if finish_reason == 'sensitive':
+                            logger.warning("⚠️ 检测到敏感内容，终止生成")
+                            await websocket.send_json({
+                                'error': '抱歉，您的问题或小说内容可能包含敏感信息，无法生成答案。请尝试修改问题或选择其他内容。'
+                            })
+                            return
                 else:
                     # 向后兼容：纯文本chunk
                     chunk = chunk_data if chunk_data else ''
@@ -574,6 +662,20 @@ async def query_stream(websocket: WebSocket):
                     })
             
             logger.info(f"✅ 流式生成完成，答案长度: {len(full_answer)}, 是否有usage: {generation_usage is not None}")
+            
+            # 检查答案是否为空（可能是敏感内容被过滤）
+            if len(full_answer) == 0:
+                error_msg = '生成的答案为空'
+                if finish_reason == 'sensitive':
+                    error_msg = '抱歉，您的问题或小说内容可能包含敏感信息，无法生成答案。请尝试修改问题或选择其他内容。'
+                elif finish_reason:
+                    error_msg = f'答案生成异常 (finish_reason: {finish_reason})，请重试或修改问题。'
+                
+                logger.warning(f"⚠️ {error_msg}")
+                await websocket.send_json({
+                    'error': error_msg
+                })
+                return
             
             # 从generation_usage中提取Token统计
             if generation_usage:
@@ -821,8 +923,10 @@ async def query_stream(websocket: WebSocket):
             total_response_time = time.time() - start_time
             
             # 保存查询历史（使用修正后的答案）
+            import json
             query_record = Query(
-                novel_id=novel_id,
+                novel_id=novel_ids[0],  # 主小说ID
+                novel_ids=json.dumps(novel_ids),  # 所有小说ID（JSON数组）
                 query_text=query,
                 answer_text=corrected_answer,
                 model_used=model,

@@ -126,41 +126,135 @@ class RelationshipEvolutionTracker:
         self,
         tasks: List[Tuple],
         novel: Novel,
-        db: Session
+        db: Session,
+        use_batch_api: bool = False
     ) -> Tuple[Dict[Tuple[str, str], List[Dict]], Dict]:
         """
-        批量追踪多对关系的演变
-        
-        注意：演变追踪本身不直接调用LLM，token消耗已在relation_classifier中统计
+        批量追踪多对关系的演变（支持 Batch API）
         
         Args:
             tasks: [(entity1, entity2, chapters), ...]
             novel: 小说对象
             db: 数据库会话
+            use_batch_api: 是否使用 Batch API
         
         Returns:
             Tuple[Dict, Dict]: (演变结果字典, token统计)
             - {(entity1, entity2): evolution_list, ...}
-            - token统计（为空，因为已在classify中统计）
+            - token统计
         """
-        results = {}
+        from app.core.config import settings
         
-        for entity1, entity2, chapters in tasks:
-            try:
-                evolution = await self.track_evolution(
-                    entity1, entity2, chapters, novel, db
+        # 第1步：收集所有需要分类的段
+        logger.info(f"🔍 开始追踪 {len(tasks)} 对关系的演变...")
+        
+        all_classification_tasks = []  # [(entity1, entity2, contexts, count, chapter_range, segment_info), ...]
+        segment_mapping = []  # 记录每个分类任务对应的关系对和段索引
+        
+        for entity1, entity2, all_chapters in tasks:
+            if not all_chapters:
+                segment_mapping.append([])
+                continue
+            
+            # 分段策略
+            total_span = max(all_chapters) - min(all_chapters)
+            if total_span <= 50:
+                segments = 2
+            elif total_span <= 200:
+                segments = 3
+            else:
+                segments = 5
+            
+            segment_size = len(all_chapters) // segments
+            if segment_size == 0:
+                segment_size = 1
+            
+            relation_segments = []
+            
+            for i in range(segments):
+                start_idx = i * segment_size
+                end_idx = start_idx + segment_size if i < segments - 1 else len(all_chapters)
+                segment_chapters = all_chapters[start_idx:end_idx]
+                
+                if not segment_chapters:
+                    continue
+                
+                # 智能采样
+                sampled_chapters = self.classifier._smart_chapter_sampling(segment_chapters, max_samples=3)
+                
+                # 提取上下文
+                from app.services.indexing_service import get_indexing_service
+                indexing_service = get_indexing_service()
+                
+                contexts = await indexing_service._extract_cooccurrence_contexts(
+                    entity1, entity2, sampled_chapters, novel, db
                 )
-                results[(entity1, entity2)] = evolution
-            except Exception as e:
-                logger.error(f"追踪 {entity1}-{entity2} 演变失败: {e}")
-                results[(entity1, entity2)] = []
+                
+                if not contexts:
+                    continue
+                
+                chapter_range = f"第{min(segment_chapters)}章-第{max(segment_chapters)}章"
+                
+                # 添加到批量任务
+                all_classification_tasks.append((
+                    entity1, entity2, contexts, len(segment_chapters), chapter_range
+                ))
+                
+                # 记录段信息
+                relation_segments.append({
+                    'task_index': len(all_classification_tasks) - 1,
+                    'start_chapter': segment_chapters[0],
+                    'segment_chapters': segment_chapters
+                })
+            
+            segment_mapping.append(relation_segments)
         
-        # 演变追踪只是组织数据，不额外调用LLM，token已在relation_classifier中统计
-        token_stats = {
-            'input_tokens': 0,
-            'output_tokens': 0,
-            'total_tokens': 0
-        }
+        logger.info(f"📊 共收集 {len(all_classification_tasks)} 个分类任务")
+        
+        # 第2步：批量分类（支持 Batch API 和智能阈值）
+        if len(all_classification_tasks) == 0:
+            return {}, {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0}
+        
+        # 🎯 智能判断：请求数 < 阈值时使用实时API
+        if len(all_classification_tasks) < settings.batch_api_threshold:
+            logger.info(f"📊 演变追踪分类: 请求数({len(all_classification_tasks)}) < 阈值({settings.batch_api_threshold})，使用实时API")
+            use_batch_api = False
+        elif use_batch_api:
+            logger.info(f"📊 演变追踪分类: 请求数({len(all_classification_tasks)}) ≥ 阈值({settings.batch_api_threshold})，使用Batch API")
+        
+        classifications, token_stats = await self.classifier.classify_batch(
+            all_classification_tasks,
+            use_batch_api=use_batch_api
+        )
+        
+        # 第3步：组织结果
+        results = {}
+        task_idx = 0
+        
+        for (entity1, entity2, all_chapters), relation_segments in zip(tasks, segment_mapping):
+            if not relation_segments:
+                results[(entity1, entity2)] = []
+                continue
+            
+            evolution = []
+            for segment_info in relation_segments:
+                classification = classifications[segment_info['task_index']]
+                evolution.append({
+                    "chapter": segment_info['start_chapter'],
+                    "type": classification['relation_type'],
+                    "confidence": classification['confidence']
+                })
+            
+            # 去重：只保留关系类型变化的节点
+            deduplicated = []
+            if evolution:
+                deduplicated.append(evolution[0])
+                for i in range(1, len(evolution)):
+                    if evolution[i]['type'] != evolution[i-1]['type']:
+                        deduplicated.append(evolution[i])
+            
+            results[(entity1, entity2)] = deduplicated
+            logger.info(f"✅ {entity1}-{entity2} 演变追踪完成: {len(evolution)}段 -> {len(deduplicated)}个变化点")
         
         return results, token_stats
 

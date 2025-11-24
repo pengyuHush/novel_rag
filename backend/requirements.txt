@@ -12,6 +12,9 @@ python-jose[cryptography]==3.3.0
 
 # AI & LLM
 zhipuai==2.0.1
+openai==1.54.0  # OpenAI & DeepSeek (兼容格式)
+google-genai==1.52.0  # Google Gemini
+dashscope>=1.19.0  # 阿里通义千问
 langchain==0.1.0
 langchain-community==0.0.10
 
@@ -20,6 +23,8 @@ chromadb==0.4.22
 
 # NLP
 hanlp==2.1.0b55  # 中文NLP工具包，用于实体识别和分词
+jieba==0.42.1    # 中文分词（BM25使用）
+rank_bm25==0.2.2 # BM25算法
 
 # Graph
 networkx==3.2.1
@@ -45,6 +50,7 @@ plotly==5.18.0
 python-dotenv==1.0.0
 pydantic==2.5.3
 pydantic-settings==2.1.0
+cachetools==5.3.2  # 缓存工具
 
 # Testing
 pytest==7.4.3
@@ -56,4 +62,3 @@ httpx==0.25.2
 black==23.12.1
 flake8==7.0.0
 mypy==1.7.1
-

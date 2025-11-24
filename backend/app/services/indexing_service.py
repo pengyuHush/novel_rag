@@ -14,6 +14,7 @@ from app.services.parser.epub_parser import EPUBParser
 from app.services.parser.chapter_detector import ChapterDetector
 from app.services.text_splitter import get_text_splitter
 from app.services.embedding_service import get_embedding_service
+from app.services.bm25_retriever import BM25Retriever
 from app.services.nlp.entity_extractor import EntityExtractor
 from app.services.nlp.entity_merger import EntityMerger
 from app.services.entity_service import EntityService
@@ -60,7 +61,11 @@ class IndexingService:
         self.graph_builder = GraphBuilder()
         self.graph_analyzer = GraphAnalyzer()
         
-        logger.info("✅ 索引服务初始化完成（包含知识图谱功能）")
+        # 并发控制信号量
+        self.embedding_semaphore = asyncio.Semaphore(50)  # Embedding-3 限制 50
+        self.llm_semaphore = asyncio.Semaphore(2)  # GLM-4.5-Flash 限制 2
+        
+        logger.info("✅ 索引服务初始化完成（包含知识图谱功能 + 并发控制）")
     
     async def index_novel(
         self,
@@ -318,6 +323,41 @@ class IndexingService:
                     output_tokens=0,
                     cost=cost
                 )
+            
+            # 3.5. 构建 BM25 索引（轻量级操作，不占用进度）
+            logger.info(f"🔍 开始构建 BM25 索引...")
+            try:
+                bm25_retriever = BM25Retriever(novel_id)
+                
+                # 收集所有 chunks 用于构建 BM25
+                all_chunks_for_bm25 = []
+                if use_batch_api_for_embedding:
+                    # 如果使用了 Batch API，从 all_chapters_chunks 中提取
+                    for chapter_data in all_chapters_chunks:
+                        all_chunks_for_bm25.extend(chapter_data['chunks'])
+                else:
+                    # 如果使用逐章节处理，需要重新读取（暂时用简单方式：从 ChromaDB 读回）
+                    # 或者在循环中累积。这里我们选择从数据库重新生成（保持一致性）
+                    for chapter in db.query(Chapter).filter(Chapter.novel_id == novel_id).all():
+                        chapter_content = self.chapter_detector.extract_chapter_content(
+                            content,
+                            chapter.start_pos,
+                            chapter.end_pos,
+                            include_title=True
+                        )
+                        chunks = self.text_splitter.split_chapter(
+                            chapter_content,
+                            novel_id,
+                            chapter.chapter_num,
+                            chapter.chapter_title
+                        )
+                        all_chunks_for_bm25.extend(chunks)
+                
+                # 构建并保存 BM25 索引
+                bm25_retriever.build_index(all_chunks_for_bm25)
+                logger.info(f"✅ BM25 索引构建完成（{len(all_chunks_for_bm25)} 个文档）")
+            except Exception as e:
+                logger.error(f"⚠️ BM25 索引构建失败（不影响主流程）: {e}")
             
             # 4. Phase 5: 构建知识图谱（占80%-100%，共20%）
             logger.info(f"🕸️ 开始构建知识图谱...")
@@ -651,9 +691,9 @@ class IndexingService:
                         # 智能采样章节（早期+中期+后期+均匀分布）
                         sampled_chapters = relation_classifier._smart_chapter_sampling(chapters, max_samples=5)
                         
-                        # 提取上下文
+                        # 提取上下文（传入缓存的内容，避免重复读取文件）
                         contexts = await self._extract_cooccurrence_contexts(
-                            entity1, entity2, sampled_chapters, novel, db
+                            entity1, entity2, sampled_chapters, novel, db, cached_content=content
                         )
                         
                         if contexts:
@@ -705,7 +745,7 @@ class IndexingService:
                 
                 if evolution_tasks:
                     evolutions, evo_token_stats = await evolution_tracker.track_batch(
-                        evolution_tasks, novel, db
+                        evolution_tasks, novel, db, use_batch_api=use_batch
                     )
                     # 演变追踪的token已在关系分类中统计，这里不重复计数
                     graph_evolution_tokens = evo_token_stats.get('total_tokens', 0)
@@ -1010,7 +1050,8 @@ class IndexingService:
         entity2: str,
         chapter_nums: List[int],
         novel: Novel,
-        db: Session
+        db: Session,
+        cached_content: Optional[str] = None
     ) -> List[str]:
         """
         提取两个实体共现的上下文片段
@@ -1021,6 +1062,7 @@ class IndexingService:
             chapter_nums: 章节号列表
             novel: 小说对象
             db: 数据库会话
+            cached_content: 缓存的文件内容（可选，避免重复读取文件）
         
         Returns:
             上下文片段列表
@@ -1028,24 +1070,29 @@ class IndexingService:
         contexts = []
         relation_classifier = RelationshipClassifier()
         
-        # 读取完整文件内容（使用parser，避免编码问题）
-        file_path = Path(novel.file_path)
-        if not file_path.exists():
-            logger.warning(f"小说文件不存在: {file_path}")
-            return contexts
-        
-        try:
-            # 使用与向量化阶段相同的parser读取文件
-            if novel.file_format == 'txt':
-                full_content, _ = self.txt_parser.parse_file(str(file_path))
-            elif novel.file_format == 'epub':
-                full_content, _ = self.epub_parser.parse_file(str(file_path))
-            else:
-                logger.error(f"不支持的文件格式: {novel.file_format}")
+        # 优先使用缓存内容，避免重复读取文件
+        if cached_content:
+            full_content = cached_content
+            logger.debug(f"✅ 使用缓存内容（避免重复读取文件）")
+        else:
+            # 如果没有缓存，才读取文件
+            file_path = Path(novel.file_path)
+            if not file_path.exists():
+                logger.warning(f"小说文件不存在: {file_path}")
                 return contexts
-        except Exception as e:
-            logger.error(f"读取文件失败: {e}")
-            return contexts
+            
+            try:
+                # 使用与向量化阶段相同的parser读取文件
+                if novel.file_format == 'txt':
+                    full_content, _ = self.txt_parser.parse_file(str(file_path))
+                elif novel.file_format == 'epub':
+                    full_content, _ = self.epub_parser.parse_file(str(file_path))
+                else:
+                    logger.error(f"不支持的文件格式: {novel.file_format}")
+                    return contexts
+            except Exception as e:
+                logger.error(f"读取文件失败: {e}")
+                return contexts
         
         for chapter_num in chapter_nums:
             try:

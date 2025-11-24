@@ -24,7 +24,7 @@ class QueryRewriter:
         """初始化查询改写器"""
         self.zhipu_client = get_zhipu_client()
         # 使用免费模型GLM-4-Flash进行查询改写
-        self.rewrite_model = "GLM-4-Flash-250414"
+        self.rewrite_model = "GLM-4.5-Flash"
         logger.info("✅ 查询改写器初始化完成")
     
     def rewrite_query(

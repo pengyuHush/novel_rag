@@ -22,8 +22,10 @@ import {
   Cpu, 
   AlertTriangle, 
   CheckCircle,
-  TrendingUp 
+  TrendingUp,
+  Copy 
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api } from '@/lib/api';
@@ -97,6 +99,17 @@ export function QueryDetailModal({
       return `${(time * 1000).toFixed(0)}ms`;
     }
     return `${time.toFixed(2)}s`;
+  };
+
+  const handleCopy = async () => {
+    if (!detail?.answer) return;
+    try {
+      await navigator.clipboard.writeText(detail.answer);
+      toast.success('答案已复制到剪贴板');
+    } catch (err) {
+      console.error('复制失败:', err);
+      toast.error('复制失败，请重试');
+    }
   };
 
   return (
@@ -200,6 +213,17 @@ export function QueryDetailModal({
 
               {/* 答案标签页 */}
               <TabsContent value="answer" className="flex-1 min-h-0 mt-4 data-[state=active]:flex data-[state=active]:flex-col">
+                <div className="flex justify-end mb-2 px-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs gap-1"
+                    onClick={handleCopy}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    复制答案
+                  </Button>
+                </div>
                 <ScrollArea className="flex-1 min-h-0">
                   <div className="prose prose-sm max-w-none dark:prose-invert pr-4 pb-4">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>

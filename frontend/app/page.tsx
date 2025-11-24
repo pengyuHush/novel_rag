@@ -15,7 +15,6 @@ import { TokenStats } from '@/components/query/TokenStats';
 import { ThinkingPanel } from '@/components/query/ThinkingPanel';
 import { CitationList } from '@/components/query/CitationList';
 import { QueryHistoryModal } from '@/components/query/QueryHistoryModal';
-import { Separator } from '@/components/ui/separator';
 import { UploadModal } from '@/components/novel/UploadModal';
 import { AppendChaptersModal } from '@/components/novel/AppendChaptersModal';
 import { GraphModal } from '@/components/graph/GraphModal';
@@ -34,7 +33,7 @@ export default function HomePage() {
   const [selectedAppendNovel, setSelectedAppendNovel] = useState<NovelListItem | null>(null);
   const [queryText, setQueryText] = useState('');
 
-  const { selectedNovelId } = useNovelStore();
+  const { novels, selectedNovelIds } = useNovelStore();
   const {
     isQuerying,
     currentStage,
@@ -50,13 +49,28 @@ export default function HomePage() {
   const { executeQuery } = useQueryWebSocket();
 
   const handleQuery = (query: string, model: ModelType) => {
-    if (!selectedNovelId) {
-      toast.error('请先选择一本小说');
+    if (selectedNovelIds.length === 0) {
+      toast.error('请先选择至少一本小说');
       return;
     }
 
+    const completedNovels = novels.filter(
+      (n) => selectedNovelIds.includes(n.id) && n.index_status === 'completed'
+    );
+
+    if (completedNovels.length === 0) {
+      toast.error('选中的小说均未完成索引，请等待索引完成后再查询');
+      return;
+    }
+
+    const completedIds = completedNovels.map((n) => n.id);
+    
+    if (completedIds.length < selectedNovelIds.length) {
+      toast.info(`已自动过滤 ${selectedNovelIds.length - completedIds.length} 本未完成索引的小说`);
+    }
+
     setQueryText(query);
-    executeQuery(selectedNovelId, query, model);
+    executeQuery(completedIds, query, model);
   };
 
   const handlePresetSelect = (query: string) => {
@@ -74,7 +88,7 @@ export default function HomePage() {
   };
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full bg-background">
       {/* 左侧：小说列表 */}
       <NovelSidebar
         onUploadClick={() => setUploadModalOpen(true)}
@@ -84,55 +98,78 @@ export default function HomePage() {
       />
 
       {/* 中间：主界面 */}
-      <main className="flex-1 flex flex-col overflow-hidden">
-        {/* 查询输入区 */}
-        <div className="p-3 border-b space-y-3">
-          <QueryInput
-            value={queryText}
-            onChange={setQueryText}
-            onQuery={handleQuery}
-            isQuerying={isQuerying}
-            disabled={!selectedNovelId}
-          />
-          <PresetQueries
-            onSelect={handlePresetSelect}
-            disabled={isQuerying || !selectedNovelId}
-          />
-        </div>
-
-        {/* 查询阶段（压缩高度） */}
-        <div className="flex-shrink-0 px-3 py-2 border-b bg-muted/30">
-          <QueryStages currentStage={currentStage} progress={stageProgress} />
-          {rewrittenQuery && (
-            <div className="mt-2 text-xs text-muted-foreground bg-background/50 px-3 py-1.5 rounded border border-dashed">
-              <span className="font-medium">查询已优化：</span>
-              <span className="ml-1 text-foreground/80">{rewrittenQuery}</span>
+      <main className="flex-1 flex flex-col h-full relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/5 via-background to-background pointer-events-none" />
+        
+        <div className="relative z-10 flex flex-col h-full max-w-[1600px] mx-auto w-full">
+          {/* 上半部分：查询区 (自动收缩) */}
+          <div className="flex-shrink-0 px-8 pt-8 pb-4 space-y-6">
+            <div className="max-w-3xl mx-auto w-full space-y-6">
+              <QueryInput
+                value={queryText}
+                onChange={setQueryText}
+                onQuery={handleQuery}
+                isQuerying={isQuerying}
+                disabled={selectedNovelIds.length === 0}
+              />
+              
+              {!isQuerying && !answer && (
+                <div className="pt-2">
+                  <PresetQueries
+                    onSelect={handlePresetSelect}
+                    disabled={isQuerying || selectedNovelIds.length === 0}
+                  />
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        {/* 思考内容 + 引用列表（固定高度，可独立滚动） */}
-        <div className="flex-1 flex overflow-hidden min-h-0">
-          <ThinkingPanel
-            thinking={thinking}
-            answer={answer}
-            isGenerating={isQuerying && currentStage === 'generating'}
-            queryId={queryId}
-            className="flex-1"
-          />
-          <Separator orientation="vertical" />
-          <div className="w-80 flex flex-col min-h-0">
-            {/* Token消耗统计 - 使用新组件 */}
-            <div className="flex-shrink-0 border-b p-2">
-              <TokenStats stats={tokenStats} />
+            {/* 查询状态条 - 仅在查询时或有结果时显示 */}
+            {(isQuerying || currentStage) && (
+              <div className="max-w-3xl mx-auto w-full bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <QueryStages currentStage={currentStage} progress={stageProgress} />
+                {rewrittenQuery && (
+                  <div className="mt-3 bg-primary/5 rounded-lg border border-primary/10 overflow-hidden">
+                    <div className="flex items-start gap-3 px-3 py-2.5 max-h-28 overflow-y-auto">
+                      <span className="font-medium text-primary text-xs flex-shrink-0 pt-0.5">优化查询</span>
+                      <span className="text-xs text-muted-foreground flex-1 leading-relaxed pr-2">{rewrittenQuery}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 下半部分：结果展示 (Flex Grow) */}
+          <div className="flex-1 min-h-0 px-8 pb-8 flex gap-6 overflow-hidden">
+            {/* 思考与答案区 */}
+            <div className="flex-1 flex flex-col min-w-0 bg-card rounded-2xl shadow-sm border border-border/50 overflow-hidden">
+              <ThinkingPanel
+                thinking={thinking}
+                answer={answer}
+                isGenerating={isQuerying && currentStage === 'generating'}
+                queryId={queryId}
+                className="flex-1 min-h-0"
+              />
             </div>
-            
-            {/* 引用列表 - 独立固定高度 */}
-            <CitationList
-              citations={citations}
-              novelId={selectedNovelId}
-              className="flex-1 min-h-0"
-            />
+
+            {/* 右侧边栏：统计与引用 */}
+            {(citations.length > 0 || tokenStats) && (
+              <div className="w-80 flex-shrink-0 flex flex-col gap-6 animate-in fade-in slide-in-from-right-4 duration-500">
+                {/* Token统计 */}
+                <div className="bg-card rounded-2xl shadow-sm border border-border/50 p-4 flex-shrink-0">
+                  <TokenStats stats={tokenStats} />
+                </div>
+                
+                {/* 引用列表 */}
+                <div className="flex-1 min-h-0 bg-card rounded-2xl shadow-sm border border-border/50 overflow-hidden flex flex-col">
+                  <CitationList
+                    citations={citations}
+                    novelId={selectedNovelIds.length > 0 ? selectedNovelIds[0] : null}
+                    className="flex-1 min-h-0"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </main>
@@ -155,7 +192,7 @@ export default function HomePage() {
       <QueryHistoryModal
         open={historyModalOpen}
         onOpenChange={setHistoryModalOpen}
-        novelId={selectedNovelId}
+        novelId={selectedNovelIds.length > 0 ? selectedNovelIds[0] : null}
       />
     </div>
   );

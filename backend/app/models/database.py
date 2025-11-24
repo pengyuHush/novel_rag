@@ -171,6 +171,7 @@ class Query(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     novel_id = Column(Integer, ForeignKey('novels.id', ondelete='CASCADE'), nullable=False)
+    novel_ids = Column(Text, nullable=True)  # JSON数组，存储多个小说ID
     query_text = Column(Text, nullable=False)
     answer_text = Column(Text, nullable=False)
     

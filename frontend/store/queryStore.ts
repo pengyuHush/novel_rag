@@ -12,6 +12,7 @@ import type {
   TokenStats,
   Confidence,
   QueryConfig,
+  ModelType,
 } from '@/types/api';
 
 interface QueryState {
@@ -36,6 +37,7 @@ interface QueryState {
 
   // 查询配置
   queryConfig: QueryConfig;
+  selectedModel: ModelType; // 选中的模型（持久化）
 
   // Actions
   startQuery: () => void;
@@ -51,6 +53,7 @@ interface QueryState {
   setQueryConfig: (config: Partial<QueryConfig>) => void;
   resetQueryConfig: () => void;
   setRewrittenQuery: (query: string | null) => void;
+  setSelectedModel: (model: ModelType) => void;
 }
 
 const defaultQueryConfig: QueryConfig = {
@@ -58,6 +61,7 @@ const defaultQueryConfig: QueryConfig = {
   top_k_rerank: 10,
   max_context_chunks: 10,
   enable_query_rewrite: true,
+  use_rewritten_in_prompt: false, // 默认不在Prompt中使用改写后的查询（保持用户原始问题）
   recency_bias_weight: 0.15,
 };
 
@@ -76,6 +80,7 @@ const initialState = {
   error: null,
   rewrittenQuery: null,
   queryConfig: defaultQueryConfig,
+  selectedModel: 'zhipu/GLM-4.5-Flash' as ModelType, // 默认模型
 };
 
 export const useQueryStore = create<QueryState>()(
@@ -87,6 +92,7 @@ export const useQueryStore = create<QueryState>()(
         set({
           ...initialState,
           queryConfig: get().queryConfig, // 保留持久化的配置
+          selectedModel: get().selectedModel, // 保留持久化的模型选择
           isQuerying: true,
         }),
 
@@ -133,6 +139,7 @@ export const useQueryStore = create<QueryState>()(
         set((state) => ({
           ...initialState,
           queryConfig: state.queryConfig, // 保留持久化的配置
+          selectedModel: state.selectedModel, // 保留持久化的模型选择
         })),
 
       setQueryConfig: (config) =>
@@ -146,11 +153,16 @@ export const useQueryStore = create<QueryState>()(
         }),
 
       setRewrittenQuery: (query) => set({ rewrittenQuery: query }),
+
+      setSelectedModel: (model) => set({ selectedModel: model }),
     }),
     {
       name: 'query-config-storage', // localStorage key
       storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({ queryConfig: state.queryConfig }), // 只持久化 queryConfig
+      partialize: (state) => ({
+        queryConfig: state.queryConfig,
+        selectedModel: state.selectedModel, // 持久化选中的模型
+      }),
     }
   )
 );

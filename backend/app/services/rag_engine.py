@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.services.embedding_service import get_embedding_service
 from app.services.zhipu_client import get_zhipu_client
+from app.services.bm25_retriever import BM25Retriever
+from app.services.query_cache import get_query_cache
 from app.services.query_router import query_router, QueryType
 from app.services.query_rewriter import get_query_rewriter
 from app.services.adaptive_prompt_builder import get_adaptive_prompt_builder
@@ -38,6 +40,7 @@ class RAGEngine:
         # 查询优化组件
         self.query_rewriter = get_query_rewriter()
         self.prompt_builder = get_adaptive_prompt_builder()
+        self.query_cache = get_query_cache()
         
         # NLP组件（复用现有的HanLP客户端）
         self.hanlp_client = get_hanlp_client()
@@ -51,7 +54,7 @@ class RAGEngine:
         self.graph_analyzer = GraphAnalyzer()
         self.graph_builder = GraphBuilder()
         
-        logger.info("✅ RAG引擎初始化完成（含查询优化、GraphRAG支持）")
+        logger.info("✅ RAG引擎初始化完成（含查询优化、GraphRAG支持、缓存）")
     
     def query_embedding(self, query: str, query_id: Optional[int] = None) -> List[float]:
         """
@@ -183,6 +186,73 @@ class RAGEngine:
             logger.error(f"❌ 语义检索失败: {e}")
             return {'ids': [[]], 'documents': [[]], 'metadatas': [[]], 'distances': [[]]}
     
+    def vector_search_multi(
+        self,
+        novel_ids: List[int],
+        query_embedding: List[float],
+        top_k: int = None,
+        query_id: Optional[int] = None
+    ) -> Dict:
+        """
+        多小说语义检索
+        从多本小说中检索，合并结果后统一排序
+        
+        Args:
+            novel_ids: 多个小说ID列表
+            query_embedding: 查询向量
+            top_k: 返回Top-K结果
+            query_id: 查询ID（用于日志记录）
+        
+        Returns:
+            Dict: 合并后的检索结果
+        """
+        top_k = top_k or self.top_k_retrieval
+        per_novel_k = max(5, top_k // len(novel_ids))  # 每本小说分配的检索数量
+        
+        logger.info(f"🔍 多小说检索: {len(novel_ids)} 本小说, 每本检索 {per_novel_k} 个结果")
+        
+        # 从每本小说检索
+        all_ids = []
+        all_documents = []
+        all_metadatas = []
+        all_distances = []
+        
+        for novel_id in novel_ids:
+            results = self.vector_search(novel_id, query_embedding, per_novel_k, query_id)
+            
+            # 为每个结果添加 novel_id 标记
+            ids = results.get('ids', [[]])[0]
+            documents = results.get('documents', [[]])[0]
+            metadatas = results.get('metadatas', [[]])[0]
+            distances = results.get('distances', [[]])[0]
+            
+            for i in range(len(ids)):
+                all_ids.append(ids[i])
+                all_documents.append(documents[i])
+                # 添加来源小说ID到metadata
+                metadata = metadatas[i].copy() if i < len(metadatas) else {}
+                metadata['source_novel_id'] = novel_id
+                all_metadatas.append(metadata)
+                all_distances.append(distances[i])
+        
+        # 按距离排序（距离越小越相似）
+        sorted_indices = sorted(range(len(all_distances)), key=lambda i: all_distances[i])
+        
+        # 取top_k
+        sorted_indices = sorted_indices[:top_k]
+        
+        # 重新组织结果
+        merged_results = {
+            'ids': [[all_ids[i] for i in sorted_indices]],
+            'documents': [[all_documents[i] for i in sorted_indices]],
+            'metadatas': [[all_metadatas[i] for i in sorted_indices]],
+            'distances': [[all_distances[i] for i in sorted_indices]]
+        }
+        
+        logger.info(f"✅ 多小说检索完成: 合并后 {len(merged_results['ids'][0])} 个结果")
+        
+        return merged_results
+    
     def keyword_search(
         self,
         db: Session,
@@ -191,7 +261,7 @@ class RAGEngine:
         top_k: int = 10
     ) -> List[Dict]:
         """
-        关键词检索（简单实现）
+        BM25 关键词检索
         
         Args:
             db: 数据库会话
@@ -202,13 +272,58 @@ class RAGEngine:
         Returns:
             List[Dict]: 检索结果
         """
-        # 简单的关键词匹配（实际应该用全文索引）
-        # 这里只是演示，生产环境应该使用Elasticsearch等
-        logger.info(f"🔍 关键词检索: {query}")
+        try:
+            bm25_retriever = BM25Retriever(novel_id)
+            results = bm25_retriever.search(query, top_k=top_k)
+            logger.info(f"🔍 BM25 关键词检索完成: {len(results)} 个结果")
+            return results
+        except Exception as e:
+            logger.warning(f"⚠️ BM25 检索失败（可能索引不存在）: {e}")
+            return []
+    
+    def keyword_search_multi(
+        self,
+        db: Session,
+        novel_ids: List[int],
+        query: str,
+        top_k: int = 10
+    ) -> List[Dict]:
+        """
+        多小说BM25关键词检索
         
-        # TODO: 实现基于数据库的关键词检索
-        # 暂时返回空结果
-        return []
+        Args:
+            db: 数据库会话
+            novel_ids: 多个小说ID列表
+            query: 查询文本
+            top_k: 返回Top-K结果
+        
+        Returns:
+            List[Dict]: 合并后的检索结果
+        """
+        per_novel_k = max(3, top_k // len(novel_ids))
+        all_results = []
+        
+        for novel_id in novel_ids:
+            try:
+                bm25_retriever = BM25Retriever(novel_id)
+                results = bm25_retriever.search(query, top_k=per_novel_k)
+                
+                # 为每个结果添加来源小说ID
+                for result in results:
+                    if 'metadata' not in result:
+                        result['metadata'] = {}
+                    result['metadata']['source_novel_id'] = novel_id
+                    all_results.append(result)
+            except Exception as e:
+                logger.warning(f"⚠️ 小说{novel_id}的BM25检索失败: {e}")
+                continue
+        
+        # 按分数排序并取top_k
+        all_results.sort(key=lambda x: x.get('score', 0), reverse=True)
+        all_results = all_results[:top_k]
+        
+        logger.info(f"✅ 多小说BM25检索完成: {len(all_results)} 个结果")
+        return all_results
     
     def _extract_entities(self, query: str) -> List[str]:
         """
@@ -393,6 +508,57 @@ class RAGEngine:
         
         return max(0.7, min(1.3, normalized))
     
+    def _rrf_fusion(
+        self,
+        vector_results: List[Dict],
+        bm25_results: List[Dict],
+        k: int = 60
+    ) -> List[Dict]:
+        """
+        使用 Reciprocal Rank Fusion (RRF) 融合向量和 BM25 检索结果
+        
+        Args:
+            vector_results: 向量检索结果列表
+            bm25_results: BM25 检索结果列表
+            k: RRF 参数，默认 60
+        
+        Returns:
+            List[Dict]: 融合后的结果列表
+        """
+        # 构建文档ID到结果的映射（使用 content 作为唯一标识）
+        doc_scores = {}
+        doc_data = {}
+        
+        # 处理向量检索结果
+        for rank, result in enumerate(vector_results, 1):
+            doc_id = result.get('content', '')[:100]  # 使用前100字符作为ID
+            if doc_id not in doc_scores:
+                doc_scores[doc_id] = 0.0
+                doc_data[doc_id] = result
+            # RRF 分数: 1 / (k + rank)
+            doc_scores[doc_id] += 1.0 / (k + rank)
+        
+        # 处理 BM25 检索结果
+        for rank, result in enumerate(bm25_results, 1):
+            doc_id = result.get('content', '')[:100]
+            if doc_id not in doc_scores:
+                doc_scores[doc_id] = 0.0
+                doc_data[doc_id] = result
+            doc_scores[doc_id] += 1.0 / (k + rank)
+        
+        # 按 RRF 分数排序
+        sorted_docs = sorted(doc_scores.items(), key=lambda x: -x[1])
+        
+        # 构建融合结果
+        fused_results = []
+        for doc_id, rrf_score in sorted_docs:
+            result = doc_data[doc_id].copy()
+            result['rrf_score'] = rrf_score
+            result['score'] = rrf_score  # 覆盖原始分数
+            fused_results.append(result)
+        
+        return fused_results
+    
     def rerank(
         self,
         query: str,
@@ -406,12 +572,12 @@ class RAGEngine:
         recency_bias_weight: float = 0.15
     ) -> List[Dict]:
         """
-        混合Rerank，支持查询类型特定策略 + GraphRAG增强 + 实体匹配
+        混合Rerank，支持查询类型特定策略 + GraphRAG增强 + 实体匹配 + RRF融合
         
         Args:
             query: 查询文本
             vector_results: 向量检索结果
-            keyword_results: 关键词检索结果
+            keyword_results: BM25关键词检索结果
             top_k: 返回Top-K结果
             query_type: 查询类型（自动检测或手动指定）
             novel_id: 小说ID（用于GraphRAG）
@@ -474,17 +640,53 @@ class RAGEngine:
             except Exception as e:
                 logger.warning(f"⚠️ GraphRAG加载失败（继续使用纯向量检索）: {e}")
         
-        # 提取向量检索结果
-        documents = vector_results.get('documents', [[]])[0]
-        metadatas = vector_results.get('metadatas', [[]])[0]
-        distances = vector_results.get('distances', [[]])[0]
+        # 🔥 RRF 融合：如果有 BM25 结果，先进行融合
+        if keyword_results and len(keyword_results) > 0:
+            logger.info(f"🔀 执行 RRF 融合: 向量检索 {len(vector_results.get('documents', [[]])[0])} + BM25 {len(keyword_results)}")
+            
+            # 将向量结果转换为统一格式
+            vector_candidates = []
+            documents = vector_results.get('documents', [[]])[0]
+            metadatas = vector_results.get('metadatas', [[]])[0]
+            distances = vector_results.get('distances', [[]])[0]
+            
+            for i, (doc, metadata, distance) in enumerate(zip(documents, metadatas, distances)):
+                vector_candidates.append({
+                    'content': doc,
+                    'metadata': metadata,
+                    'score': distance,  # 暂时保留原始距离
+                    'rank': i + 1
+                })
+            
+            # RRF 融合
+            fused_results = self._rrf_fusion(vector_candidates, keyword_results)
+            
+            # 使用融合后的结果继续处理
+            documents = [r['content'] for r in fused_results]
+            metadatas = [r['metadata'] for r in fused_results]
+            # RRF 分数作为新的"相似度"（但注意RRF分数不是距离）
+            # 为了后续处理统一，我们将 RRF 分数转换为类似 base_score 的形式
+            rrf_scores = [r['rrf_score'] for r in fused_results]
+            
+            logger.info(f"✅ RRF 融合完成，得到 {len(documents)} 个候选文档")
+        else:
+            # 没有 BM25 结果，仅使用向量检索
+            documents = vector_results.get('documents', [[]])[0]
+            metadatas = vector_results.get('metadatas', [[]])[0]
+            distances = vector_results.get('distances', [[]])[0]
+            rrf_scores = None
         
         # 构建候选文档
         candidates = []
-        for i, (doc, metadata, distance) in enumerate(zip(documents, metadatas, distances)):
-            # L2距离转换为相似度分数：使用高斯核函数
-            # distance=0 -> score=1.0, distance=2 -> score≈0.135
-            base_score = math.exp(-distance**2 / 2)
+        for i, (doc, metadata) in enumerate(zip(documents, metadatas)):
+            # 计算 base_score
+            if rrf_scores is not None:
+                # 使用 RRF 融合分数（已经是 0-1 范围的正值）
+                base_score = rrf_scores[i]
+            else:
+                # 使用 L2 距离转换为相似度
+                distance = distances[i]
+                base_score = math.exp(-distance**2 / 2)
             
             # 🎯 实体匹配得分
             entity_match_score = self._calculate_entity_match_score(doc, query_entities)
@@ -818,38 +1020,43 @@ class RAGEngine:
     def generate_answer(
         self,
         prompt: str,
-        model: str = "glm-4",
+        model: str = "zhipu/GLM-4.5-Flash",
         stream: bool = False
     ):
         """
-        生成答案
+        生成答案 - 支持多提供商
         
         Args:
             prompt: 完整的Prompt
-            model: 使用的模型
+            model: 使用的模型（格式：provider/model_name）
             stream: 是否流式输出
         
         Returns:
             str | Generator: 答案文本或生成器
         """
         try:
+            from app.services.llm.factory import get_llm_client_for_model
+            
+            # 获取对应的LLM客户端和纯模型名称
+            llm_client, model_name = get_llm_client_for_model(model)
+            
             messages = [{"role": "user", "content": prompt}]
             
             if stream:
                 # 流式生成
-                for chunk in self.zhipu_client.chat_completion_stream(
+                for chunk in llm_client.chat_completion_stream(
                     messages=messages,
-                    model=model
+                    model=model_name
                 ):
                     if chunk.get("content"):
                         yield chunk["content"]
             else:
                 # 非流式生成
-                response = self.zhipu_client.chat_completion(
+                response = llm_client.chat_completion(
                     messages=messages,
-                    model=model
+                    model=model_name
                 )
-                return response
+                return response.get("content", "")
         except Exception as e:
             logger.error(f"❌ 生成答案失败: {e}")
             raise
@@ -857,38 +1064,43 @@ class RAGEngine:
     def generate_answer_with_stats(
         self,
         prompt: str,
-        model: str = "glm-4",
+        model: str = "zhipu/GLM-4.5-Flash",
         stream: bool = False
     ):
         """
-        生成答案（带Token统计）
+        生成答案（带Token统计）- 支持多提供商
         
         支持thinking模式的模型会自动返回reasoning_content（思考过程）
         
         Args:
             prompt: 完整的Prompt
-            model: 使用的模型
+            model: 使用的模型（格式：provider/model_name，如"openai/gpt-4o"）
             stream: 是否流式输出
         
         Returns:
             Dict | Generator[Dict]: 包含content、reasoning_content和usage的字典或生成器
         """
         try:
+            from app.services.llm.factory import get_llm_client_for_model
+            
+            # 获取对应的LLM客户端和纯模型名称
+            llm_client, model_name = get_llm_client_for_model(model)
+            
             messages = [{"role": "user", "content": prompt}]
             
             if stream:
                 # 流式生成（返回完整的chunk数据，包含content、reasoning_content和usage）
-                for chunk_data in self.zhipu_client.chat_completion_stream(
+                for chunk_data in llm_client.chat_completion_stream(
                     messages=messages,
-                    model=model
+                    model=model_name
                 ):
                     # 返回完整的chunk_data，某些模型会包含reasoning_content
                     yield chunk_data
             else:
                 # 非流式生成
-                response = self.zhipu_client.chat_completion(
+                response = llm_client.chat_completion(
                     messages=messages,
-                    model=model
+                    model=model_name
                 )
                 
                 logger.info(f"✅ 答案生成完成")
@@ -897,7 +1109,7 @@ class RAGEngine:
         except Exception as e:
             logger.error(f"❌ 答案生成失败: {e}")
             if stream:
-                yield "抱歉，生成答案时出现错误。"
+                yield {"content": "抱歉，生成答案时出现错误。"}
             else:
                 return "抱歉，生成答案时出现错误。"
     
@@ -912,7 +1124,7 @@ class RAGEngine:
         recency_bias_weight: float = 0.15
     ) -> Tuple[str, List[Citation], Dict, Optional[str]]:
         """
-        完整RAG查询流程（含查询优化）
+        完整RAG查询流程（含查询优化和缓存）
         
         Args:
             db: 数据库会话
@@ -927,6 +1139,18 @@ class RAGEngine:
         """
         logger.info(f"📝 开始RAG查询: {query}")
         
+        # 🎯 尝试从缓存获取结果
+        cached_result = self.query_cache.get(novel_id, query, model)
+        if cached_result is not None:
+            cached_data = cached_result['result']
+            logger.info(f"✅ 使用缓存结果（跳过检索和生成）")
+            return (
+                cached_data['answer'],
+                cached_data['citations'],
+                cached_data['stats'],
+                cached_data.get('rewritten_query')
+            )
+        
         # 0. 查询改写（可选）
         rewrite_result = self.query_rewriter.rewrite_query(
             query, 
@@ -940,10 +1164,9 @@ class RAGEngine:
         # 1. 查询向量化（使用改写后的查询）
         query_embedding = self.query_embedding(query_for_retrieval, query_id=query_id)
         
-        # 2. 语义检索
+        # 2. 并行执行语义检索和关键词检索
+        logger.info(f"🚀 并行执行向量检索和 BM25 检索...")
         vector_results = self.vector_search(novel_id, query_embedding, query_id=query_id)
-        
-        # 3. 关键词检索（可选）
         keyword_results = self.keyword_search(db, novel_id, query_for_retrieval)
         
         # 4. 混合Rerank
@@ -998,6 +1221,15 @@ class RAGEngine:
         }
         
         logger.info(f"✅ RAG查询完成: {len(citations)} 条引用")
+        
+        # 💾 保存结果到缓存
+        cache_data = {
+            'answer': answer,
+            'citations': citations,
+            'stats': stats,
+            'rewritten_query': rewritten_query
+        }
+        self.query_cache.set(novel_id, query, model, cache_data)
         
         return answer, citations, stats, rewritten_query
     

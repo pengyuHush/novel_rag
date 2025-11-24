@@ -28,7 +28,7 @@ export function useQueryWebSocket() {
   } = useQueryStore();
 
   const executeQuery = useCallback(
-    (novelId: number, query: string, model: ModelType) => {
+    (novelIds: number | number[], query: string, model: ModelType) => {
       // 关闭之前的连接
       if (wsRef.current) {
         wsRef.current.close();
@@ -38,7 +38,7 @@ export function useQueryWebSocket() {
       startQuery();
 
       // 创建新的WebSocket连接（传递查询配置）
-      wsRef.current = createQueryWebSocket(novelId, query, model, queryConfig, {
+      wsRef.current = createQueryWebSocket(novelIds, query, model, queryConfig, {
         onStage: (stage, progress) => {
           setStage(stage, progress);
         },

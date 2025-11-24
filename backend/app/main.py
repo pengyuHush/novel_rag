@@ -195,6 +195,10 @@ app.include_router(config.router)
 from app.api import stats
 app.include_router(stats.router)
 
+# 导入并注册providers路由（提供商配置状态）
+from app.api import providers
+app.include_router(providers.router)
+
 # 根端点
 @app.get("/", tags=["基本信息"])
 async def root():

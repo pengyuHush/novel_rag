@@ -20,27 +20,34 @@ export enum FileFormat {
 }
 
 export enum ModelType {
-  // 免费模型
-  GLM_4_5_FLASH = "GLM-4.5-Flash",
-  GLM_4_FLASH = "GLM-4-Flash-250414",
+  // 智谱AI
+  ZHIPU_GLM_4_5_FLASH = "zhipu/GLM-4.5-Flash",
+  ZHIPU_GLM_4_5 = "zhipu/GLM-4.5",
+  ZHIPU_GLM_4_6 = "zhipu/GLM-4.6",
+  ZHIPU_GLM_4_5_AIR = "zhipu/GLM-4.5-Air",
+  ZHIPU_GLM_4_PLUS = "zhipu/GLM-4-Plus",
+  ZHIPU_GLM_4_LONG = "zhipu/GLM-4-Long",
   
-  // 高性价比模型
-  GLM_4_5_AIR = "GLM-4.5-Air",
-  GLM_4_5_AIRX = "GLM-4.5-AirX",
-  GLM_4_AIR = "GLM-4-Air-250414",
+  // OpenAI
+  OPENAI_GPT_4O = "openai/gpt-4o",
+  OPENAI_GPT_4O_MINI = "openai/gpt-4o-mini",
+  OPENAI_GPT_4_TURBO = "openai/gpt-4-turbo",
+  OPENAI_GPT_3_5_TURBO = "openai/gpt-3.5-turbo",
   
-  // 极速模型
-  GLM_4_5_X = "GLM-4.5-X",
-  GLM_4_AIRX = "GLM-4-AirX",
-  GLM_4_FLASHX = "GLM-4-FlashX-250414",
+  // DeepSeek
+  DEEPSEEK_CHAT = "deepseek/deepseek-chat",
+  DEEPSEEK_REASONER = "deepseek/deepseek-reasoner",
   
-  // 高性能模型
-  GLM_4_5 = "GLM-4.5",
-  GLM_4_PLUS = "GLM-4-Plus",
-  GLM_4_6 = "GLM-4.6",
+  // Gemini
+  GEMINI_1_5_PRO = "gemini/gemini-1.5-pro",
+  GEMINI_1_5_FLASH = "gemini/gemini-1.5-flash",
+  GEMINI_2_0_FLASH_EXP = "gemini/gemini-2.0-flash-exp",
+  GEMINI_3_PRO_PREVIEW = "gemini/gemini-3-pro-preview",
   
-  // 超长上下文
-  GLM_4_LONG = "GLM-4-Long",
+  // 阿里通义千问
+  ALI_QWEN_MAX = "ali/qwen-max",
+  ALI_QWEN_PLUS = "ali/qwen-plus",
+  ALI_QWEN_TURBO = "ali/qwen-turbo",
 }
 
 export enum Confidence {
@@ -188,10 +195,13 @@ export interface QueryConfig {
   top_k_rerank: number;
   max_context_chunks: number;
   enable_query_rewrite: boolean;
+  use_rewritten_in_prompt: boolean; // 是否在Prompt中使用改写后的查询
   recency_bias_weight: number;
 }
 
 export interface Citation {
+  novelId: number;           // 来源小说ID
+  novelTitle?: string;       // 来源小说标题
   chapterNum: number;
   chapterTitle?: string;
   text: string;

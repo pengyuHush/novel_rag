@@ -30,6 +30,7 @@ const PRESET_CONFIGS = {
       top_k_rerank: 10,
       max_context_chunks: 10,
       enable_query_rewrite: true,
+      use_rewritten_in_prompt: false,
       recency_bias_weight: 0.15,
     },
   },
@@ -41,6 +42,7 @@ const PRESET_CONFIGS = {
       top_k_rerank: 30,
       max_context_chunks: 20,
       enable_query_rewrite: true,
+      use_rewritten_in_prompt: false,
       recency_bias_weight: 0.15,
     },
   },
@@ -62,6 +64,7 @@ export function QueryConfigModal({ open, onOpenChange }: QueryConfigModalProps) 
       // 确保所有字段都有默认值
       setLocalConfig({
         ...queryConfig,
+        use_rewritten_in_prompt: queryConfig.use_rewritten_in_prompt ?? false,
         recency_bias_weight: queryConfig.recency_bias_weight ?? 0.15,
       });
       // 检测当前配置匹配哪个预设
@@ -72,11 +75,13 @@ export function QueryConfigModal({ open, onOpenChange }: QueryConfigModalProps) 
   // 检测当前配置是否匹配预设
   const detectPreset = (config: QueryConfig) => {
     const recencyWeight = config.recency_bias_weight ?? 0.15;
+    const useRewrittenInPrompt = config.use_rewritten_in_prompt ?? false;
     if (
       config.top_k_retrieval === PRESET_CONFIGS.normal.config.top_k_retrieval &&
       config.top_k_rerank === PRESET_CONFIGS.normal.config.top_k_rerank &&
       config.max_context_chunks === PRESET_CONFIGS.normal.config.max_context_chunks &&
       config.enable_query_rewrite === PRESET_CONFIGS.normal.config.enable_query_rewrite &&
+      useRewrittenInPrompt === PRESET_CONFIGS.normal.config.use_rewritten_in_prompt &&
       recencyWeight === PRESET_CONFIGS.normal.config.recency_bias_weight
     ) {
       setPreset('normal');
@@ -85,6 +90,7 @@ export function QueryConfigModal({ open, onOpenChange }: QueryConfigModalProps) 
       config.top_k_rerank === PRESET_CONFIGS.highPrecision.config.top_k_rerank &&
       config.max_context_chunks === PRESET_CONFIGS.highPrecision.config.max_context_chunks &&
       config.enable_query_rewrite === PRESET_CONFIGS.highPrecision.config.enable_query_rewrite &&
+      useRewrittenInPrompt === PRESET_CONFIGS.highPrecision.config.use_rewritten_in_prompt &&
       recencyWeight === PRESET_CONFIGS.highPrecision.config.recency_bias_weight
     ) {
       setPreset('highPrecision');
@@ -235,9 +241,9 @@ export function QueryConfigModal({ open, onOpenChange }: QueryConfigModalProps) 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label htmlFor="enable_query_rewrite">启用查询改写</Label>
+                  <Label htmlFor="enable_query_rewrite">启用查询改写（检索阶段）</Label>
                   <p className="text-xs text-muted-foreground">
-                    使用AI优化查询语句，提升检索召回率和答案精度（推荐开启）
+                    使用AI优化查询语句，提升检索召回率（推荐开启）
                   </p>
                 </div>
                 <Switch
@@ -250,6 +256,33 @@ export function QueryConfigModal({ open, onOpenChange }: QueryConfigModalProps) 
                   }}
                 />
               </div>
+            </div>
+
+            {/* use_rewritten_in_prompt */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="use_rewritten_in_prompt">Prompt中使用改写查询</Label>
+                  <p className="text-xs text-muted-foreground">
+                    在生成答案时使用改写后的查询（可能导致答非所问，通常不建议开启）
+                  </p>
+                </div>
+                <Switch
+                  id="use_rewritten_in_prompt"
+                  checked={localConfig.use_rewritten_in_prompt}
+                  onCheckedChange={(checked) => {
+                    const newConfig = { ...localConfig, use_rewritten_in_prompt: checked };
+                    setLocalConfig(newConfig);
+                    detectPreset(newConfig);
+                  }}
+                  disabled={!localConfig.enable_query_rewrite}
+                />
+              </div>
+              {!localConfig.enable_query_rewrite && (
+                <p className="text-xs text-amber-600 dark:text-amber-500">
+                  ⚠️ 需要先启用"查询改写"功能
+                </p>
+              )}
             </div>
 
             {/* 时间衰减权重 */}

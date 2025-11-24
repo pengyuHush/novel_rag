@@ -241,13 +241,19 @@ class EmbeddingService:
         """
         from app.services.batch_api_client import get_batch_client
         
-        logger.info(f"🚀 使用Batch API进行向量化（Embedding-3支持，限制10000请求/批次）")
+        # 先统计总请求数
+        total_chunks_count = sum(len(chapter_data['chunks']) for chapter_data in all_chapters_data)
+        
+        # 🎯 智能判断：请求数 < 阈值时使用实时API
+        if total_chunks_count < settings.batch_api_threshold:
+            logger.info(f"📊 请求数({total_chunks_count}) < 阈值({settings.batch_api_threshold})，使用实时API（更快）")
+            return await self._embed_chapters_realtime(novel_id, all_chapters_data)
+        
+        logger.info(f"🚀 请求数({total_chunks_count}) ≥ 阈值({settings.batch_api_threshold})，使用Batch API（更省钱）")
         
         # 收集所有chunks并构建batch任务
         batch_tasks = []
         chunk_mapping = []  # 记录每个chunk对应的章节信息
-        
-        total_chunks_count = 0
         for chapter_data in all_chapters_data:
             chapter_num = chapter_data['chapter_num']
             chapter_title = chapter_data['chapter_title']
@@ -258,11 +264,11 @@ class EmbeddingService:
                 custom_id = f"embedding-novel{novel_id}-ch{chapter_num}-chunk{chunk_idx}"
                 
                 # 构建Batch API任务（使用embedding模型）
-                # 注意：虽然endpoint统一为/v4/chat/completions，但指定embedding-3模型
+                # Embedding 模型需要使用 /v4/embeddings 端点
                 batch_tasks.append({
                     "custom_id": custom_id,
                     "method": "POST",
-                    "url": "/v4/chat/completions",
+                    "url": "/v4/embeddings",
                     "body": {
                         "model": "embedding-3",
                         "input": chunk_text
@@ -277,8 +283,6 @@ class EmbeddingService:
                     'chunk': chunk,
                     'novel_id': novel_id
                 })
-                
-                total_chunks_count += 1
         
         logger.info(f"📊 准备批量向量化 {total_chunks_count} 个文本块")
         

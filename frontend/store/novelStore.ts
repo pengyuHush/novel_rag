@@ -9,34 +9,49 @@ import type { NovelListItem } from '@/types/api';
 interface NovelState {
   // 状态
   novels: NovelListItem[];
-  selectedNovelId: number | null;
+  selectedNovelIds: number[];  // 改为数组支持多选
   isLoading: boolean;
   error: string | null;
 
   // Actions
   setNovels: (novels: NovelListItem[]) => void;
-  setSelectedNovel: (id: number | null) => void;
+  setSelectedNovels: (ids: number[]) => void;
+  toggleNovelSelection: (id: number) => void;
   addNovel: (novel: NovelListItem) => void;
   updateNovel: (id: number, data: Partial<NovelListItem>) => void;
   removeNovel: (id: number) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   reset: () => void;
+  
+  // 向后兼容的getter（用于需要单个ID的场景）
+  selectedNovelId: number | null;
+  setSelectedNovel: (id: number | null) => void;
 }
 
 const initialState = {
   novels: [],
-  selectedNovelId: null,
+  selectedNovelIds: [],
   isLoading: false,
   error: null,
 };
 
-export const useNovelStore = create<NovelState>((set) => ({
+export const useNovelStore = create<NovelState>((set, get) => ({
   ...initialState,
 
   setNovels: (novels) => set({ novels }),
 
-  setSelectedNovel: (id) => set({ selectedNovelId: id }),
+  setSelectedNovels: (ids) => set({ selectedNovelIds: ids }),
+
+  toggleNovelSelection: (id) =>
+    set((state) => {
+      const ids = state.selectedNovelIds;
+      if (ids.includes(id)) {
+        return { selectedNovelIds: ids.filter((i) => i !== id) };
+      } else {
+        return { selectedNovelIds: [...ids, id] };
+      }
+    }),
 
   addNovel: (novel) =>
     set((state) => ({
@@ -53,7 +68,7 @@ export const useNovelStore = create<NovelState>((set) => ({
   removeNovel: (id) =>
     set((state) => ({
       novels: state.novels.filter((novel) => novel.id !== id),
-      selectedNovelId: state.selectedNovelId === id ? null : state.selectedNovelId,
+      selectedNovelIds: state.selectedNovelIds.filter((i) => i !== id),
     })),
 
   setLoading: (loading) => set({ isLoading: loading }),
@@ -61,6 +76,20 @@ export const useNovelStore = create<NovelState>((set) => ({
   setError: (error) => set({ error }),
 
   reset: () => set(initialState),
+
+  // 向后兼容：单个选择的getter和setter
+  get selectedNovelId() {
+    const ids = get().selectedNovelIds;
+    return ids.length > 0 ? ids[0] : null;
+  },
+
+  setSelectedNovel: (id) => {
+    if (id === null) {
+      set({ selectedNovelIds: [] });
+    } else {
+      set({ selectedNovelIds: [id] });
+    }
+  },
 }));
 
 // 选择器

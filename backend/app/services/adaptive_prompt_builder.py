@@ -64,20 +64,22 @@ class AdaptivePromptBuilder:
         max_chunks: int = 10,
         query_type: Optional[QueryType] = None,
         include_few_shot: bool = True,
-        query_id: Optional[int] = None
+        query_id: Optional[int] = None,
+        novel_ids: Optional[List[int]] = None
     ) -> str:
         """
         构建自适应RAG Prompt
         
         Args:
             db: 数据库会话
-            novel_id: 小说ID
+            novel_id: 小说ID（主小说ID，向后兼容）
             query: 查询文本
             context_chunks: 上下文块列表
             max_chunks: 最大使用的上下文块数量
             query_type: 查询类型（如不提供则自动检测）
             include_few_shot: 是否包含Few-shot示例
             query_id: 查询ID（用于日志记录）
+            novel_ids: 多个小说ID（用于多小说查询）
         
         Returns:
             str: 构建好的Prompt
@@ -89,28 +91,38 @@ class AdaptivePromptBuilder:
         logger.info(f"🎯 构建 {query_type.value} 类型的Prompt")
         
         # 获取小说信息
-        novel = db.query(Novel).filter(Novel.id == novel_id).first()
-        novel_title = novel.title if novel else "未知"
-        novel_author = novel.author if novel and novel.author else "未知"
+        if novel_ids and len(novel_ids) > 1:
+            # 多小说查询
+            novels = db.query(Novel).filter(Novel.id.in_(novel_ids)).all()
+            novel_info = ", ".join([f"《{n.title}》" for n in novels])
+            novel_title = f"{len(novels)}本小说（{novel_info}）"
+            novel_author = "多位作者"
+            is_multi_novel = True
+        else:
+            # 单小说查询
+            novel = db.query(Novel).filter(Novel.id == novel_id).first()
+            novel_title = novel.title if novel else "未知"
+            novel_author = novel.author if novel and novel.author else "未知"
+            is_multi_novel = False
         
         # 限制上下文块数量
         limited_chunks = context_chunks[:max_chunks]
         
         # 构建上下文
-        context_text = self._format_context(limited_chunks)
+        context_text = self._format_context(limited_chunks, db)
         
         # 根据查询类型选择Prompt模板
         if query_type == QueryType.DIALOGUE:
             prompt = self._build_dialogue_prompt(
-                novel_title, novel_author, context_text, query, include_few_shot
+                novel_title, novel_author, context_text, query, include_few_shot, is_multi_novel
             )
         elif query_type == QueryType.ANALYSIS:
             prompt = self._build_analysis_prompt(
-                novel_title, novel_author, context_text, query, include_few_shot
+                novel_title, novel_author, context_text, query, include_few_shot, is_multi_novel
             )
         else:  # FACT
             prompt = self._build_fact_prompt(
-                novel_title, novel_author, context_text, query, include_few_shot
+                novel_title, novel_author, context_text, query, include_few_shot, is_multi_novel
             )
         
         # 详细日志
@@ -132,12 +144,13 @@ class AdaptivePromptBuilder:
         
         return prompt
     
-    def _format_context(self, chunks: List[Dict]) -> str:
+    def _format_context(self, chunks: List[Dict], db: Session = None) -> str:
         """
         格式化上下文片段
         
         Args:
             chunks: 上下文块列表
+            db: 数据库会话（用于查询小说标题）
         
         Returns:
             str: 格式化后的上下文文本
@@ -147,10 +160,21 @@ class AdaptivePromptBuilder:
             metadata = chunk['metadata']
             chapter_num = metadata.get('chapter_num', '?')
             chapter_title = metadata.get('chapter_title', '')
+            source_novel_id = metadata.get('source_novel_id')
             content = chunk['content']
             
+            # 如果有来源小说ID，查询小说标题
+            novel_prefix = ""
+            if source_novel_id and db:
+                try:
+                    novel = db.query(Novel).filter(Novel.id == source_novel_id).first()
+                    if novel:
+                        novel_prefix = f"《{novel.title}》 - "
+                except:
+                    pass
+            
             context_parts.append(
-                f"[片段{i} - 第{chapter_num}章 {chapter_title}]\n{content}"
+                f"[片段{i} - {novel_prefix}第{chapter_num}章 {chapter_title}]\n{content}"
             )
         
         return "\n\n".join(context_parts)
@@ -161,7 +185,8 @@ class AdaptivePromptBuilder:
         novel_author: str,
         context_text: str,
         query: str,
-        include_few_shot: bool
+        include_few_shot: bool,
+        is_multi_novel: bool = False
     ) -> str:
         """
         构建对话类查询的Prompt
@@ -175,11 +200,15 @@ class AdaptivePromptBuilder:
         if include_few_shot:
             few_shot = self.FEW_SHOT_EXAMPLES[QueryType.DIALOGUE]
         
+        multi_novel_note = ""
+        if is_multi_novel:
+            multi_novel_note = "\n**注意**: 以下片段来自多本小说，请在回答时明确标注每段对话来自哪本小说和哪一章。"
+        
         prompt = f"""你是小说对话分析专家。请从以下片段中提取与问题相关的对话内容。
 
 **小说信息**
 - 标题: {novel_title}
-- 作者: {novel_author}
+- 作者: {novel_author}{multi_novel_note}
 
 **相关片段**
 {context_text}
@@ -189,10 +218,11 @@ class AdaptivePromptBuilder:
 
 **回答要求**
 1. **直接引用原文对话**，使用引号标注（如："张无忌说道：'……'"）
-2. 标注说话者和对话所在的章节号
+2. 标注说话者和对话所在的章节号{' 以及小说名称（多本小说时）' if is_multi_novel else ''}
 3. 如有必要，简要说明对话发生的背景或场景
 4. 如果片段中没有相关对话，请明确说明
 5. 保持对话的完整性，不要断章取义
+6. {'综合多本小说的内容，给出全面完整的回答' if is_multi_novel else '基于小说内容给出完整的回答'}
 
 {few_shot}
 
@@ -206,7 +236,8 @@ class AdaptivePromptBuilder:
         novel_author: str,
         context_text: str,
         query: str,
-        include_few_shot: bool
+        include_few_shot: bool,
+        is_multi_novel: bool = False
     ) -> str:
         """
         构建分析类查询的Prompt
@@ -220,11 +251,15 @@ class AdaptivePromptBuilder:
         if include_few_shot:
             few_shot = self.FEW_SHOT_EXAMPLES[QueryType.ANALYSIS]
         
+        multi_novel_note = ""
+        if is_multi_novel:
+            multi_novel_note = "\n**注意**: 以下片段来自多本小说，请综合分析不同小说中的相关内容，并在回答时标注来源。"
+        
         prompt = f"""你是小说情节分析专家。请基于以下片段进行深度分析。
 
 **小说信息**
 - 标题: {novel_title}
-- 作者: {novel_author}
+- 作者: {novel_author}{multi_novel_note}
 
 **相关片段**
 {context_text}
@@ -236,8 +271,9 @@ class AdaptivePromptBuilder:
 1. 首先梳理关键情节和时间线
 2. 分析因果关系和人物动机
 3. 综合多个片段，形成连贯的解释
-4. 标注引用的章节范围
+4. 标注引用的章节范围{' 和小说名称（多本小说时）' if is_multi_novel else ''}
 5. 如果信息不足以完整回答，请说明缺失的信息
+6. {'对比分析不同小说中的相关内容，给出全面深入的分析' if is_multi_novel else '基于小说内容给出深入的分析'}
 
 **思考步骤**（请按此步骤组织回答）：
 第1步：识别问题中的关键要素（人物、事件、时间）
@@ -257,7 +293,8 @@ class AdaptivePromptBuilder:
         novel_author: str,
         context_text: str,
         query: str,
-        include_few_shot: bool
+        include_few_shot: bool,
+        is_multi_novel: bool = False
     ) -> str:
         """
         构建事实类查询的Prompt
@@ -271,11 +308,15 @@ class AdaptivePromptBuilder:
         if include_few_shot:
             few_shot = self.FEW_SHOT_EXAMPLES[QueryType.FACT]
         
+        multi_novel_note = ""
+        if is_multi_novel:
+            multi_novel_note = "\n**注意**: 以下片段来自多本小说，请在回答时明确标注信息来自哪本小说。"
+        
         prompt = f"""你是小说内容助手。请准确回答用户的事实性问题。
 
 **小说信息**
 - 标题: {novel_title}
-- 作者: {novel_author}
+- 作者: {novel_author}{multi_novel_note}
 
 **相关片段**
 {context_text}
@@ -286,9 +327,10 @@ class AdaptivePromptBuilder:
 **回答要求**
 1. 回答必须基于提供的片段内容
 2. 如片段内容不足以回答，明确说明缺少哪些信息
-3. 标注信息来源章节
+3. 标注信息来源章节{' 和小说名称（多本小说时）' if is_multi_novel else ''}
 4. 回答要简洁明确，直击要点
 5. 不要添加推测或编造信息
+6. {'综合多本小说的信息，给出完整准确的回答' if is_multi_novel else '基于小说内容给出准确的回答'}
 
 {few_shot}
 

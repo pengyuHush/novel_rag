@@ -27,28 +27,35 @@ class FileFormat(str, Enum):
 
 
 class ModelType(str, Enum):
-    """智谱AI模型类型 - 基于官方文档 https://docs.bigmodel.cn/cn/guide/start/model-overview"""
-    # 免费模型
-    GLM_4_5_FLASH = "GLM-4.5-Flash"
-    GLM_4_FLASH = "GLM-4-Flash-250414"
+    """LLM模型类型 - 支持多提供商"""
+    # 智谱AI
+    ZHIPU_GLM_4_5_FLASH = "zhipu/GLM-4.5-Flash"
+    ZHIPU_GLM_4_5 = "zhipu/GLM-4.5"
+    ZHIPU_GLM_4_6 = "zhipu/GLM-4.6"
+    ZHIPU_GLM_4_5_AIR = "zhipu/GLM-4.5-Air"
+    ZHIPU_GLM_4_PLUS = "zhipu/GLM-4-Plus"
+    ZHIPU_GLM_4_LONG = "zhipu/GLM-4-Long"
     
-    # 高性价比模型
-    GLM_4_5_AIR = "GLM-4.5-Air"
-    GLM_4_5_AIRX = "GLM-4.5-AirX"
-    GLM_4_AIR = "GLM-4-Air-250414"
+    # OpenAI
+    OPENAI_GPT_4O = "openai/gpt-4o"
+    OPENAI_GPT_4O_MINI = "openai/gpt-4o-mini"
+    OPENAI_GPT_4_TURBO = "openai/gpt-4-turbo"
+    OPENAI_GPT_3_5_TURBO = "openai/gpt-3.5-turbo"
     
-    # 极速模型
-    GLM_4_5_X = "GLM-4.5-X"
-    GLM_4_AIRX = "GLM-4-AirX"
-    GLM_4_FLASHX = "GLM-4-FlashX-250414"
+    # DeepSeek
+    DEEPSEEK_CHAT = "deepseek/deepseek-chat"
+    DEEPSEEK_REASONER = "deepseek/deepseek-reasoner"
     
-    # 高性能模型
-    GLM_4_5 = "GLM-4.5"
-    GLM_4_PLUS = "GLM-4-Plus"
-    GLM_4_6 = "GLM-4.6"
+    # Gemini
+    GEMINI_1_5_PRO = "gemini/gemini-1.5-pro"
+    GEMINI_1_5_FLASH = "gemini/gemini-1.5-flash"
+    GEMINI_2_0_FLASH_EXP = "gemini/gemini-2.0-flash-exp"
+    GEMINI_3_PRO_PREVIEW = "gemini/gemini-3-pro-preview"
     
-    # 超长上下文
-    GLM_4_LONG = "GLM-4-Long"
+    # 阿里通义千问
+    ALI_QWEN_MAX = "ali/qwen-max"
+    ALI_QWEN_PLUS = "ali/qwen-plus"
+    ALI_QWEN_TURBO = "ali/qwen-turbo"
 
 
 class Confidence(str, Enum):
@@ -193,9 +200,10 @@ class ChapterContent(BaseModel):
 
 class QueryRequest(BaseModel):
     """查询请求"""
-    novel_id: int = Field(..., gt=0, description="小说ID")
+    novel_id: int = Field(..., gt=0, description="小说ID（主小说ID，向后兼容）")
+    novel_ids: Optional[List[int]] = Field(None, description="多个小说ID（支持多小说查询）")
     query: str = Field(..., min_length=1, max_length=1000, description="查询文本")
-    model: ModelType = Field(default=ModelType.GLM_4_5, description="使用的模型")
+    model: ModelType = Field(default=ModelType.ZHIPU_GLM_4_5_FLASH, description="使用的模型")
     enable_query_rewrite: bool = Field(default=True, description="是否启用查询改写")
     recency_bias_weight: float = Field(default=0.15, ge=0.0, le=0.5, description="时间衰减权重")
 
@@ -204,6 +212,8 @@ class Citation(BaseModel):
     """原文引用"""
     model_config = ConfigDict(populate_by_name=True)
     
+    novel_id: int = Field(..., alias="novelId", description="来源小说ID")
+    novel_title: Optional[str] = Field(None, alias="novelTitle", description="来源小说标题")
     chapter_num: int = Field(..., alias="chapterNum", description="章节号")
     chapter_title: Optional[str] = Field(None, alias="chapterTitle", description="章节标题")
     text: str = Field(..., description="引用文本")

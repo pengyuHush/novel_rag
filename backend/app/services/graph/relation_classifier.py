@@ -255,6 +255,13 @@ class RelationshipClassifier:
         Returns:
             Tuple[List[Dict], Dict]: (分类结果列表, token统计)
         """
+        # 🎯 智能判断：请求数 < 阈值时使用实时API
+        if len(tasks) < settings.batch_api_threshold:
+            logger.info(f"📊 关系分类: 请求数({len(tasks)}) < 阈值({settings.batch_api_threshold})，使用实时API")
+            use_batch_api = False
+        elif use_batch_api:
+            logger.info(f"📊 关系分类: 请求数({len(tasks)}) ≥ 阈值({settings.batch_api_threshold})，使用Batch API")
+        
         if use_batch_api:
             return await self._classify_batch_with_batch_api(tasks)
         
