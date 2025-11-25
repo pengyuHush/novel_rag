@@ -61,6 +61,7 @@ const defaultQueryConfig: QueryConfig = {
   top_k_rerank: 10,
   max_context_chunks: 10,
   enable_query_rewrite: true,
+  enable_query_decomposition: true, // 默认启用查询分解
   use_rewritten_in_prompt: false, // 默认不在Prompt中使用改写后的查询（保持用户原始问题）
   recency_bias_weight: 0.15,
 };

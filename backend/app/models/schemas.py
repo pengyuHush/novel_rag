@@ -205,6 +205,7 @@ class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=1000, description="查询文本")
     model: ModelType = Field(default=ModelType.ZHIPU_GLM_4_5_FLASH, description="使用的模型")
     enable_query_rewrite: bool = Field(default=True, description="是否启用查询改写")
+    enable_query_decomposition: bool = Field(default=True, description="是否启用查询分解（复杂查询自动拆分）")
     recency_bias_weight: float = Field(default=0.15, ge=0.0, le=0.5, description="时间衰减权重")
 
 

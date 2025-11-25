@@ -28,7 +28,14 @@ class QueryCacheService:
         self.miss_count = 0
         logger.info(f"✅ 查询缓存服务初始化 (maxsize={maxsize}, ttl={ttl}s)")
     
-    def _generate_key(self, novel_id: int, query: str, model: str) -> str:
+    def _generate_key(
+        self, 
+        novel_id: int, 
+        query: str, 
+        model: str,
+        enable_query_rewrite: bool = True,
+        enable_query_decomposition: bool = True
+    ) -> str:
         """
         生成缓存键
         
@@ -36,14 +43,24 @@ class QueryCacheService:
             novel_id: 小说ID
             query: 查询文本
             model: 模型名称
+            enable_query_rewrite: 是否启用查询改写
+            enable_query_decomposition: 是否启用查询分解
         
         Returns:
             str: 缓存键（哈希值）
         """
-        key_string = f"{novel_id}:{query}:{model}"
+        # 将配置参数也包含在key中，确保不同配置不会使用相同缓存
+        key_string = f"{novel_id}:{query}:{model}:{enable_query_rewrite}:{enable_query_decomposition}"
         return hashlib.md5(key_string.encode('utf-8')).hexdigest()
     
-    def get(self, novel_id: int, query: str, model: str) -> Optional[Dict[str, Any]]:
+    def get(
+        self, 
+        novel_id: int, 
+        query: str, 
+        model: str,
+        enable_query_rewrite: bool = True,
+        enable_query_decomposition: bool = True
+    ) -> Optional[Dict[str, Any]]:
         """
         获取缓存结果
         
@@ -51,22 +68,34 @@ class QueryCacheService:
             novel_id: 小说ID
             query: 查询文本
             model: 模型名称
+            enable_query_rewrite: 是否启用查询改写
+            enable_query_decomposition: 是否启用查询分解
         
         Returns:
             Optional[Dict]: 缓存的结果，如果不存在返回 None
         """
-        key = self._generate_key(novel_id, query, model)
+        key = self._generate_key(novel_id, query, model, enable_query_rewrite, enable_query_decomposition)
         
         if key in self.cache:
             self.hit_count += 1
             logger.info(f"🎯 缓存命中 (命中率: {self.get_hit_rate():.1%})")
+            logger.debug(f"🔧 [DEBUG] 缓存key参数: rewrite={enable_query_rewrite}, decomposition={enable_query_decomposition}")
             return self.cache[key]
         else:
             self.miss_count += 1
             logger.debug(f"⚪ 缓存未命中")
+            logger.debug(f"🔧 [DEBUG] 缓存key参数: rewrite={enable_query_rewrite}, decomposition={enable_query_decomposition}")
             return None
     
-    def set(self, novel_id: int, query: str, model: str, result: Dict[str, Any]):
+    def set(
+        self, 
+        novel_id: int, 
+        query: str, 
+        model: str, 
+        result: Dict[str, Any],
+        enable_query_rewrite: bool = True,
+        enable_query_decomposition: bool = True
+    ):
         """
         设置缓存
         
@@ -75,8 +104,10 @@ class QueryCacheService:
             query: 查询文本
             model: 模型名称
             result: 查询结果
+            enable_query_rewrite: 是否启用查询改写
+            enable_query_decomposition: 是否启用查询分解
         """
-        key = self._generate_key(novel_id, query, model)
+        key = self._generate_key(novel_id, query, model, enable_query_rewrite, enable_query_decomposition)
         self.cache[key] = {
             'result': result,
             'cached_at': time.time()

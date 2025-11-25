@@ -107,7 +107,8 @@ async def query_novel(
                 "小说名称": novel.title,
                 "查询内容": request.query,
                 "模型": request.model.value,
-                "启用查询改写": request.enable_query_rewrite
+                "启用查询改写": request.enable_query_rewrite,
+                "启用查询分解": request.enable_query_decomposition
             },
             output_data="初始化完成",
             status="success"
@@ -128,6 +129,7 @@ async def query_novel(
             query=request.query,
             model=request.model.value,
             enable_query_rewrite=request.enable_query_rewrite,
+            enable_query_decomposition=request.enable_query_decomposition,
             query_id=temp_query_id,
             recency_bias_weight=request.recency_bias_weight
         )
@@ -365,6 +367,7 @@ async def query_stream(websocket: WebSocket):
         top_k_rerank = config.get('top_k_rerank', 10)
         max_context_chunks = config.get('max_context_chunks', 10)
         enable_query_rewrite = config.get('enable_query_rewrite', True)
+        enable_query_decomposition = config.get('enable_query_decomposition', False)  # 流式查询默认关闭（可选功能）
         use_rewritten_in_prompt = config.get('use_rewritten_in_prompt', False)
         recency_bias_weight = config.get('recency_bias_weight', 0.15)
         
@@ -437,6 +440,7 @@ async def query_stream(websocket: WebSocket):
                     "top_k_rerank": top_k_rerank,
                     "max_context_chunks": max_context_chunks,
                     "启用查询改写": enable_query_rewrite,
+                    "启用查询分解": enable_query_decomposition,
                     "Prompt使用改写查询": use_rewritten_in_prompt
                 },
                 output_data="初始化完成",
@@ -469,6 +473,54 @@ async def query_stream(websocket: WebSocket):
                     progress=0.15,
                     metadata={"rewritten_query": rewritten_query}
                 ).model_dump())
+            
+            # 🔨 查询分解（如果启用）
+            logger.info(f"🔧 [DEBUG] 流式查询 - 检查查询分解: enable_query_decomposition={enable_query_decomposition}")
+            
+            if enable_query_decomposition:
+                logger.info(f"🔧 [DEBUG] 流式查询 - 进入查询分解逻辑")
+                try:
+                    from app.services.query_decomposer import QueryDecomposer
+                    # settings 已在文件顶部导入，无需重复导入
+                    
+                    decomposer = QueryDecomposer(
+                        zhipu_client=rag_engine.zhipu_client,
+                        max_subqueries=settings.query_decomposition_max_subqueries,
+                        complexity_threshold=settings.query_decomposition_complexity_threshold,
+                        model=settings.query_decomposition_model
+                    )
+                    
+                    # 判断是否需要分解（使用原始查询）
+                    should_decompose, reason = decomposer.should_decompose(query)
+                    logger.info(f"🔧 [DEBUG] 流式查询 - 复杂度判断: should_decompose={should_decompose}, reason='{reason}'")
+                    
+                    if should_decompose:
+                        # 执行查询分解
+                        sub_queries = decomposer.decompose_query(query_for_retrieval, query_id=temp_query_id)
+                        
+                        if sub_queries and len(sub_queries) > 1:
+                            logger.info(f"🔨 流式查询 - 使用查询分解流程: {len(sub_queries)}个子查询")
+                            
+                            # 发送分解通知
+                            await websocket.send_json(StreamMessage(
+                                stage=QueryStage.UNDERSTANDING,
+                                content=f"查询已分解为 {len(sub_queries)} 个子问题",
+                                progress=0.2,
+                                metadata={"sub_queries": sub_queries}
+                            ).model_dump())
+                            
+                            # ⚠️ 注意：流式查询暂不完全支持并行分解检索
+                            # 这里简单地使用第一个子查询作为主查询
+                            # TODO: 未来可以改进为真正的并行检索
+                            logger.warning(f"⚠️ 流式查询使用简化的分解模式：使用首个子查询")
+                            query_for_retrieval = sub_queries[0]
+                            
+                except Exception as e:
+                    logger.error(f"❌ 流式查询 - 查询分解失败: {e}")
+                    import traceback
+                    logger.error(f"❌ 异常堆栈:\n{traceback.format_exc()}")
+            else:
+                logger.info(f"🔧 [DEBUG] 流式查询 - 查询分解未启用")
             
             # 阶段2: 检索上下文
             await websocket.send_json(StreamMessage(

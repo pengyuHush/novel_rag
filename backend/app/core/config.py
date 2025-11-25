@@ -274,6 +274,12 @@ class Settings(BaseSettings):
     embedding_model: str = Field(default="embedding-3", description="Embedding模型")
     embedding_dimension: int = Field(default=2048, description="向量维度（embedding-3 默认 2048）")
     
+    # 查询分解配置
+    query_decomposition_enabled: bool = Field(default=True, description="是否启用查询分解功能", env="QUERY_DECOMPOSITION_ENABLED")
+    query_decomposition_max_subqueries: int = Field(default=5, description="查询分解最多子查询数", env="QUERY_DECOMPOSITION_MAX_SUBQUERIES")
+    query_decomposition_model: str = Field(default="glm-4-flash", description="查询分解使用的模型", env="QUERY_DECOMPOSITION_MODEL")
+    query_decomposition_complexity_threshold: int = Field(default=30, description="查询复杂度阈值（字数）", env="QUERY_DECOMPOSITION_COMPLEXITY_THRESHOLD")
+    
     # 图谱构建配置
     use_batch_api_for_graph: bool = Field(default=True, description="图谱构建是否使用Batch API（默认开启，完全免费）", env="USE_BATCH_API_FOR_GRAPH")
     use_batch_api_for_embedding: bool = Field(default=True, description="向量化是否使用Batch API（默认开启，价格便宜50%）", env="USE_BATCH_API_FOR_EMBEDDING")

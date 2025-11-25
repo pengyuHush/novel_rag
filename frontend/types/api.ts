@@ -195,6 +195,7 @@ export interface QueryConfig {
   top_k_rerank: number;
   max_context_chunks: number;
   enable_query_rewrite: boolean;
+  enable_query_decomposition: boolean; // 是否启用查询分解（复杂查询自动拆分）
   use_rewritten_in_prompt: boolean; // 是否在Prompt中使用改写后的查询
   recency_bias_weight: number;
 }

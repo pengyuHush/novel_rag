@@ -30,6 +30,7 @@ const PRESET_CONFIGS = {
       top_k_rerank: 10,
       max_context_chunks: 10,
       enable_query_rewrite: true,
+      enable_query_decomposition: true,
       use_rewritten_in_prompt: false,
       recency_bias_weight: 0.15,
     },
@@ -42,6 +43,7 @@ const PRESET_CONFIGS = {
       top_k_rerank: 30,
       max_context_chunks: 20,
       enable_query_rewrite: true,
+      enable_query_decomposition: true,
       use_rewritten_in_prompt: false,
       recency_bias_weight: 0.15,
     },
@@ -64,6 +66,7 @@ export function QueryConfigModal({ open, onOpenChange }: QueryConfigModalProps) 
       // 确保所有字段都有默认值
       setLocalConfig({
         ...queryConfig,
+        enable_query_decomposition: queryConfig.enable_query_decomposition ?? true,
         use_rewritten_in_prompt: queryConfig.use_rewritten_in_prompt ?? false,
         recency_bias_weight: queryConfig.recency_bias_weight ?? 0.15,
       });
@@ -76,11 +79,13 @@ export function QueryConfigModal({ open, onOpenChange }: QueryConfigModalProps) 
   const detectPreset = (config: QueryConfig) => {
     const recencyWeight = config.recency_bias_weight ?? 0.15;
     const useRewrittenInPrompt = config.use_rewritten_in_prompt ?? false;
+    const enableQueryDecomposition = config.enable_query_decomposition ?? true;
     if (
       config.top_k_retrieval === PRESET_CONFIGS.normal.config.top_k_retrieval &&
       config.top_k_rerank === PRESET_CONFIGS.normal.config.top_k_rerank &&
       config.max_context_chunks === PRESET_CONFIGS.normal.config.max_context_chunks &&
       config.enable_query_rewrite === PRESET_CONFIGS.normal.config.enable_query_rewrite &&
+      enableQueryDecomposition === PRESET_CONFIGS.normal.config.enable_query_decomposition &&
       useRewrittenInPrompt === PRESET_CONFIGS.normal.config.use_rewritten_in_prompt &&
       recencyWeight === PRESET_CONFIGS.normal.config.recency_bias_weight
     ) {
@@ -90,6 +95,7 @@ export function QueryConfigModal({ open, onOpenChange }: QueryConfigModalProps) 
       config.top_k_rerank === PRESET_CONFIGS.highPrecision.config.top_k_rerank &&
       config.max_context_chunks === PRESET_CONFIGS.highPrecision.config.max_context_chunks &&
       config.enable_query_rewrite === PRESET_CONFIGS.highPrecision.config.enable_query_rewrite &&
+      enableQueryDecomposition === PRESET_CONFIGS.highPrecision.config.enable_query_decomposition &&
       useRewrittenInPrompt === PRESET_CONFIGS.highPrecision.config.use_rewritten_in_prompt &&
       recencyWeight === PRESET_CONFIGS.highPrecision.config.recency_bias_weight
     ) {
@@ -255,6 +261,31 @@ export function QueryConfigModal({ open, onOpenChange }: QueryConfigModalProps) 
                     detectPreset(newConfig);
                   }}
                 />
+              </div>
+            </div>
+
+            {/* enable_query_decomposition */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="enable_query_decomposition">启用查询分解 🆕</Label>
+                  <p className="text-xs text-muted-foreground">
+                    自动拆分复杂查询为多个子查询并行检索，提升信息覆盖率（推荐开启）
+                  </p>
+                </div>
+                <Switch
+                  id="enable_query_decomposition"
+                  checked={localConfig.enable_query_decomposition}
+                  onCheckedChange={(checked) => {
+                    const newConfig = { ...localConfig, enable_query_decomposition: checked };
+                    setLocalConfig(newConfig);
+                    detectPreset(newConfig);
+                  }}
+                />
+              </div>
+              <div className="text-xs text-blue-600 dark:text-blue-400 flex items-start gap-1.5">
+                <span>💡</span>
+                <span>适用于包含多个信息维度的复杂查询，如"介绍XX的身世，包含父母、家族、师傅"</span>
               </div>
             </div>
 

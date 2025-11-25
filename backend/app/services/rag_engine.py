@@ -668,7 +668,7 @@ class RAGEngine:
             # 为了后续处理统一，我们将 RRF 分数转换为类似 base_score 的形式
             rrf_scores = [r['rrf_score'] for r in fused_results]
             
-            logger.info(f"✅ RRF 融合完成，得到 {len(documents)} 个候选文档")
+            logger.debug(f"✅ RRF 融合完成，得到 {len(documents)} 个候选文档")
         else:
             # 没有 BM25 结果，仅使用向量检索
             documents = vector_results.get('documents', [[]])[0]
@@ -807,7 +807,7 @@ class RAGEngine:
         
         # 📊 记录权重使用情况（仅记录前5个候选）
         if len(candidates) > 0:
-            logger.info(f"📊 Top-5候选权重分布:")
+            logger.debug(f"📊 Top-5候选权重分布:")
             for idx, cand in enumerate(candidates[:5]):
                 recency_info = ""
                 if recency_bias_weight > 0:
@@ -816,7 +816,7 @@ class RAGEngine:
                         bias = self._calculate_recency_bias(ch_num, total_chapters, recency_bias_weight)
                         recency_info = f" | 时间:{bias:.2f}"
                 
-                logger.info(
+                logger.debug(
                     f"  [{idx+1}] 最终得分:{cand['score']:.3f} | "
                     f"语义:{cand['base_score']:.3f} | "
                     f"实体:{cand.get('entity_match_score', 1.0):.2f} | "
@@ -1120,6 +1120,7 @@ class RAGEngine:
         query: str,
         model: str = "glm-4",
         enable_query_rewrite: bool = True,
+        enable_query_decomposition: bool = True,
         query_id: Optional[int] = None,
         recency_bias_weight: float = 0.15
     ) -> Tuple[str, List[Citation], Dict, Optional[str]]:
@@ -1132,15 +1133,24 @@ class RAGEngine:
             query: 查询文本
             model: 使用的模型
             enable_query_rewrite: 是否启用查询改写
+            enable_query_decomposition: 是否启用查询分解
             query_id: 查询ID（用于日志记录）
         
         Returns:
             Tuple[str, List[Citation], Dict, Optional[str]]: (答案, 引用列表, 统计信息, 改写后的查询)
         """
-        logger.info(f"📝 开始RAG查询: {query}")
+        logger.info(f"📝 开始RAG查询: {query[:50]}...")
+        logger.info(f"🔧 [DEBUG] ========== 查询配置 ==========")
+        logger.info(f"🔧 [DEBUG] enable_query_decomposition = {enable_query_decomposition} (类型: {type(enable_query_decomposition)})")
+        logger.info(f"🔧 [DEBUG] enable_query_rewrite = {enable_query_rewrite} (类型: {type(enable_query_rewrite)})")
+        logger.info(f"🔧 [DEBUG] model = {model}")
+        logger.info(f"🔧 [DEBUG] ================================")
         
-        # 🎯 尝试从缓存获取结果
-        cached_result = self.query_cache.get(novel_id, query, model)
+        # 🎯 尝试从缓存获取结果（包含配置参数以区分不同配置的查询）
+        cached_result = self.query_cache.get(
+            novel_id, query, model, 
+            enable_query_rewrite, enable_query_decomposition
+        )
         if cached_result is not None:
             cached_data = cached_result['result']
             logger.info(f"✅ 使用缓存结果（跳过检索和生成）")
@@ -1160,6 +1170,82 @@ class RAGEngine:
         query_for_retrieval = rewrite_result["rewritten"]
         query_type = rewrite_result.get("query_type")
         rewritten_query = query_for_retrieval if rewrite_result["rewrite_applied"] else None
+        
+        # 0.5. 查询分解（可选）
+        logger.info(f"🔧 [DEBUG] ========== 查询分解流程开始 ==========")
+        logger.info(f"🔧 [DEBUG] 准备检查查询分解...")
+        logger.info(f"🔧 [DEBUG] enable_query_decomposition = {enable_query_decomposition}")
+        logger.info(f"🔧 [DEBUG] 条件判断: enable_query_decomposition is True = {enable_query_decomposition is True}")
+        logger.info(f"🔧 [DEBUG] 条件判断: enable_query_decomposition == True = {enable_query_decomposition == True}")
+        logger.info(f"🔧 [DEBUG] 条件判断: bool(enable_query_decomposition) = {bool(enable_query_decomposition)}")
+        
+        if enable_query_decomposition:
+            logger.info(f"🔧 [DEBUG] ✅ 进入 enable_query_decomposition=True 分支")
+            logger.info(f"🔧 [DEBUG] 进入查询分解逻辑")
+            try:
+                from app.services.query_decomposer import QueryDecomposer
+                from app.core.config import settings
+                
+                logger.info(f"🔧 [DEBUG] 导入QueryDecomposer成功")
+                logger.info(f"🔧 [DEBUG] 配置 - max_subqueries={settings.query_decomposition_max_subqueries}, "
+                           f"threshold={settings.query_decomposition_complexity_threshold}, "
+                           f"model={settings.query_decomposition_model}")
+                
+                decomposer = QueryDecomposer(
+                    zhipu_client=self.zhipu_client,
+                    max_subqueries=settings.query_decomposition_max_subqueries,
+                    complexity_threshold=settings.query_decomposition_complexity_threshold,
+                    model=settings.query_decomposition_model
+                )
+                
+                logger.info(f"🔧 [DEBUG] QueryDecomposer实例化成功")
+                logger.info(f"🔧 [DEBUG] 原始查询: '{query}' (长度={len(query)})")
+                logger.info(f"🔧 [DEBUG] 改写后查询: '{query_for_retrieval}' (长度={len(query_for_retrieval)})")
+                
+                # 判断是否需要分解（使用原始查询判断复杂度）
+                should_decompose, reason = decomposer.should_decompose(query)
+                logger.info(f"🔧 [DEBUG] 复杂度判断结果: should_decompose={should_decompose}, reason='{reason}'")
+                
+                if should_decompose:
+                    logger.info(f"🔧 [DEBUG] 开始执行查询分解...")
+                    # 执行查询分解（使用改写后的查询来分解，获得更好的子查询）
+                    sub_queries = decomposer.decompose_query(query_for_retrieval, query_id=query_id)
+                    logger.info(f"🔧 [DEBUG] 分解结果: sub_queries={sub_queries} (数量={len(sub_queries) if sub_queries else 0})")
+                    
+                    # 如果分解成功且有多个子查询，使用分解后的流程
+                    if sub_queries and len(sub_queries) > 1:
+                        logger.info(f"🔨 使用查询分解流程: {len(sub_queries)}个子查询")
+                        logger.info(f"🔧 [DEBUG] 子查询列表: {sub_queries}")
+                        return self._query_with_decomposition(
+                            db=db,
+                            novel_id=novel_id,
+                            original_query=query,
+                            sub_queries=sub_queries,
+                            model=model,
+                            query_id=query_id,
+                            recency_bias_weight=recency_bias_weight,
+                            rewritten_query=rewritten_query,
+                            enable_query_rewrite=enable_query_rewrite,
+                            enable_query_decomposition=enable_query_decomposition
+                        )
+                    else:
+                        logger.info(f"🔧 [DEBUG] 分解失败或子查询数量不足，继续原流程")
+                else:
+                    logger.info(f"🔧 [DEBUG] 查询不需要分解，继续原流程")
+            except Exception as e:
+                logger.error(f"❌ [DEBUG] 查询分解异常: {type(e).__name__}: {e}")
+                import traceback
+                logger.error(f"❌ [DEBUG] 异常堆栈:\n{traceback.format_exc()}")
+                logger.warning(f"⚠️ 查询分解失败，回退到原始查询流程: {e}")
+                # 即使异常也要打印，确保能看到
+                import sys
+                sys.stdout.flush()
+                # 继续执行原有流程
+        else:
+            logger.info(f"🔧 [DEBUG] ❌ 进入 enable_query_decomposition=False 分支")
+            logger.info(f"🔧 [DEBUG] 查询分解未启用，跳过")
+        
+        logger.info(f"🔧 [DEBUG] ========== 查询分解流程结束 ==========")
         
         # 1. 查询向量化（使用改写后的查询）
         query_embedding = self.query_embedding(query_for_retrieval, query_id=query_id)
@@ -1222,14 +1308,17 @@ class RAGEngine:
         
         logger.info(f"✅ RAG查询完成: {len(citations)} 条引用")
         
-        # 💾 保存结果到缓存
+        # 💾 保存结果到缓存（包含配置参数）
         cache_data = {
             'answer': answer,
             'citations': citations,
             'stats': stats,
             'rewritten_query': rewritten_query
         }
-        self.query_cache.set(novel_id, query, model, cache_data)
+        self.query_cache.set(
+            novel_id, query, model, cache_data,
+            enable_query_rewrite, enable_query_decomposition
+        )
         
         return answer, citations, stats, rewritten_query
     
@@ -1319,6 +1408,316 @@ class RAGEngine:
                         break
         
         return filtered
+    
+    def _query_with_decomposition(
+        self,
+        db: Session,
+        novel_id: int,
+        original_query: str,
+        sub_queries: List[str],
+        model: str,
+        query_id: Optional[int],
+        recency_bias_weight: float,
+        rewritten_query: Optional[str] = None,
+        enable_query_rewrite: bool = True,
+        enable_query_decomposition: bool = True
+    ) -> Tuple[str, List[Citation], Dict, Optional[str]]:
+        """
+        使用查询分解的检索流程
+        
+        流程：
+        1. 并行检索所有子查询
+        2. 合并去重所有chunk结果
+        3. Rerank合并后的结果
+        4. 使用原始查询构建统一的Prompt
+        5. 一次性生成完整答案
+        
+        Args:
+            db: 数据库会话
+            novel_id: 小说ID
+            original_query: 原始查询
+            sub_queries: 子查询列表
+            model: 使用的模型
+            query_id: 查询ID
+            recency_bias_weight: 时间衰减权重
+            rewritten_query: 改写后的查询
+        
+        Returns:
+            Tuple[str, List[Citation], Dict, Optional[str]]: (答案, 引用列表, 统计信息, 改写后的查询)
+        """
+        logger.info(f"🔨 开始查询分解检索流程: {len(sub_queries)}个子查询")
+        
+        # 1. 并行检索所有子查询
+        all_chunks = []
+        sub_query_stats = []
+        
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        with ThreadPoolExecutor(max_workers=min(len(sub_queries), 5)) as executor:
+            # 提交所有子查询任务
+            future_to_subquery = {}
+            for idx, sub_q in enumerate(sub_queries):
+                future = executor.submit(
+                    self._retrieve_single_subquery,
+                    db, novel_id, sub_q, query_id, recency_bias_weight, idx
+                )
+                future_to_subquery[future] = sub_q
+            
+            # 收集结果
+            for future in as_completed(future_to_subquery):
+                sub_q = future_to_subquery[future]
+                try:
+                    sub_chunks, sub_stats = future.result()
+                    all_chunks.extend(sub_chunks)
+                    sub_query_stats.append({
+                        'sub_query': sub_q,
+                        'chunks_count': len(sub_chunks),
+                        **sub_stats
+                    })
+                    logger.info(f"  ✅ 子查询完成: \"{sub_q}\" -> {len(sub_chunks)}个chunks")
+                except Exception as e:
+                    logger.warning(f"  ⚠️ 子查询失败: \"{sub_q}\" - {e}")
+        
+        logger.info(f"📊 总共检索到 {len(all_chunks)} 个chunks（合并前）")
+        
+        # 2. 合并去重
+        unique_chunks = self._deduplicate_chunks(all_chunks)
+        logger.info(f"🔄 去重后剩余 {len(unique_chunks)} 个chunks")
+        
+        # 如果没有任何结果，返回空
+        if not unique_chunks:
+            logger.warning("⚠️ 所有子查询均未找到相关内容")
+            return "抱歉，在小说中未找到相关内容。", [], {
+                'decomposed': True,
+                'sub_queries_count': len(sub_queries),
+                'sub_queries': sub_queries,
+                'total_chunks_before_dedup': len(all_chunks),
+                'unique_chunks': 0,
+                'final_chunks': 0
+            }, rewritten_query
+        
+        # 3. 对合并结果进行全局Rerank（基于原始查询）
+        final_reranked = self._rerank_unified(
+            original_query, unique_chunks,
+            novel_id=novel_id,
+            db=db,
+            query_id=query_id,
+            recency_bias_weight=recency_bias_weight,
+            top_k=self.top_k_rerank
+        )
+        
+        logger.info(f"🎯 全局Rerank完成: {len(final_reranked)} 个chunks")
+        
+        # 4. 构建Prompt（使用原始查询）
+        prompt = self.prompt_builder.build_prompt(
+            db, novel_id, original_query, final_reranked,
+            query_id=query_id
+        )
+        
+        # 5. 生成答案
+        answer = self.generate_answer(prompt, model, stream=False)
+        
+        # 6. 构建引用和统计
+        citations = []
+        max_citations = min(10, len(final_reranked))
+        
+        for chunk in final_reranked[:max_citations]:
+            metadata = chunk['metadata']
+            chapter_num = metadata.get('chapter_num')
+            
+            citations.append(Citation(
+                chapter_num=chapter_num,
+                chapter_title=metadata.get('chapter_title'),
+                text=chunk['content'][:200] + "...",
+                score=chunk.get('score')
+            ))
+        
+        # 统计信息
+        stats = {
+            'decomposed': True,
+            'sub_queries_count': len(sub_queries),
+            'sub_queries': sub_queries,
+            'sub_query_stats': sub_query_stats,
+            'total_chunks_before_dedup': len(all_chunks),
+            'unique_chunks': len(unique_chunks),
+            'final_chunks': len(final_reranked),
+            'citations': len(citations),
+            'query_rewrite_applied': rewritten_query is not None
+        }
+        
+        logger.info(f"✅ 查询分解流程完成: {len(citations)} 条引用")
+        
+        # 保存结果到缓存
+        cache_data = {
+            'answer': answer,
+            'citations': citations,
+            'stats': stats,
+            'rewritten_query': rewritten_query
+        }
+        self.query_cache.set(
+            novel_id, original_query, model, cache_data,
+            enable_query_rewrite, enable_query_decomposition
+        )
+        
+        return answer, citations, stats, rewritten_query
+    
+    def _retrieve_single_subquery(
+        self,
+        db: Session,
+        novel_id: int,
+        sub_query: str,
+        query_id: Optional[int],
+        recency_bias_weight: float,
+        sub_idx: int
+    ) -> Tuple[List[Dict], Dict]:
+        """
+        检索单个子查询
+        
+        Returns:
+            Tuple[List[Dict], Dict]: (chunks列表, 统计信息)
+        """
+        # 向量化子查询
+        sub_embedding = self.query_embedding(sub_query, query_id=query_id)
+        
+        # 执行检索
+        sub_vector_results = self.vector_search(novel_id, sub_embedding, query_id=query_id)
+        sub_keyword_results = self.keyword_search(db, novel_id, sub_query)
+        
+        # Rerank子查询结果（每个子查询取Top20）
+        sub_reranked = self.rerank(
+            sub_query, 
+            sub_vector_results, 
+            sub_keyword_results,
+            novel_id=novel_id,
+            db=db,
+            query_id=query_id,
+            recency_bias_weight=recency_bias_weight,
+            top_k=20  # 每个子查询取Top20
+        )
+        
+        stats = {
+            'vector_count': len(sub_vector_results.get('ids', [[]])[0]),
+            'keyword_count': len(sub_keyword_results) if sub_keyword_results else 0,
+            'reranked_count': len(sub_reranked)
+        }
+        
+        return sub_reranked, stats
+    
+    def _deduplicate_chunks(self, chunks: List[Dict]) -> List[Dict]:
+        """
+        对chunks进行去重
+        
+        去重策略：
+        1. 相同章节 + 相同内容的chunk只保留一个
+        2. 保留分数最高的那个
+        3. 保持相对顺序
+        """
+        seen_keys = {}  # key -> chunk
+        
+        for chunk in chunks:
+            # 构建唯一键：章节号 + 内容前100字符
+            chapter_num = chunk.get('metadata', {}).get('chapter_num', 0)
+            content_prefix = chunk.get('content', '')[:100]
+            key = f"{chapter_num}_{content_prefix}"
+            
+            # 如果未见过，或者当前chunk分数更高，则保留
+            if key not in seen_keys:
+                seen_keys[key] = chunk
+            else:
+                # 比较分数，保留分数更高的
+                current_score = seen_keys[key].get('score', 0)
+                new_score = chunk.get('score', 0)
+                if new_score > current_score:
+                    seen_keys[key] = chunk
+        
+        # 返回去重后的chunks
+        return list(seen_keys.values())
+    
+    def _rerank_unified(
+        self,
+        query: str,
+        chunks: List[Dict],
+        novel_id: int,
+        db: Session,
+        query_id: Optional[int],
+        recency_bias_weight: float,
+        top_k: int
+    ) -> List[Dict]:
+        """
+        对合并后的chunks进行全局rerank（基于原始查询）
+        
+        与普通rerank的区别：
+        - 输入是已经rerank过的chunks列表（不是vector_results）
+        - 需要重新计算基于原始查询的相关性
+        """
+        logger.info(f"🔄 开始全局Rerank: {len(chunks)} -> Top {top_k}")
+        
+        # 提取查询中的关键实体
+        query_entities = self._extract_entities(query)
+        if query_entities:
+            query_entities = self._resolve_entity_aliases(query_entities, novel_id, db)
+            logger.info(f"🎯 全局查询实体: {query_entities}")
+        
+        # 获取图谱（用于章节重要性计算）
+        graph = None
+        chapter_importance_map = {}
+        total_chapters = 0
+        
+        try:
+            novel = db.query(Novel).filter(Novel.id == novel_id).first()
+            if novel:
+                total_chapters = novel.total_chapters
+            
+            graph = self.graph_builder.load_graph(novel_id)
+            if graph:
+                chapters = set()
+                for node in graph.nodes():
+                    first_chapter = graph.nodes[node].get('first_chapter')
+                    if first_chapter:
+                        chapters.add(first_chapter)
+                
+                for chapter in chapters:
+                    importance = self.graph_analyzer.compute_chapter_importance(graph, chapter)
+                    chapter_importance_map[chapter] = importance
+        except Exception as e:
+            logger.debug(f"全局rerank加载图谱失败: {e}")
+        
+        # 重新计算每个chunk的分数
+        reranked_chunks = []
+        for chunk in chunks:
+            content = chunk.get('content', '')
+            metadata = chunk.get('metadata', {})
+            chapter_num = metadata.get('chapter_num')
+            
+            # 实体匹配分数
+            entity_match_score = self._calculate_entity_match_score(content, query_entities)
+            
+            # 章节重要性
+            chapter_importance = chapter_importance_map.get(chapter_num, 0.5)
+            
+            # 使用原有分数作为基础，结合实体匹配重新计算
+            base_score = chunk.get('score', 0.5)
+            
+            # 时间衰减
+            recency_bias = self._calculate_recency_bias(
+                chapter_num, total_chapters, recency_bias_weight
+            )
+            
+            # 计算最终分数（简化版，主要考虑实体匹配和原有分数）
+            final_score = base_score * entity_match_score * recency_bias * (0.5 + chapter_importance)
+            
+            reranked_chunks.append({
+                **chunk,
+                'score': final_score,
+                'original_score': base_score,
+                'entity_match_score': entity_match_score
+            })
+        
+        # 排序
+        reranked_chunks.sort(key=lambda x: -x['score'])
+        
+        # 返回Top-K
+        return reranked_chunks[:top_k]
 
 
 # 全局RAG引擎实例
